@@ -47,9 +47,13 @@ function PassengerHome() {
                     From KSh {r.base_fare ?? "—"}
                   </div>
                 </div>
-                <button className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+                <Link
+                  to="/ride/$routeId"
+                  params={{ routeId: r.id }}
+                  className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary"
+                >
                   <Bus className="size-4" /> See matatus
-                </button>
+                </Link>
               </div>
             ))}
           </div>
