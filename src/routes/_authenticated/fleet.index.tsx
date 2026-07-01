@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Bus, Users, Map, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -101,15 +101,20 @@ function SaccoHome() {
           ) : (
             <ul className="mt-4 grid gap-3">
               {saccos.map((s) => (
-                <li key={s.id} className="flex items-center justify-between rounded-xl border border-border bg-background p-4">
-                  <div>
-                    <div className="font-display text-lg font-semibold">{s.name}</div>
-                    <div className="text-xs text-muted-foreground">Reg: {s.registration_number ?? "—"}</div>
-                  </div>
-                  <div className="flex gap-2 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1"><Bus className="size-3" /> 0 vehicles</span>
-                    <span className="inline-flex items-center gap-1"><Users className="size-3" /> 0 drivers</span>
-                  </div>
+                <li key={s.id}>
+                  <Link
+                    to="/fleet/$saccoId"
+                    params={{ saccoId: s.id }}
+                    className="flex items-center justify-between rounded-xl border border-border bg-background p-4 hover:border-primary"
+                  >
+                    <div>
+                      <div className="font-display text-lg font-semibold">{s.name}</div>
+                      <div className="text-xs text-muted-foreground">Reg: {s.registration_number ?? "—"}</div>
+                    </div>
+                    <div className="flex gap-2 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1"><Bus className="size-3" /> Manage fleet →</span>
+                    </div>
+                  </Link>
                 </li>
               ))}
             </ul>

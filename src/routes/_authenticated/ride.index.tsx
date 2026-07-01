@@ -1,22 +1,22 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { MapPin, Bus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 
-type Route = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
+type RouteRow = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
 
 export const Route = createFileRoute("/_authenticated/ride/")({
   component: PassengerHome,
 });
 
 function PassengerHome() {
-  const [routes, setRoutes] = useState<Route[]>([]);
+  const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.from("routes").select("id,name,origin,destination,base_fare").order("name").then(({ data }) => {
-      setRoutes((data ?? []) as Route[]);
+      setRoutes((data ?? []) as RouteRow[]);
       setLoading(false);
     });
   }, []);
@@ -47,9 +47,13 @@ function PassengerHome() {
                     From KSh {r.base_fare ?? "—"}
                   </div>
                 </div>
-                <button className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+                <Link
+                  to="/ride/$routeId"
+                  params={{ routeId: r.id }}
+                  className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary"
+                >
                   <Bus className="size-4" /> See matatus
-                </button>
+                </Link>
               </div>
             ))}
           </div>

@@ -15,6 +15,9 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRideIndexRouteImport } from './routes/_authenticated/ride.index'
 import { Route as AuthenticatedFleetIndexRouteImport } from './routes/_authenticated/fleet.index'
 import { Route as AuthenticatedDriveIndexRouteImport } from './routes/_authenticated/drive.index'
+import { Route as AuthenticatedRideRouteIdRouteImport } from './routes/_authenticated/ride.$routeId'
+import { Route as AuthenticatedFleetSaccoIdRouteImport } from './routes/_authenticated/fleet.$saccoId'
+import { Route as AuthenticatedDriveTripRouteImport } from './routes/_authenticated/drive.trip'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -45,10 +48,30 @@ const AuthenticatedDriveIndexRoute = AuthenticatedDriveIndexRouteImport.update({
   path: '/drive/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedRideRouteIdRoute =
+  AuthenticatedRideRouteIdRouteImport.update({
+    id: '/ride/$routeId',
+    path: '/ride/$routeId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedFleetSaccoIdRoute =
+  AuthenticatedFleetSaccoIdRouteImport.update({
+    id: '/fleet/$saccoId',
+    path: '/fleet/$saccoId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedDriveTripRoute = AuthenticatedDriveTripRouteImport.update({
+  id: '/drive/trip',
+  path: '/drive/trip',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/drive/trip': typeof AuthenticatedDriveTripRoute
+  '/fleet/$saccoId': typeof AuthenticatedFleetSaccoIdRoute
+  '/ride/$routeId': typeof AuthenticatedRideRouteIdRoute
   '/drive/': typeof AuthenticatedDriveIndexRoute
   '/fleet/': typeof AuthenticatedFleetIndexRoute
   '/ride/': typeof AuthenticatedRideIndexRoute
@@ -56,6 +79,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/drive/trip': typeof AuthenticatedDriveTripRoute
+  '/fleet/$saccoId': typeof AuthenticatedFleetSaccoIdRoute
+  '/ride/$routeId': typeof AuthenticatedRideRouteIdRoute
   '/drive': typeof AuthenticatedDriveIndexRoute
   '/fleet': typeof AuthenticatedFleetIndexRoute
   '/ride': typeof AuthenticatedRideIndexRoute
@@ -65,20 +91,42 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/drive/trip': typeof AuthenticatedDriveTripRoute
+  '/_authenticated/fleet/$saccoId': typeof AuthenticatedFleetSaccoIdRoute
+  '/_authenticated/ride/$routeId': typeof AuthenticatedRideRouteIdRoute
   '/_authenticated/drive/': typeof AuthenticatedDriveIndexRoute
   '/_authenticated/fleet/': typeof AuthenticatedFleetIndexRoute
   '/_authenticated/ride/': typeof AuthenticatedRideIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/drive/' | '/fleet/' | '/ride/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/drive/trip'
+    | '/fleet/$saccoId'
+    | '/ride/$routeId'
+    | '/drive/'
+    | '/fleet/'
+    | '/ride/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/drive' | '/fleet' | '/ride'
+  to:
+    | '/'
+    | '/auth'
+    | '/drive/trip'
+    | '/fleet/$saccoId'
+    | '/ride/$routeId'
+    | '/drive'
+    | '/fleet'
+    | '/ride'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/_authenticated/drive/trip'
+    | '/_authenticated/fleet/$saccoId'
+    | '/_authenticated/ride/$routeId'
     | '/_authenticated/drive/'
     | '/_authenticated/fleet/'
     | '/_authenticated/ride/'
@@ -134,16 +182,43 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDriveIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/ride/$routeId': {
+      id: '/_authenticated/ride/$routeId'
+      path: '/ride/$routeId'
+      fullPath: '/ride/$routeId'
+      preLoaderRoute: typeof AuthenticatedRideRouteIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/fleet/$saccoId': {
+      id: '/_authenticated/fleet/$saccoId'
+      path: '/fleet/$saccoId'
+      fullPath: '/fleet/$saccoId'
+      preLoaderRoute: typeof AuthenticatedFleetSaccoIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/drive/trip': {
+      id: '/_authenticated/drive/trip'
+      path: '/drive/trip'
+      fullPath: '/drive/trip'
+      preLoaderRoute: typeof AuthenticatedDriveTripRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedDriveTripRoute: typeof AuthenticatedDriveTripRoute
+  AuthenticatedFleetSaccoIdRoute: typeof AuthenticatedFleetSaccoIdRoute
+  AuthenticatedRideRouteIdRoute: typeof AuthenticatedRideRouteIdRoute
   AuthenticatedDriveIndexRoute: typeof AuthenticatedDriveIndexRoute
   AuthenticatedFleetIndexRoute: typeof AuthenticatedFleetIndexRoute
   AuthenticatedRideIndexRoute: typeof AuthenticatedRideIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedDriveTripRoute: AuthenticatedDriveTripRoute,
+  AuthenticatedFleetSaccoIdRoute: AuthenticatedFleetSaccoIdRoute,
+  AuthenticatedRideRouteIdRoute: AuthenticatedRideRouteIdRoute,
   AuthenticatedDriveIndexRoute: AuthenticatedDriveIndexRoute,
   AuthenticatedFleetIndexRoute: AuthenticatedFleetIndexRoute,
   AuthenticatedRideIndexRoute: AuthenticatedRideIndexRoute,

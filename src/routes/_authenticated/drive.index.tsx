@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Wallet, MapPin, Users, Play } from "lucide-react";
 import { AppShell } from "@/components/matu/AppShell";
 
@@ -19,9 +19,15 @@ function DriverHome() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <Tile icon={<Play className="size-5" />} title="Start trip" desc="Pick your vehicle & route, set fare, hit go." />
-          <Tile icon={<Wallet className="size-5" />} title="Today's fare" desc="Agree with the conductor — adaptive pricing." />
-          <Tile icon={<MapPin className="size-5" />} title="Add a stage" desc="Tap the map to mark a new stage on your route." />
+          <Link to="/drive/trip">
+            <Tile icon={<Play className="size-5" />} title="Start trip" desc="Pick your vehicle & route, set fare, hit go." />
+          </Link>
+          <Link to="/drive/trip">
+            <Tile icon={<Wallet className="size-5" />} title="Today's fare" desc="Agree with the conductor — adaptive pricing." />
+          </Link>
+          <Link to="/drive/trip">
+            <Tile icon={<MapPin className="size-5" />} title="Add a stage" desc="Tap the map to mark a new stage on your route." />
+          </Link>
         </div>
 
         <div className="rounded-2xl border border-border bg-surface p-6">
