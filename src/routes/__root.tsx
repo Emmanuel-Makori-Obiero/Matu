@@ -90,6 +90,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "Matu — Smart matatu & bus rides across Kenya" },
       { name: "twitter:description", content: "Find matatus and buses on your route, see live arrivals, book a seat, and get alerts as your stage approaches." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/89f7705c-017f-440d-be35-128d96c0c385/id-preview-eaa5de05--f4c18098-ca98-49e9-bd12-5c36a3374c76.lovable.app-1782891678310.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/89f7705c-017f-440d-be35-128d96c0c385/id-preview-eaa5de05--f4c18098-ca98-49e9-bd12-5c36a3374c76.lovable.app-1782891678310.png" },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),
