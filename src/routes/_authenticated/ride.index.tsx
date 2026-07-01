@@ -11,12 +11,12 @@ export const Route = createFileRoute("/_authenticated/ride/")({
 });
 
 function PassengerHome() {
-  const [routes, setRoutes] = useState<Route[]>([]);
+  const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.from("routes").select("id,name,origin,destination,base_fare").order("name").then(({ data }) => {
-      setRoutes((data ?? []) as Route[]);
+      setRoutes((data ?? []) as RouteRow[]);
       setLoading(false);
     });
   }, []);
