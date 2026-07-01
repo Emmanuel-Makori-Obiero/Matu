@@ -1,10 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { MapPin, Bus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 
-type Route = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
+type RouteRow = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
 
 export const Route = createFileRoute("/_authenticated/ride/")({
   component: PassengerHome,
