@@ -27,7 +27,9 @@ function RouteDetail() {
   const [stages, setStages] = useState<Stage[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
+  const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
+
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
 
