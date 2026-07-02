@@ -460,6 +460,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_role: {
+        Args: { _role: Database["public"]["Enums"]["app_role"] }
+        Returns: undefined
+      }
       get_my_sacco_contact_phone: {
         Args: { _sacco_id: string }
         Returns: string
