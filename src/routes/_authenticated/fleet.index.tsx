@@ -34,8 +34,8 @@ function SaccoHome() {
     e.preventDefault();
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
-    // Ensure user has sacco_admin role (RLS requires it)
-    await supabase.from("user_roles").insert({ user_id: u.user.id, role: "sacco_admin" }).then(() => {});
+    // Ensure user has sacco_admin role (RLS requires it) — via secure RPC.
+    await supabase.rpc("claim_role", { _role: "sacco_admin" });
     const { error } = await supabase.from("saccos").insert({
       name: name.trim(),
       registration_number: reg.trim() || null,

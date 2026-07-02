@@ -58,6 +58,8 @@ function AuthPage() {
         if (error) throw error;
         toast.success("Welcome to Matu!");
         if (data.session?.user) {
+          // Guarantee chosen role is assigned even if the DB trigger missed it.
+          await supabase.rpc("claim_role", { _role: role });
           const home = await homePathForUser(data.session.user.id);
           navigate({ to: home, replace: true });
         }
