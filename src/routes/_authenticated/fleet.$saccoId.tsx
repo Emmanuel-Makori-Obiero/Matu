@@ -74,8 +74,7 @@ function FleetDetail() {
       .eq("phone", driverEmail.trim())
       .maybeSingle();
     if (!prof) return toast.error("No user found with that phone. Ask the driver to sign up first.");
-    // Ensure driver role
-    await supabase.from("user_roles").insert({ user_id: prof.id, role: "driver" });
+    // Note: driver role must be self-claimed by the driver on sign-up.
     const { error } = await supabase.from("vehicles").update({ driver_id: prof.id }).eq("id", vehicleId);
     if (error) return toast.error(error.message);
     toast.success(`Assigned ${prof.full_name ?? "driver"}`);
