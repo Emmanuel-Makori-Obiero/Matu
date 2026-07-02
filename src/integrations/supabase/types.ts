@@ -460,9 +460,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_my_sacco_contact_phone: {
+        Args: { _sacco_id: string }
+        Returns: string
+      }
       get_primary_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      get_trip_location: {
+        Args: { _trip_id: string }
+        Returns: {
+          current_lat: number
+          current_lng: number
+        }[]
       }
       has_role: {
         Args: {
