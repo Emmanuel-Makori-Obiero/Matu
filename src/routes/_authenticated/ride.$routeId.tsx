@@ -12,9 +12,9 @@ type Trip = {
   fare: number;
   status: string;
   vehicle_id: string;
-  current_lat: number | null;
-  current_lng: number | null;
 };
+type TripLoc = { lat: number; lng: number };
+
 type Vehicle = { id: string; plate_number: string; capacity: number; nickname: string | null };
 
 export const Route = createFileRoute("/_authenticated/ride/$routeId")({
@@ -27,7 +27,9 @@ function RouteDetail() {
   const [stages, setStages] = useState<Stage[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
+  const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
+
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
 
@@ -45,7 +47,7 @@ function RouteDetail() {
   async function loadTrips() {
     const { data } = await supabase
       .from("trips")
-      .select("id,fare,status,vehicle_id,current_lat,current_lng")
+      .select("id,fare,status,vehicle_id")
       .eq("route_id", routeId)
       .in("status", ["boarding", "in_transit"]);
     const t = (data ?? []) as Trip[];
@@ -75,19 +77,50 @@ function RouteDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeId]);
 
+  // Fetch live locations for trips the user is authorized to see (via RPC)
+  useEffect(() => {
+    if (trips.length === 0) return;
+    let cancelled = false;
+    const fetchAll = async () => {
+      const entries = await Promise.all(
+        trips.map(async (t) => {
+          const { data } = await supabase.rpc("get_trip_location", { _trip_id: t.id });
+          const row = Array.isArray(data) ? data[0] : null;
+          if (row?.current_lat != null && row?.current_lng != null) {
+            return [t.id, { lat: row.current_lat, lng: row.current_lng }] as const;
+          }
+          return null;
+        }),
+      );
+      if (cancelled) return;
+      const next: Record<string, TripLoc> = {};
+      entries.forEach((e) => {
+        if (e) next[e[0]] = e[1];
+      });
+      setTripLocs(next);
+    };
+    fetchAll();
+    const iv = setInterval(fetchAll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [trips]);
+
   const mapStages: MapStage[] = stages;
   const mapVehicles: MapVehicle[] = useMemo(
     () =>
       trips
-        .filter((t) => t.current_lat != null && t.current_lng != null)
+        .filter((t) => tripLocs[t.id])
         .map((t) => ({
           id: t.id,
-          lat: t.current_lat!,
-          lng: t.current_lng!,
+          lat: tripLocs[t.id].lat,
+          lng: tripLocs[t.id].lng,
           label: vehicles[t.vehicle_id]?.plate_number ?? "Matatu",
         })),
-    [trips, vehicles],
+    [trips, vehicles, tripLocs],
   );
+
 
   async function bookSeat(tripId: string) {
     const { data: u } = await supabase.auth.getUser();
