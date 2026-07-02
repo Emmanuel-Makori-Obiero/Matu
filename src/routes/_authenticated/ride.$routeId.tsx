@@ -47,7 +47,7 @@ function RouteDetail() {
   async function loadTrips() {
     const { data } = await supabase
       .from("trips")
-      .select("id,fare,status,vehicle_id,current_lat,current_lng")
+      .select("id,fare,status,vehicle_id")
       .eq("route_id", routeId)
       .in("status", ["boarding", "in_transit"]);
     const t = (data ?? []) as Trip[];
