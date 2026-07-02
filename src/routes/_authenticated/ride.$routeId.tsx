@@ -12,9 +12,9 @@ type Trip = {
   fare: number;
   status: string;
   vehicle_id: string;
-  current_lat: number | null;
-  current_lng: number | null;
 };
+type TripLoc = { lat: number; lng: number };
+
 type Vehicle = { id: string; plate_number: string; capacity: number; nickname: string | null };
 
 export const Route = createFileRoute("/_authenticated/ride/$routeId")({
