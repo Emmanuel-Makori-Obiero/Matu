@@ -216,6 +216,32 @@ function FleetDetail() {
           </ul>
         )}
       </section>
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <h2 className="font-display text-xl font-semibold">Live trips ({liveTrips.length})</h2>
+        {liveTrips.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No active trips right now.</p>
+        ) : (
+          <ul className="mt-3 grid gap-3">
+            {liveTrips.map((t) => (
+              <li key={t.id} className="rounded-xl border border-border bg-background p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-display text-lg font-semibold">{t.vehicles?.plate_number ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground">{t.routes?.name ?? "—"} · {t.status}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => adjustFare(t.id, Math.max(10, t.fare - 10))} className="rounded-md border border-border px-2 py-1 text-sm">−10</button>
+                    <div className="font-display text-xl font-bold">KSh {t.fare}</div>
+                    <button onClick={() => adjustFare(t.id, t.fare + 10)} className="rounded-md border border-border px-2 py-1 text-sm">+10</button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </AppShell>
+
   );
 }
