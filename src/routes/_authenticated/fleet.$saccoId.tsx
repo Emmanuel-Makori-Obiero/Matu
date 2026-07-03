@@ -41,9 +41,46 @@ function FleetDetail() {
   const [nickname, setNickname] = useState("");
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [driverEmail, setDriverEmail] = useState("");
+  const [liveTrips, setLiveTrips] = useState<LiveTrip[]>([]);
+
+  async function loadLive(vehicleIds: string[]) {
+    if (vehicleIds.length === 0) return setLiveTrips([]);
+    const { data } = await supabase
+      .from("trips")
+      .select("id,fare,status,vehicle_id,route_id,vehicles(plate_number),routes(name)")
+      .in("vehicle_id", vehicleIds)
+      .in("status", ["boarding", "in_transit"]);
+    setLiveTrips((data ?? []) as unknown as LiveTrip[]);
+  }
 
   async function load() {
     const [{ data: s }, { data: v }] = await Promise.all([
+      supabase.from("saccos").select("id,name").eq("id", saccoId).maybeSingle(),
+      supabase
+        .from("vehicles")
+        .select("id,plate_number,capacity,nickname,vehicle_type,driver_id")
+        .eq("sacco_id", saccoId)
+        .order("plate_number"),
+    ]);
+    if (s) setSacco(s as Sacco);
+    const vs = (v ?? []) as Vehicle[];
+    setVehicles(vs);
+    await loadLive(vs.map((x) => x.id));
+  }
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saccoId]);
+
+  async function adjustFare(tripId: string, next: number) {
+    const { error } = await supabase.from("trips").update({ fare: next }).eq("id", tripId);
+    if (error) return toast.error(error.message);
+    setLiveTrips((prev) => prev.map((t) => (t.id === tripId ? { ...t, fare: next } : t)));
+    toast.success(`Fare set to KSh ${next}`);
+  }
+
       supabase.from("saccos").select("id,name").eq("id", saccoId).maybeSingle(),
       supabase
         .from("vehicles")
