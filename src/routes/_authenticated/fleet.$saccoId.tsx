@@ -81,21 +81,6 @@ function FleetDetail() {
     toast.success(`Fare set to KSh ${next}`);
   }
 
-      supabase.from("saccos").select("id,name").eq("id", saccoId).maybeSingle(),
-      supabase
-        .from("vehicles")
-        .select("id,plate_number,capacity,nickname,vehicle_type,driver_id")
-        .eq("sacco_id", saccoId)
-        .order("plate_number"),
-    ]);
-    if (s) setSacco(s as Sacco);
-    setVehicles((v ?? []) as Vehicle[]);
-  }
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saccoId]);
-
   async function addVehicle(e: React.FormEvent) {
     e.preventDefault();
     const { error } = await supabase.from("vehicles").insert({
