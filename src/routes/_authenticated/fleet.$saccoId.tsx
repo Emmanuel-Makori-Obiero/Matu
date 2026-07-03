@@ -14,6 +14,17 @@ type Vehicle = {
   driver_id: string | null;
 };
 type Sacco = { id: string; name: string };
+type LiveTrip = {
+  id: string;
+  fare: number;
+  status: string;
+  vehicle_id: string;
+  route_id: string;
+  vehicles: { plate_number: string } | null;
+  routes: { name: string } | null;
+};
+
+
 
 export const Route = createFileRoute("/_authenticated/fleet/$saccoId")({
   component: FleetDetail,
@@ -30,6 +41,17 @@ function FleetDetail() {
   const [nickname, setNickname] = useState("");
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [driverEmail, setDriverEmail] = useState("");
+  const [liveTrips, setLiveTrips] = useState<LiveTrip[]>([]);
+
+  async function loadLive(vehicleIds: string[]) {
+    if (vehicleIds.length === 0) return setLiveTrips([]);
+    const { data } = await supabase
+      .from("trips")
+      .select("id,fare,status,vehicle_id,route_id,vehicles(plate_number),routes(name)")
+      .in("vehicle_id", vehicleIds)
+      .in("status", ["boarding", "in_transit"]);
+    setLiveTrips((data ?? []) as unknown as LiveTrip[]);
+  }
 
   async function load() {
     const [{ data: s }, { data: v }] = await Promise.all([
@@ -41,12 +63,23 @@ function FleetDetail() {
         .order("plate_number"),
     ]);
     if (s) setSacco(s as Sacco);
-    setVehicles((v ?? []) as Vehicle[]);
+    const vs = (v ?? []) as Vehicle[];
+    setVehicles(vs);
+    await loadLive(vs.map((x) => x.id));
   }
   useEffect(() => {
     load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saccoId]);
+
+  async function adjustFare(tripId: string, next: number) {
+    const { error } = await supabase.from("trips").update({ fare: next }).eq("id", tripId);
+    if (error) return toast.error(error.message);
+    setLiveTrips((prev) => prev.map((t) => (t.id === tripId ? { ...t, fare: next } : t)));
+    toast.success(`Fare set to KSh ${next}`);
+  }
 
   async function addVehicle(e: React.FormEvent) {
     e.preventDefault();
@@ -183,6 +216,32 @@ function FleetDetail() {
           </ul>
         )}
       </section>
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <h2 className="font-display text-xl font-semibold">Live trips ({liveTrips.length})</h2>
+        {liveTrips.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No active trips right now.</p>
+        ) : (
+          <ul className="mt-3 grid gap-3">
+            {liveTrips.map((t) => (
+              <li key={t.id} className="rounded-xl border border-border bg-background p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-display text-lg font-semibold">{t.vehicles?.plate_number ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground">{t.routes?.name ?? "—"} · {t.status}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => adjustFare(t.id, Math.max(10, t.fare - 10))} className="rounded-md border border-border px-2 py-1 text-sm">−10</button>
+                    <div className="font-display text-xl font-bold">KSh {t.fare}</div>
+                    <button onClick={() => adjustFare(t.id, t.fare + 10)} className="rounded-md border border-border px-2 py-1 text-sm">+10</button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </AppShell>
+
   );
 }
