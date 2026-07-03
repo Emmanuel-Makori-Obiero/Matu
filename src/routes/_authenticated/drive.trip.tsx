@@ -194,7 +194,16 @@ function DriverTrip() {
             )}
           </label>
           <label className="text-sm">
-            <span className="mb-1 block font-medium">Route</span>
+            <span className="mb-1 flex items-center justify-between font-medium">
+              <span>Route</span>
+              <NewRouteButton
+                onCreated={(r) => {
+                  setRoutes((prev) => [...prev, r].sort((a, b) => a.name.localeCompare(b.name)));
+                  setRouteId(r.id);
+                  if (r.base_fare) setFare(String(r.base_fare));
+                }}
+              />
+            </span>
             <select value={routeId} onChange={(e) => setRouteId(e.target.value)} required className="w-full rounded-md border border-input bg-background px-3 py-2">
               <option value="">— select —</option>
               {routes.map((r) => (
