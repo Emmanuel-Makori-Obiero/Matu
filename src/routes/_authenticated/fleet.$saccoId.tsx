@@ -14,6 +14,17 @@ type Vehicle = {
   driver_id: string | null;
 };
 type Sacco = { id: string; name: string };
+type LiveTrip = {
+  id: string;
+  fare: number;
+  status: string;
+  vehicle_id: string;
+  route_id: string;
+  vehicles: { plate_number: string } | null;
+  routes: { name: string } | null;
+};
+
+
 
 export const Route = createFileRoute("/_authenticated/fleet/$saccoId")({
   component: FleetDetail,
