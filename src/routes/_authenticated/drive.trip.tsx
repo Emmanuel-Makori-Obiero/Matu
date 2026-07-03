@@ -194,7 +194,16 @@ function DriverTrip() {
             )}
           </label>
           <label className="text-sm">
-            <span className="mb-1 block font-medium">Route</span>
+            <span className="mb-1 flex items-center justify-between font-medium">
+              <span>Route</span>
+              <NewRouteButton
+                onCreated={(r) => {
+                  setRoutes((prev) => [...prev, r].sort((a, b) => a.name.localeCompare(b.name)));
+                  setRouteId(r.id);
+                  if (r.base_fare) setFare(String(r.base_fare));
+                }}
+              />
+            </span>
             <select value={routeId} onChange={(e) => setRouteId(e.target.value)} required className="w-full rounded-md border border-input bg-background px-3 py-2">
               <option value="">— select —</option>
               {routes.map((r) => (
@@ -330,3 +339,61 @@ function DriverTrip() {
     </AppShell>
   );
 }
+
+function NewRouteButton({ onCreated }: { onCreated: (r: RouteRow) => void }) {
+  const [open, setOpen] = useState(false);
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [baseFare, setBaseFare] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function create() {
+    if (!origin.trim() || !destination.trim()) return toast.error("Enter origin and destination");
+    setBusy(true);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) { setBusy(false); return; }
+    await supabase.rpc("claim_role", { _role: "driver" });
+    const name = `${origin.trim()} → ${destination.trim()}`;
+    const { data, error } = await supabase
+      .from("routes")
+      .insert({
+        name,
+        origin: origin.trim(),
+        destination: destination.trim(),
+        base_fare: baseFare ? Number(baseFare) : null,
+        created_by: u.user.id,
+      })
+      .select("id,name,base_fare")
+      .single();
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Route created");
+    onCreated(data as RouteRow);
+    setOrigin(""); setDestination(""); setBaseFare(""); setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-normal">
+        <Plus className="size-3" /> New route
+      </button>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      <input value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="From (e.g. Utawala)"
+        className="w-32 rounded-md border border-input bg-background px-2 py-1 text-xs" />
+      <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="To (e.g. CBD)"
+        className="w-32 rounded-md border border-input bg-background px-2 py-1 text-xs" />
+      <input value={baseFare} onChange={(e) => setBaseFare(e.target.value)} placeholder="Fare"
+        type="number" className="w-14 rounded-md border border-input bg-background px-2 py-1 text-xs" />
+      <button type="button" disabled={busy} onClick={create}
+        className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60">
+        Save
+      </button>
+      <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted-foreground">✕</button>
+    </span>
+  );
+}
+
+
