@@ -339,3 +339,51 @@ function DriverTrip() {
     </AppShell>
   );
 }
+
+function NewRouteButton({ onCreated }: { onCreated: (r: RouteRow) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [baseFare, setBaseFare] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function create() {
+    if (!name.trim()) return toast.error("Give the route a name");
+    setBusy(true);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) { setBusy(false); return; }
+    // make sure caller has driver role so RLS accepts the insert
+    await supabase.rpc("claim_role", { _role: "driver" });
+    const { data, error } = await supabase
+      .from("routes")
+      .insert({ name: name.trim(), base_fare: baseFare ? Number(baseFare) : null, created_by: u.user.id })
+      .select("id,name,base_fare")
+      .single();
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Route created");
+    onCreated(data as RouteRow);
+    setName(""); setBaseFare(""); setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-normal">
+        <Plus className="size-3" /> New route
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1">
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Utawala → CBD"
+        className="w-40 rounded-md border border-input bg-background px-2 py-1 text-xs" />
+      <input value={baseFare} onChange={(e) => setBaseFare(e.target.value)} placeholder="Fare"
+        type="number" className="w-16 rounded-md border border-input bg-background px-2 py-1 text-xs" />
+      <button type="button" disabled={busy} onClick={create}
+        className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60">
+        Save
+      </button>
+      <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted-foreground">✕</button>
+    </span>
+  );
+}
+
