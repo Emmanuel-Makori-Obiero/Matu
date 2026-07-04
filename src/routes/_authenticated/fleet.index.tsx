@@ -17,6 +17,7 @@ function SaccoHome() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [reg, setReg] = useState("");
+  const [totals, setTotals] = useState({ vehicles: 0, drivers: 0, routes: 0 });
 
   async function load() {
     const { data: u } = await supabase.auth.getUser();
@@ -25,8 +26,21 @@ function SaccoHome() {
       .from("saccos")
       .select("id,name,registration_number")
       .eq("owner_id", u.user.id);
-    setSaccos((data ?? []) as Sacco[]);
+    const list = (data ?? []) as Sacco[];
+    setSaccos(list);
     setLoading(false);
+
+    const ids = list.map((s) => s.id);
+    if (ids.length) {
+      const [{ data: v }, { data: r }] = await Promise.all([
+        supabase.from("vehicles").select("id,driver_id").in("sacco_id", ids),
+        supabase.from("routes").select("id").in("sacco_id", ids),
+      ]);
+      const drivers = new Set((v ?? []).map((x: any) => x.driver_id).filter(Boolean));
+      setTotals({ vehicles: (v ?? []).length, drivers: drivers.size, routes: (r ?? []).length });
+    } else {
+      setTotals({ vehicles: 0, drivers: 0, routes: 0 });
+    }
   }
   useEffect(() => { load(); }, []);
 
@@ -122,10 +136,13 @@ function SaccoHome() {
         </section>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <Card icon={<Bus />} title="Vehicles" value="0" />
-          <Card icon={<Users />} title="Drivers" value="0" />
-          <Card icon={<Map />} title="Routes" value="0" />
+          <Card icon={<Bus />} title="Vehicles" value={String(totals.vehicles)} />
+          <Card icon={<Users />} title="Drivers" value={String(totals.drivers)} />
+          <Card icon={<Map />} title="Routes" value={String(totals.routes)} />
         </div>
+        <p className="text-xs text-muted-foreground">
+          Tip: open a SACCO above to add vehicles and assign drivers (by their sign-up phone number).
+        </p>
       </div>
     </AppShell>
   );
