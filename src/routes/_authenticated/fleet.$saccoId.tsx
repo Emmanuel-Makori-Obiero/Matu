@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Bus, Plus, UserPlus } from "lucide-react";
+import { ArrowLeft, Bus, Map, Plus, Radio, UserPlus, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import { RouteMap, type MapVehicle } from "@/components/matu/RouteMap";
 
 type Vehicle = {
   id: string;
@@ -14,12 +15,16 @@ type Vehicle = {
   driver_id: string | null;
 };
 type Sacco = { id: string; name: string };
+type SaccoRoute = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
+type DriverRow = { driver_id: string | null; full_name: string | null; phone: string | null; vehicle_id: string; plate_number: string; status: string };
 type LiveTrip = {
   id: string;
   fare: number;
   status: string;
   vehicle_id: string;
   route_id: string;
+  current_lat: number | null;
+  current_lng: number | null;
   vehicles: { plate_number: string } | null;
   routes: { name: string } | null;
 };
@@ -42,29 +47,39 @@ function FleetDetail() {
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [driverEmail, setDriverEmail] = useState("");
   const [liveTrips, setLiveTrips] = useState<LiveTrip[]>([]);
+  const [drivers, setDrivers] = useState<DriverRow[]>([]);
+  const [routes, setRoutes] = useState<SaccoRoute[]>([]);
+  const [addingRoute, setAddingRoute] = useState(false);
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [routeFare, setRouteFare] = useState("");
 
   async function loadLive(vehicleIds: string[]) {
     if (vehicleIds.length === 0) return setLiveTrips([]);
     const { data } = await supabase
       .from("trips")
-      .select("id,fare,status,vehicle_id,route_id,vehicles(plate_number),routes(name)")
+      .select("id,fare,status,vehicle_id,route_id,current_lat,current_lng,vehicles(plate_number),routes(name)")
       .in("vehicle_id", vehicleIds)
       .in("status", ["boarding", "in_transit"]);
     setLiveTrips((data ?? []) as unknown as LiveTrip[]);
   }
 
   async function load() {
-    const [{ data: s }, { data: v }] = await Promise.all([
+    const [{ data: s }, { data: v }, { data: d }, { data: r }] = await Promise.all([
       supabase.from("saccos").select("id,name").eq("id", saccoId).maybeSingle(),
       supabase
         .from("vehicles")
         .select("id,plate_number,capacity,nickname,vehicle_type,driver_id")
         .eq("sacco_id", saccoId)
         .order("plate_number"),
+      supabase.rpc("get_my_sacco_drivers", { _sacco_id: saccoId }),
+      supabase.from("routes").select("id,name,origin,destination,base_fare").eq("sacco_id", saccoId).order("name"),
     ]);
     if (s) setSacco(s as Sacco);
     const vs = (v ?? []) as Vehicle[];
     setVehicles(vs);
+    setDrivers((d ?? []) as DriverRow[]);
+    setRoutes((r ?? []) as SaccoRoute[]);
     await loadLive(vs.map((x) => x.id));
   }
   useEffect(() => {
@@ -100,21 +115,44 @@ function FleetDetail() {
   }
 
   async function assignDriver(vehicleId: string) {
-    // Look up profile by phone or by trying user_roles+profile — we accept a phone match.
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("id,phone,full_name")
-      .eq("phone", driverEmail.trim())
-      .maybeSingle();
-    if (!prof) return toast.error("No user found with that phone. Ask the driver to sign up first.");
-    // Note: driver role must be self-claimed by the driver on sign-up.
-    const { error } = await supabase.from("vehicles").update({ driver_id: prof.id }).eq("id", vehicleId);
+    const { data, error } = await supabase.rpc("assign_sacco_driver", { _vehicle_id: vehicleId, _phone: driverEmail.trim() });
     if (error) return toast.error(error.message);
-    toast.success(`Assigned ${prof.full_name ?? "driver"}`);
+    toast.success(`Assigned ${data?.[0]?.full_name ?? "driver"}`);
     setAssignFor(null);
     setDriverEmail("");
     load();
   }
+
+  async function addRoute(e: React.FormEvent) {
+    e.preventDefault();
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    await supabase.rpc("claim_role", { _role: "sacco_admin" });
+    const name = `${origin.trim()} → ${destination.trim()}`;
+    const { error } = await supabase.from("routes").insert({
+      name,
+      origin: origin.trim(),
+      destination: destination.trim(),
+      base_fare: routeFare ? Number(routeFare) : null,
+      sacco_id: saccoId,
+      created_by: u.user.id,
+    });
+    if (error) return toast.error(error.message);
+    toast.success("Route added");
+    setOrigin(""); setDestination(""); setRouteFare(""); setAddingRoute(false);
+    load();
+  }
+
+  async function updateRouteFare(routeId: string, next: number) {
+    const { error } = await supabase.from("routes").update({ base_fare: next }).eq("id", routeId);
+    if (error) return toast.error(error.message);
+    setRoutes((prev) => prev.map((r) => (r.id === routeId ? { ...r, base_fare: next } : r)));
+  }
+
+  const mapVehicles: MapVehicle[] = liveTrips
+    .filter((t) => t.current_lat && t.current_lng)
+    .map((t) => ({ id: t.id, lat: t.current_lat!, lng: t.current_lng!, label: t.vehicles?.plate_number ?? "Matatu" }));
+  const todayRevenue = liveTrips.reduce((sum, t) => sum + Number(t.fare ?? 0), 0);
 
   return (
     <AppShell title={sacco?.name ?? "Fleet"} subtitle="Vehicles, drivers, and assignments.">
@@ -124,7 +162,13 @@ function FleetDetail() {
         </Link>
       </div>
 
-      <section className="rounded-2xl border border-border bg-surface p-5">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Summary icon={<Bus />} label="Vehicles" value={vehicles.length} />
+        <Summary icon={<Radio />} label="Live trips" value={liveTrips.length} />
+        <Summary icon={<Wallet />} label="Live fares" value={`KSh ${todayRevenue}`} />
+      </div>
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-xl font-semibold">Vehicles ({vehicles.length})</h2>
           {!adding && (
@@ -218,6 +262,52 @@ function FleetDetail() {
       </section>
 
       <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <h2 className="font-display text-xl font-semibold">Drivers</h2>
+        {drivers.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">Add a vehicle, then assign a driver by their sign-up phone number.</p>
+        ) : (
+          <ul className="mt-3 grid gap-2">
+            {drivers.map((d) => (
+              <li key={d.vehicle_id} className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-sm">
+                <div>
+                  <div className="font-medium">{d.full_name ?? "Unassigned driver"}</div>
+                  <div className="text-xs text-muted-foreground">{d.plate_number} · {d.phone ?? "no phone"}</div>
+                </div>
+                <span className="rounded-md bg-secondary px-2 py-1 text-xs capitalize">{d.status}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-xl font-semibold">SACCO routes ({routes.length})</h2>
+          {!addingRoute && <button onClick={() => setAddingRoute(true)} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"><Plus className="size-4" /> Add route</button>}
+        </div>
+        {addingRoute && (
+          <form onSubmit={addRoute} className="mt-4 grid gap-3 rounded-xl bg-secondary p-4 sm:grid-cols-4">
+            <input required value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="From: Utawala" className="rounded-md border border-input bg-surface px-3 py-2 text-sm" />
+            <input required value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="To: CBD" className="rounded-md border border-input bg-surface px-3 py-2 text-sm" />
+            <input value={routeFare} onChange={(e) => setRouteFare(e.target.value)} type="number" min={10} placeholder="Fare" className="rounded-md border border-input bg-surface px-3 py-2 text-sm" />
+            <div className="flex gap-2"><button className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Save</button><button type="button" onClick={() => setAddingRoute(false)} className="rounded-md border border-border px-3 py-2 text-sm">Cancel</button></div>
+          </form>
+        )}
+        <ul className="mt-4 grid gap-2">
+          {routes.map((r) => (
+            <li key={r.id} className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-sm">
+              <span><Map className="mr-1 inline size-3" />{r.origin} → {r.destination}</span>
+              <span className="flex items-center gap-2">
+                <button onClick={() => updateRouteFare(r.id, Math.max(10, Number(r.base_fare ?? 10) - 10))} className="rounded-md border border-border px-2 py-1 text-xs">−</button>
+                <strong>KSh {r.base_fare ?? "—"}</strong>
+                <button onClick={() => updateRouteFare(r.id, Number(r.base_fare ?? 0) + 10)} className="rounded-md border border-border px-2 py-1 text-xs">+</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <h2 className="font-display text-xl font-semibold">Live trips ({liveTrips.length})</h2>
         {liveTrips.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">No active trips right now.</p>
@@ -241,7 +331,15 @@ function FleetDetail() {
           </ul>
         )}
       </section>
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <h2 className="font-display text-xl font-semibold">Live fleet map</h2>
+        <RouteMap stages={[]} vehicles={mapVehicles} className="mt-3 h-[360px] w-full rounded-2xl border border-border" />
+      </section>
     </AppShell>
 
   );
+}
+
+function Summary({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
+  return <div className="rounded-xl border border-border bg-surface p-4"><div className="flex items-center gap-2 text-xs text-muted-foreground">{icon}{label}</div><div className="mt-2 font-display text-2xl font-bold">{value}</div></div>;
 }

@@ -1,11 +1,20 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Bus, Users, Map, Plus } from "lucide-react";
+import { Bus, Users, Map, Plus, Radio, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 
 type Sacco = { id: string; name: string; registration_number: string | null };
+type DashboardRow = {
+  sacco_id: string;
+  vehicle_count: number;
+  driver_count: number;
+  route_count: number;
+  live_trip_count: number;
+  today_trip_count: number;
+  revenue_today: number;
+};
 
 export const Route = createFileRoute("/_authenticated/fleet/")({
   component: SaccoHome,
@@ -17,7 +26,7 @@ function SaccoHome() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [reg, setReg] = useState("");
-  const [totals, setTotals] = useState({ vehicles: 0, drivers: 0, routes: 0 });
+  const [totals, setTotals] = useState({ vehicles: 0, drivers: 0, routes: 0, live: 0, trips: 0, revenue: 0 });
 
   async function load() {
     const { data: u } = await supabase.auth.getUser();
@@ -30,19 +39,29 @@ function SaccoHome() {
     setSaccos(list);
     setLoading(false);
 
-    const ids = list.map((s) => s.id);
-    if (ids.length) {
-      const [{ data: v }, { data: r }] = await Promise.all([
-        supabase.from("vehicles").select("id,driver_id").in("sacco_id", ids),
-        supabase.from("routes").select("id").in("sacco_id", ids),
-      ]);
-      const drivers = new Set((v ?? []).map((x: any) => x.driver_id).filter(Boolean));
-      setTotals({ vehicles: (v ?? []).length, drivers: drivers.size, routes: (r ?? []).length });
-    } else {
-      setTotals({ vehicles: 0, drivers: 0, routes: 0 });
-    }
+    const { data: dashboard, error } = await supabase.rpc("get_my_sacco_dashboard");
+    if (error) toast.error(error.message);
+    const rows = (dashboard ?? []) as DashboardRow[];
+    setTotals({
+      vehicles: rows.reduce((n, r) => n + Number(r.vehicle_count ?? 0), 0),
+      drivers: rows.reduce((n, r) => n + Number(r.driver_count ?? 0), 0),
+      routes: rows.reduce((n, r) => n + Number(r.route_count ?? 0), 0),
+      live: rows.reduce((n, r) => n + Number(r.live_trip_count ?? 0), 0),
+      trips: rows.reduce((n, r) => n + Number(r.today_trip_count ?? 0), 0),
+      revenue: rows.reduce((n, r) => n + Number(r.revenue_today ?? 0), 0),
+    });
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const channel = supabase
+      .channel("fleet-dashboard-refresh")
+      .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "routes" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "trips" }, load)
+      .subscribe();
+    const timer = setInterval(load, 10000);
+    return () => { clearInterval(timer); supabase.removeChannel(channel); };
+  }, []);
 
   async function createSacco(e: React.FormEvent) {
     e.preventDefault();
@@ -71,9 +90,8 @@ function SaccoHome() {
       accent="primary"
     >
       <div className="grid gap-5">
-        <div className="rounded-2xl border border-dashed border-border bg-surface p-6 text-sm text-muted-foreground">
-          <strong className="text-foreground">Coming next:</strong> add vehicles & assign drivers, define SACCO routes,
-          live fleet map, and revenue summaries (M-Pesa escrow coming after Phase 4).
+        <div className="rounded-2xl border border-border bg-surface p-6 text-sm text-muted-foreground">
+          <strong className="text-foreground">Phase 4 active:</strong> open a SACCO to add vehicles, assign drivers by phone, create routes, watch live trips, and adjust fares.
         </div>
 
         <section className="rounded-2xl border border-border bg-surface p-6">
@@ -139,6 +157,9 @@ function SaccoHome() {
           <Card icon={<Bus />} title="Vehicles" value={String(totals.vehicles)} />
           <Card icon={<Users />} title="Drivers" value={String(totals.drivers)} />
           <Card icon={<Map />} title="Routes" value={String(totals.routes)} />
+          <Card icon={<Radio />} title="Live trips" value={String(totals.live)} />
+          <Card icon={<Bus />} title="Trips today" value={String(totals.trips)} />
+          <Card icon={<Wallet />} title="Revenue today" value={`KSh ${totals.revenue}`} />
         </div>
         <p className="text-xs text-muted-foreground">
           Tip: open a SACCO above to add vehicles and assign drivers (by their sign-up phone number).
