@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadGoogleMaps, NAIROBI_CENTER } from "@/lib/google-maps";
 
 export type MapStage = { id: string; name: string; lat: number; lng: number };
@@ -19,6 +19,7 @@ export function RouteMap({
   const mapRef = useRef<google.maps.Map | null>(null);
   const stageMarkers = useRef<google.maps.Marker[]>([]);
   const vehicleMarkers = useRef<Record<string, google.maps.Marker>>({});
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +33,7 @@ export function RouteMap({
         zoomControl: true,
       });
       mapRef.current = map;
+      setReady(true);
       if (onMapClick) {
         map.addListener("click", (e: google.maps.MapMouseEvent) => {
           if (e.latLng) onMapClick(e.latLng.lat(), e.latLng.lng());
@@ -47,7 +49,7 @@ export function RouteMap({
   // Draw stages + polyline
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !(window as any).google) return;
+    if (!map || !ready || !(window as any).google) return;
     const g = (window as any).google as typeof google;
     stageMarkers.current.forEach((m) => m.setMap(null));
     stageMarkers.current = stages.map(
@@ -71,12 +73,12 @@ export function RouteMap({
       stages.forEach((s) => bounds.extend({ lat: s.lat, lng: s.lng }));
       map.fitBounds(bounds, 40);
     }
-  }, [stages]);
+  }, [stages, ready]);
 
   // Live vehicles
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !(window as any).google) return;
+    if (!map || !ready || !(window as any).google) return;
     const g = (window as any).google as typeof google;
     const seen = new Set<string>();
     vehicles.forEach((v) => {
@@ -107,7 +109,7 @@ export function RouteMap({
         delete vehicleMarkers.current[id];
       }
     });
-  }, [vehicles]);
+  }, [vehicles, ready]);
 
   return <div ref={ref} className={className ?? "h-[420px] w-full rounded-2xl border border-border"} />;
 }

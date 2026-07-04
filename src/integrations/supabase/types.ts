@@ -468,6 +468,29 @@ export type Database = {
         Args: { _sacco_id: string }
         Returns: string
       }
+      get_my_sacco_dashboard: {
+        Args: never
+        Returns: {
+          driver_count: number
+          live_trip_count: number
+          revenue_today: number
+          route_count: number
+          sacco_id: string
+          today_trip_count: number
+          vehicle_count: number
+        }[]
+      }
+      get_my_sacco_drivers: {
+        Args: { _sacco_id: string }
+        Returns: {
+          driver_id: string
+          full_name: string
+          phone: string
+          plate_number: string
+          status: string
+          vehicle_id: string
+        }[]
+      }
       get_primary_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
