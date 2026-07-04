@@ -136,10 +136,13 @@ function SaccoHome() {
         </section>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <Card icon={<Bus />} title="Vehicles" value="0" />
-          <Card icon={<Users />} title="Drivers" value="0" />
-          <Card icon={<Map />} title="Routes" value="0" />
+          <Card icon={<Bus />} title="Vehicles" value={String(totals.vehicles)} />
+          <Card icon={<Users />} title="Drivers" value={String(totals.drivers)} />
+          <Card icon={<Map />} title="Routes" value={String(totals.routes)} />
         </div>
+        <p className="text-xs text-muted-foreground">
+          Tip: open a SACCO above to add vehicles and assign drivers (by their sign-up phone number).
+        </p>
       </div>
     </AppShell>
   );
