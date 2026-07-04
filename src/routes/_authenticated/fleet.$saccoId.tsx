@@ -5,6 +5,7 @@ import { ArrowLeft, Bus, Map, Plus, Radio, UserPlus, Wallet } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapVehicle } from "@/components/matu/RouteMap";
+import { assignSaccoDriver } from "@/lib/fleet.functions";
 
 type Vehicle = {
   id: string;
@@ -115,9 +116,13 @@ function FleetDetail() {
   }
 
   async function assignDriver(vehicleId: string) {
-    const { data, error } = await supabase.rpc("assign_sacco_driver", { _vehicle_id: vehicleId, _phone: driverEmail.trim() });
-    if (error) return toast.error(error.message);
-    toast.success(`Assigned ${data?.[0]?.full_name ?? "driver"}`);
+    try {
+      const data = await assignSaccoDriver({ data: { vehicleId, phone: driverEmail.trim() } });
+      toast.success(`Assigned ${data.full_name ?? "driver"}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not assign driver");
+      return;
+    }
     setAssignFor(null);
     setDriverEmail("");
     load();
