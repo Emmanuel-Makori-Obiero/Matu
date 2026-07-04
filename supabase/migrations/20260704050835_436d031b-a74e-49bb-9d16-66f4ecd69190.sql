@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.assign_sacco_driver(uuid, text);

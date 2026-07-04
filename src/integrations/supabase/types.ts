@@ -460,14 +460,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      assign_sacco_driver: {
-        Args: { _phone: string; _vehicle_id: string }
-        Returns: {
-          driver_id: string
-          full_name: string
-          phone: string
-        }[]
-      }
       claim_role: {
         Args: { _role: Database["public"]["Enums"]["app_role"] }
         Returns: undefined
