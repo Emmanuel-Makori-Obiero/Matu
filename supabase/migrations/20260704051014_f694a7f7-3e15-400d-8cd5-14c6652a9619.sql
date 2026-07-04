@@ -1,0 +1,1 @@
+DROP POLICY IF EXISTS "Sacco owner views fleet trips" ON public.trips;
