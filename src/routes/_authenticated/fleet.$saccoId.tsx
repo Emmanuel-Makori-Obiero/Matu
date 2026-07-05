@@ -156,6 +156,9 @@ function FleetDetail() {
     const { error } = await supabase.from("routes").update({ base_fare: next }).eq("id", routeId);
     if (error) return toast.error(error.message);
     setRoutes((prev) => prev.map((r) => (r.id === routeId ? { ...r, base_fare: next } : r)));
+  }
+
+
 
   async function approveJoin(id: string) {
     const { error } = await supabase.rpc("approve_driver_request", { _request_id: id });
