@@ -460,6 +460,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_manage_route: { Args: { _route_id: string }; Returns: boolean }
       claim_role: {
         Args: { _role: Database["public"]["Enums"]["app_role"] }
         Returns: undefined
@@ -507,6 +508,13 @@ export type Database = {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
+        Returns: boolean
+      }
+      is_sacco_owner: { Args: { _sacco_id: string }; Returns: boolean }
+      is_trip_driver: { Args: { _trip_id: string }; Returns: boolean }
+      owns_vehicle_sacco: { Args: { _vehicle_id: string }; Returns: boolean }
+      vehicle_has_active_trip: {
+        Args: { _vehicle_id: string }
         Returns: boolean
       }
     }
