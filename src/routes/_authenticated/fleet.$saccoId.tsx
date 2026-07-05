@@ -287,6 +287,39 @@ function FleetDetail() {
       </section>
 
       <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <h2 className="font-display text-xl font-semibold">
+          Driver requests ({joinRequests.filter((r) => r.status === "pending").length} pending)
+        </h2>
+        {joinRequests.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No requests yet. Drivers can request to join your SACCO from their dashboard.</p>
+        ) : (
+          <ul className="mt-3 grid gap-2">
+            {joinRequests.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3 text-sm">
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{r.full_name ?? "Driver"}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {r.phone ?? "no phone"} · {new Date(r.created_at).toLocaleDateString()}
+                    {r.note ? ` · "${r.note}"` : ""}
+                  </div>
+                </div>
+                {r.status === "pending" ? (
+                  <div className="flex gap-2">
+                    <button onClick={() => approveJoin(r.id)} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Approve</button>
+                    <button onClick={() => rejectJoin(r.id)} className="rounded-md border border-border px-3 py-1.5 text-xs">Reject</button>
+                  </div>
+                ) : (
+                  <span className={`rounded-md px-2 py-1 text-xs capitalize ${r.status === "approved" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{r.status}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <h2 className="font-display text-xl font-semibold">Drivers</h2>
         {drivers.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">Add a vehicle, then assign a driver by their sign-up phone number.</p>
