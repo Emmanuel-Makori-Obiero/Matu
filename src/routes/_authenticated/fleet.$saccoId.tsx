@@ -68,7 +68,7 @@ function FleetDetail() {
   }
 
   async function load() {
-    const [{ data: s }, { data: v }, { data: d }, { data: r }] = await Promise.all([
+    const [{ data: s }, { data: v }, { data: d }, { data: r }, { data: jr }] = await Promise.all([
       supabase.from("saccos").select("id,name").eq("id", saccoId).maybeSingle(),
       supabase
         .from("vehicles")
@@ -77,12 +77,14 @@ function FleetDetail() {
         .order("plate_number"),
       supabase.rpc("get_my_sacco_drivers", { _sacco_id: saccoId }),
       supabase.from("routes").select("id,name,origin,destination,base_fare").eq("sacco_id", saccoId).order("name"),
+      supabase.rpc("list_sacco_join_requests", { _sacco_id: saccoId }),
     ]);
     if (s) setSacco(s as Sacco);
     const vs = (v ?? []) as Vehicle[];
     setVehicles(vs);
     setDrivers((d ?? []) as DriverRow[]);
     setRoutes((r ?? []) as SaccoRoute[]);
+    setJoinRequests((jr ?? []) as JoinRequest[]);
     await loadLive(vs.map((x) => x.id));
   }
   useEffect(() => {
