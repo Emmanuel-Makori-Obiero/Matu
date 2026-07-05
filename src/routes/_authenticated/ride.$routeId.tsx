@@ -31,6 +31,8 @@ function RouteDetail() {
   const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
   const [myBookings, setMyBookings] = useState<{ trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]>([]);
+  const notifiedRef = useRef<Set<string>>(new Set());
+
 
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
