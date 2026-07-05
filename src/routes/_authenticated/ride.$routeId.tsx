@@ -109,6 +109,60 @@ function RouteDetail() {
     };
   }, [trips]);
 
+  // Load my active bookings on this route's trips
+  useEffect(() => {
+    if (trips.length === 0) { setMyBookings([]); return; }
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return;
+      const { data } = await supabase
+        .from("bookings")
+        .select("trip_id,pickup_stage_id,dropoff_stage_id,status")
+        .eq("passenger_id", u.user.id)
+        .in("trip_id", trips.map((t) => t.id))
+        .in("status", ["reserved", "boarded"]);
+      setMyBookings((data ?? []) as any);
+    })();
+  }, [trips]);
+
+  // Auto proximity notifications: fire once per stage when driver GPS < 300m
+  useEffect(() => {
+    if (myBookings.length === 0) return;
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "default") Notification.requestPermission();
+    const notified = notifiedRef.current;
+    const R = 6371000;
+    const dist = (a: TripLoc, b: { lat: number; lng: number }) => {
+      const toRad = (x: number) => (x * Math.PI) / 180;
+      const dLat = toRad(b.lat - a.lat);
+      const dLng = toRad(b.lng - a.lng);
+      const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(s));
+    };
+    myBookings.forEach((b) => {
+      const loc = tripLocs[b.trip_id];
+      if (!loc) return;
+      const check = (stageId: string | null, kind: "pickup" | "dropoff") => {
+        if (!stageId) return;
+        const stage = stages.find((s) => s.id === stageId);
+        if (!stage) return;
+        const key = `${b.trip_id}:${kind}`;
+        if (notified.has(key)) return;
+        if (dist(loc, stage) < 300) {
+          notified.add(key);
+          const title = kind === "pickup" ? "Matatu near your pickup" : "Approaching your stop";
+          const body = kind === "pickup" ? `Bus is <300m from ${stage.name}` : `Get ready to alight at ${stage.name}`;
+          toast.info(title, { description: body });
+          if (Notification.permission === "granted") new Notification(title, { body });
+        }
+      };
+      check(b.pickup_stage_id, "pickup");
+      check(b.dropoff_stage_id, "dropoff");
+    });
+  }, [tripLocs, myBookings, stages]);
+
+
+
   const mapStages: MapStage[] = stages;
   const mapVehicles: MapVehicle[] = useMemo(
     () =>
