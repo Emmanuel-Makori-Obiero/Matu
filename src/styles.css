@@ -52,8 +52,8 @@
 :root {
   --radius: 0.875rem;
 
-  --background: oklch(0.985 0.012 95);          /* warm cream */
-  --foreground: oklch(0.22 0.025 160);          /* deep charcoal-green */
+  --background: oklch(0.985 0.012 95); /* warm cream */
+  --foreground: oklch(0.22 0.025 160); /* deep charcoal-green */
 
   --surface: oklch(1 0 0);
   --surface-foreground: oklch(0.22 0.025 160);
@@ -64,7 +64,7 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.22 0.025 160);
 
-  --primary: oklch(0.38 0.09 158);              /* deep forest green */
+  --primary: oklch(0.38 0.09 158); /* deep forest green */
   --primary-foreground: oklch(0.985 0.012 95);
 
   --secondary: oklch(0.96 0.02 95);
@@ -73,7 +73,7 @@
   --muted: oklch(0.95 0.015 100);
   --muted-foreground: oklch(0.5 0.03 160);
 
-  --accent: oklch(0.85 0.17 90);                /* matatu yellow */
+  --accent: oklch(0.85 0.17 90); /* matatu yellow */
   --accent-foreground: oklch(0.22 0.05 90);
 
   --destructive: oklch(0.6 0.21 25);
@@ -114,20 +114,44 @@
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
-  html, body { font-family: var(--font-sans); }
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body {
+    font-family: var(--font-sans);
+  }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3, h4, .font-display { font-family: var(--font-display); letter-spacing: -0.02em; }
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
 }
 
 @utility matu-stripe {
   /* Iconic matatu yellow stripe across the side */
-  background: linear-gradient(180deg, transparent 0%, transparent 42%, var(--accent) 42%, var(--accent) 58%, transparent 58%, transparent 100%);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 42%,
+    var(--accent) 42%,
+    var(--accent) 58%,
+    transparent 58%,
+    transparent 100%
+  );
 }
 
-@utility shadow-soft { box-shadow: var(--shadow-soft); }
-@utility shadow-lift { box-shadow: var(--shadow-lift); }
+@utility shadow-soft {
+  box-shadow: var(--shadow-soft);
+}
+@utility shadow-lift {
+  box-shadow: var(--shadow-lift);
+}

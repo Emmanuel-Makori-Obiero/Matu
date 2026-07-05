@@ -6,8 +6,21 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
 
-type RouteRow = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
-type StageRow = { id: string; name: string; lat: number; lng: number; order_index: number; route_id: string };
+type RouteRow = {
+  id: string;
+  name: string;
+  origin: string;
+  destination: string;
+  base_fare: number | null;
+};
+type StageRow = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  order_index: number;
+  route_id: string;
+};
 
 export const Route = createFileRoute("/_authenticated/ride/")({
   component: PassengerHome,
@@ -36,7 +49,10 @@ function PassengerHome() {
 
   const places = useMemo(() => {
     const s = new Set<string>();
-    routes.forEach((r) => { s.add(r.origin); s.add(r.destination); });
+    routes.forEach((r) => {
+      s.add(r.origin);
+      s.add(r.destination);
+    });
     stages.forEach((st) => s.add(st.name));
     return Array.from(s).sort();
   }, [routes, stages]);
@@ -48,7 +64,9 @@ function PassengerHome() {
     return routes.filter((r) => {
       const o = r.origin.toLowerCase();
       const d = r.destination.toLowerCase();
-      const routeStages = stages.filter((s) => s.route_id === r.id).map((s) => s.name.toLowerCase());
+      const routeStages = stages
+        .filter((s) => s.route_id === r.id)
+        .map((s) => s.name.toLowerCase());
       const hay = [o, d, ...routeStages].join(" | ");
       const matchesF = !f || hay.includes(f);
       const matchesT = !t || hay.includes(t);
@@ -59,7 +77,9 @@ function PassengerHome() {
   // Stages shown on map: from filtered routes (or all if nothing filtered)
   const mapStages: MapStage[] = useMemo(() => {
     const routeIds = new Set(filtered.map((r) => r.id));
-    return stages.filter((s) => routeIds.has(s.route_id)).map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
+    return stages
+      .filter((s) => routeIds.has(s.route_id))
+      .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
   }, [filtered, stages]);
 
   async function useMyLocation() {
@@ -74,7 +94,10 @@ function PassengerHome() {
         let bestD = Infinity;
         stages.forEach((s) => {
           const d = (s.lat - p.lat) ** 2 + (s.lng - p.lng) ** 2;
-          if (d < bestD) { bestD = d; bestName = s.name; }
+          if (d < bestD) {
+            bestD = d;
+            bestName = s.name;
+          }
         });
         if (bestName) setFrom(bestName);
         toast.success(`Pickup set to ${bestName ?? "your location"}`, { id: "geo" });
@@ -85,7 +108,10 @@ function PassengerHome() {
   }
 
   return (
-    <AppShell title="Where to?" subtitle="Pick pickup and destination — we'll match you to matatus on your route.">
+    <AppShell
+      title="Where to?"
+      subtitle="Pick pickup and destination — we'll match you to matatus on your route."
+    >
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         {/* Map (left) */}
         <div className="order-2 lg:order-1">
@@ -120,7 +146,11 @@ function PassengerHome() {
               <div className="flex justify-center">
                 <button
                   type="button"
-                  onClick={() => { const a = from; setFrom(to); setTo(a); }}
+                  onClick={() => {
+                    const a = from;
+                    setFrom(to);
+                    setTo(a);
+                  }}
                   aria-label="Swap"
                   className="rounded-full border border-border bg-background p-1.5 hover:bg-secondary"
                 >
@@ -145,7 +175,10 @@ function PassengerHome() {
                 {(from || to) && (
                   <button
                     type="button"
-                    onClick={() => { setFrom(""); setTo(""); }}
+                    onClick={() => {
+                      setFrom("");
+                      setTo("");
+                    }}
                     className="rounded-lg border border-border px-3 py-2.5 text-xs"
                   >
                     Clear
@@ -158,7 +191,9 @@ function PassengerHome() {
           <section className="rounded-2xl border border-border bg-surface p-4 shadow-soft">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-base font-semibold">
-                {from || to ? `Matching routes (${filtered.length})` : `All routes (${routes.length})`}
+                {from || to
+                  ? `Matching routes (${filtered.length})`
+                  : `All routes (${routes.length})`}
               </h2>
             </div>
             {loading ? (
@@ -179,7 +214,9 @@ function PassengerHome() {
                         <div className="truncate font-display text-sm font-semibold">{r.name}</div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                           <MapPin className="size-3 shrink-0" />
-                          <span className="truncate">{r.origin} → {r.destination}</span>
+                          <span className="truncate">
+                            {r.origin} → {r.destination}
+                          </span>
                         </div>
                       </div>
                       <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
@@ -201,16 +238,29 @@ function PassengerHome() {
 }
 
 function PlaceField({
-  label, value, onChange, options, placeholder, icon, rightSlot,
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+  icon,
+  rightSlot,
 }: {
-  label: string; value: string; onChange: (v: string) => void;
-  options: string[]; placeholder?: string; icon?: React.ReactNode; rightSlot?: React.ReactNode;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+  icon?: React.ReactNode;
+  rightSlot?: React.ReactNode;
 }) {
   const listId = `places-${label.toLowerCase()}`;
   return (
     <label className="block">
       <span className="mb-1 flex items-center justify-between text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        <span className="flex items-center gap-2">{icon} {label}</span>
+        <span className="flex items-center gap-2">
+          {icon} {label}
+        </span>
         {rightSlot}
       </span>
       <input
@@ -221,7 +271,9 @@ function PlaceField({
         className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
       />
       <datalist id={listId}>
-        {options.map((o) => <option key={o} value={o} />)}
+        {options.map((o) => (
+          <option key={o} value={o} />
+        ))}
       </datalist>
     </label>
   );

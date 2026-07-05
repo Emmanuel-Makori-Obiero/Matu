@@ -16,9 +16,30 @@ type Vehicle = {
   driver_id: string | null;
 };
 type Sacco = { id: string; name: string };
-type SaccoRoute = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
-type DriverRow = { driver_id: string | null; full_name: string | null; phone: string | null; vehicle_id: string; plate_number: string; status: string };
-type JoinRequest = { id: string; driver_id: string; full_name: string | null; phone: string | null; note: string | null; status: string; created_at: string };
+type SaccoRoute = {
+  id: string;
+  name: string;
+  origin: string;
+  destination: string;
+  base_fare: number | null;
+};
+type DriverRow = {
+  driver_id: string | null;
+  full_name: string | null;
+  phone: string | null;
+  vehicle_id: string;
+  plate_number: string;
+  status: string;
+};
+type JoinRequest = {
+  id: string;
+  driver_id: string;
+  full_name: string | null;
+  phone: string | null;
+  note: string | null;
+  status: string;
+  created_at: string;
+};
 type LiveTrip = {
   id: string;
   fare: number;
@@ -30,8 +51,6 @@ type LiveTrip = {
   vehicles: { plate_number: string } | null;
   routes: { name: string } | null;
 };
-
-
 
 export const Route = createFileRoute("/_authenticated/fleet/$saccoId")({
   component: FleetDetail,
@@ -61,7 +80,9 @@ function FleetDetail() {
     if (vehicleIds.length === 0) return setLiveTrips([]);
     const { data } = await supabase
       .from("trips")
-      .select("id,fare,status,vehicle_id,route_id,current_lat,current_lng,vehicles(plate_number),routes(name)")
+      .select(
+        "id,fare,status,vehicle_id,route_id,current_lat,current_lng,vehicles(plate_number),routes(name)",
+      )
       .in("vehicle_id", vehicleIds)
       .in("status", ["boarding", "in_transit"]);
     setLiveTrips((data ?? []) as unknown as LiveTrip[]);
@@ -76,7 +97,11 @@ function FleetDetail() {
         .eq("sacco_id", saccoId)
         .order("plate_number"),
       supabase.rpc("get_my_sacco_drivers", { _sacco_id: saccoId }),
-      supabase.from("routes").select("id,name,origin,destination,base_fare").eq("sacco_id", saccoId).order("name"),
+      supabase
+        .from("routes")
+        .select("id,name,origin,destination,base_fare")
+        .eq("sacco_id", saccoId)
+        .order("name"),
       supabase.rpc("list_sacco_join_requests", { _sacco_id: saccoId }),
     ]);
     if (s) setSacco(s as Sacco);
@@ -148,7 +173,10 @@ function FleetDetail() {
     });
     if (error) return toast.error(error.message);
     toast.success("Route added");
-    setOrigin(""); setDestination(""); setRouteFare(""); setAddingRoute(false);
+    setOrigin("");
+    setDestination("");
+    setRouteFare("");
+    setAddingRoute(false);
     load();
   }
 
@@ -158,8 +186,6 @@ function FleetDetail() {
     setRoutes((prev) => prev.map((r) => (r.id === routeId ? { ...r, base_fare: next } : r)));
   }
 
-
-
   async function approveJoin(id: string) {
     const { error } = await supabase.rpc("approve_driver_request", { _request_id: id });
     if (error) return toast.error(error.message);
@@ -167,22 +193,32 @@ function FleetDetail() {
     load();
   }
   async function rejectJoin(id: string) {
-    const { error } = await supabase.from("driver_join_requests").update({ status: "rejected" }).eq("id", id);
+    const { error } = await supabase
+      .from("driver_join_requests")
+      .update({ status: "rejected" })
+      .eq("id", id);
     if (error) return toast.error(error.message);
     toast.success("Request rejected");
     load();
   }
 
-
   const mapVehicles: MapVehicle[] = liveTrips
     .filter((t) => t.current_lat && t.current_lng)
-    .map((t) => ({ id: t.id, lat: t.current_lat!, lng: t.current_lng!, label: t.vehicles?.plate_number ?? "Matatu" }));
+    .map((t) => ({
+      id: t.id,
+      lat: t.current_lat!,
+      lng: t.current_lng!,
+      label: t.vehicles?.plate_number ?? "Matatu",
+    }));
   const todayRevenue = liveTrips.reduce((sum, t) => sum + Number(t.fare ?? 0), 0);
 
   return (
     <AppShell title={sacco?.name ?? "Fleet"} subtitle="Vehicles, drivers, and assignments.">
       <div className="mb-4">
-        <Link to="/fleet" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+        <Link
+          to="/fleet"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+        >
           <ArrowLeft className="size-4" /> All SACCOs
         </Link>
       </div>
@@ -207,18 +243,36 @@ function FleetDetail() {
         </div>
 
         {adding && (
-          <form onSubmit={addVehicle} className="mt-4 grid gap-3 rounded-xl bg-secondary p-4 sm:grid-cols-2">
+          <form
+            onSubmit={addVehicle}
+            className="mt-4 grid gap-3 rounded-xl bg-secondary p-4 sm:grid-cols-2"
+          >
             <label className="text-sm">
               <span className="mb-1 block font-medium">Plate number</span>
-              <input required value={plate} onChange={(e) => setPlate(e.target.value)} className="w-full rounded-md border border-input bg-surface px-3 py-2" />
+              <input
+                required
+                value={plate}
+                onChange={(e) => setPlate(e.target.value)}
+                className="w-full rounded-md border border-input bg-surface px-3 py-2"
+              />
             </label>
             <label className="text-sm">
               <span className="mb-1 block font-medium">Nickname (optional)</span>
-              <input value={nickname} onChange={(e) => setNickname(e.target.value)} className="w-full rounded-md border border-input bg-surface px-3 py-2" />
+              <input
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                className="w-full rounded-md border border-input bg-surface px-3 py-2"
+              />
             </label>
             <label className="text-sm">
               <span className="mb-1 block font-medium">Type</span>
-              <select value={type} onChange={(e) => setType(e.target.value as any)} className="w-full rounded-md border border-input bg-surface px-3 py-2">
+              <select
+                value={type}
+                onChange={(e) =>
+                  setType(e.target.value as "matatu_14" | "matatu_25" | "bus_33" | "bus_51")
+                }
+                className="w-full rounded-md border border-input bg-surface px-3 py-2"
+              >
                 <option value="matatu_14">Matatu · 14 seats</option>
                 <option value="matatu_25">Matatu · 25 seats</option>
                 <option value="bus_33">Bus · 33 seats</option>
@@ -227,11 +281,24 @@ function FleetDetail() {
             </label>
             <label className="text-sm">
               <span className="mb-1 block font-medium">Capacity</span>
-              <input type="number" required min={1} value={capacity} onChange={(e) => setCapacity(e.target.value)} className="w-full rounded-md border border-input bg-surface px-3 py-2" />
+              <input
+                type="number"
+                required
+                min={1}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                className="w-full rounded-md border border-input bg-surface px-3 py-2"
+              />
             </label>
             <div className="flex gap-2 sm:col-span-2">
-              <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Add</button>
-              <button type="button" onClick={() => setAdding(false)} className="rounded-md border border-border px-4 py-2 text-sm">
+              <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdding(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm"
+              >
                 Cancel
               </button>
             </div>
@@ -254,7 +321,11 @@ function FleetDetail() {
                     </div>
                     <div className="mt-1 text-xs">
                       Driver:{" "}
-                      {v.driver_id ? <span className="text-primary">assigned</span> : <span className="text-muted-foreground">unassigned</span>}
+                      {v.driver_id ? (
+                        <span className="text-primary">assigned</span>
+                      ) : (
+                        <span className="text-muted-foreground">unassigned</span>
+                      )}
                     </div>
                   </div>
                   <button
@@ -291,11 +362,16 @@ function FleetDetail() {
           Driver requests ({joinRequests.filter((r) => r.status === "pending").length} pending)
         </h2>
         {joinRequests.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">No requests yet. Drivers can request to join your SACCO from their dashboard.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            No requests yet. Drivers can request to join your SACCO from their dashboard.
+          </p>
         ) : (
           <ul className="mt-3 grid gap-2">
             {joinRequests.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3 text-sm">
+              <li
+                key={r.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3 text-sm"
+              >
                 <div className="min-w-0">
                   <div className="font-medium truncate">{r.full_name ?? "Driver"}</div>
                   <div className="text-xs text-muted-foreground truncate">
@@ -305,11 +381,25 @@ function FleetDetail() {
                 </div>
                 {r.status === "pending" ? (
                   <div className="flex gap-2">
-                    <button onClick={() => approveJoin(r.id)} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Approve</button>
-                    <button onClick={() => rejectJoin(r.id)} className="rounded-md border border-border px-3 py-1.5 text-xs">Reject</button>
+                    <button
+                      onClick={() => approveJoin(r.id)}
+                      className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => rejectJoin(r.id)}
+                      className="rounded-md border border-border px-3 py-1.5 text-xs"
+                    >
+                      Reject
+                    </button>
                   </div>
                 ) : (
-                  <span className={`rounded-md px-2 py-1 text-xs capitalize ${r.status === "approved" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{r.status}</span>
+                  <span
+                    className={`rounded-md px-2 py-1 text-xs capitalize ${r.status === "approved" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}
+                  >
+                    {r.status}
+                  </span>
                 )}
               </li>
             ))}
@@ -317,21 +407,28 @@ function FleetDetail() {
         )}
       </section>
 
-
-
       <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <h2 className="font-display text-xl font-semibold">Drivers</h2>
         {drivers.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">Add a vehicle, then assign a driver by their sign-up phone number.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Add a vehicle, then assign a driver by their sign-up phone number.
+          </p>
         ) : (
           <ul className="mt-3 grid gap-2">
             {drivers.map((d) => (
-              <li key={d.vehicle_id} className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-sm">
+              <li
+                key={d.vehicle_id}
+                className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-sm"
+              >
                 <div>
                   <div className="font-medium">{d.full_name ?? "Unassigned driver"}</div>
-                  <div className="text-xs text-muted-foreground">{d.plate_number} · {d.phone ?? "no phone"}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {d.plate_number} · {d.phone ?? "no phone"}
+                  </div>
                 </div>
-                <span className="rounded-md bg-secondary px-2 py-1 text-xs capitalize">{d.status}</span>
+                <span className="rounded-md bg-secondary px-2 py-1 text-xs capitalize">
+                  {d.status}
+                </span>
               </li>
             ))}
           </ul>
@@ -341,24 +438,82 @@ function FleetDetail() {
       <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-xl font-semibold">SACCO routes ({routes.length})</h2>
-          {!addingRoute && <button onClick={() => setAddingRoute(true)} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"><Plus className="size-4" /> Add route</button>}
+          {!addingRoute && (
+            <button
+              onClick={() => setAddingRoute(true)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+            >
+              <Plus className="size-4" /> Add route
+            </button>
+          )}
         </div>
         {addingRoute && (
-          <form onSubmit={addRoute} className="mt-4 grid gap-3 rounded-xl bg-secondary p-4 sm:grid-cols-4">
-            <input required value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="From: Utawala" className="rounded-md border border-input bg-surface px-3 py-2 text-sm" />
-            <input required value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="To: CBD" className="rounded-md border border-input bg-surface px-3 py-2 text-sm" />
-            <input value={routeFare} onChange={(e) => setRouteFare(e.target.value)} type="number" min={10} placeholder="Fare" className="rounded-md border border-input bg-surface px-3 py-2 text-sm" />
-            <div className="flex gap-2"><button className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Save</button><button type="button" onClick={() => setAddingRoute(false)} className="rounded-md border border-border px-3 py-2 text-sm">Cancel</button></div>
+          <form
+            onSubmit={addRoute}
+            className="mt-4 grid gap-3 rounded-xl bg-secondary p-4 sm:grid-cols-4"
+          >
+            <input
+              required
+              value={origin}
+              onChange={(e) => setOrigin(e.target.value)}
+              placeholder="From: Utawala"
+              className="rounded-md border border-input bg-surface px-3 py-2 text-sm"
+            />
+            <input
+              required
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              placeholder="To: CBD"
+              className="rounded-md border border-input bg-surface px-3 py-2 text-sm"
+            />
+            <input
+              value={routeFare}
+              onChange={(e) => setRouteFare(e.target.value)}
+              type="number"
+              min={10}
+              placeholder="Fare"
+              className="rounded-md border border-input bg-surface px-3 py-2 text-sm"
+            />
+            <div className="flex gap-2">
+              <button className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddingRoute(false)}
+                className="rounded-md border border-border px-3 py-2 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
           </form>
         )}
         <ul className="mt-4 grid gap-2">
           {routes.map((r) => (
-            <li key={r.id} className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-sm">
-              <span><Map className="mr-1 inline size-3" />{r.origin} → {r.destination}</span>
+            <li
+              key={r.id}
+              className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-sm"
+            >
+              <span>
+                <Map className="mr-1 inline size-3" />
+                {r.origin} → {r.destination}
+              </span>
               <span className="flex items-center gap-2">
-                <button onClick={() => updateRouteFare(r.id, Math.max(10, Number(r.base_fare ?? 10) - 10))} className="rounded-md border border-border px-2 py-1 text-xs">−</button>
+                <button
+                  onClick={() =>
+                    updateRouteFare(r.id, Math.max(10, Number(r.base_fare ?? 10) - 10))
+                  }
+                  className="rounded-md border border-border px-2 py-1 text-xs"
+                >
+                  −
+                </button>
                 <strong>KSh {r.base_fare ?? "—"}</strong>
-                <button onClick={() => updateRouteFare(r.id, Number(r.base_fare ?? 0) + 10)} className="rounded-md border border-border px-2 py-1 text-xs">+</button>
+                <button
+                  onClick={() => updateRouteFare(r.id, Number(r.base_fare ?? 0) + 10)}
+                  className="rounded-md border border-border px-2 py-1 text-xs"
+                >
+                  +
+                </button>
               </span>
             </li>
           ))}
@@ -375,13 +530,27 @@ function FleetDetail() {
               <li key={t.id} className="rounded-xl border border-border bg-background p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="font-display text-lg font-semibold">{t.vehicles?.plate_number ?? "—"}</div>
-                    <div className="text-xs text-muted-foreground">{t.routes?.name ?? "—"} · {t.status}</div>
+                    <div className="font-display text-lg font-semibold">
+                      {t.vehicles?.plate_number ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {t.routes?.name ?? "—"} · {t.status}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => adjustFare(t.id, Math.max(10, t.fare - 10))} className="rounded-md border border-border px-2 py-1 text-sm">−10</button>
+                    <button
+                      onClick={() => adjustFare(t.id, Math.max(10, t.fare - 10))}
+                      className="rounded-md border border-border px-2 py-1 text-sm"
+                    >
+                      −10
+                    </button>
                     <div className="font-display text-xl font-bold">KSh {t.fare}</div>
-                    <button onClick={() => adjustFare(t.id, t.fare + 10)} className="rounded-md border border-border px-2 py-1 text-sm">+10</button>
+                    <button
+                      onClick={() => adjustFare(t.id, t.fare + 10)}
+                      className="rounded-md border border-border px-2 py-1 text-sm"
+                    >
+                      +10
+                    </button>
                   </div>
                 </div>
               </li>
@@ -391,13 +560,32 @@ function FleetDetail() {
       </section>
       <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <h2 className="font-display text-xl font-semibold">Live fleet map</h2>
-        <RouteMap stages={[]} vehicles={mapVehicles} className="mt-3 h-[360px] w-full rounded-2xl border border-border" />
+        <RouteMap
+          stages={[]}
+          vehicles={mapVehicles}
+          className="mt-3 h-[360px] w-full rounded-2xl border border-border"
+        />
       </section>
     </AppShell>
-
   );
 }
 
-function Summary({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
-  return <div className="rounded-xl border border-border bg-surface p-4"><div className="flex items-center gap-2 text-xs text-muted-foreground">{icon}{label}</div><div className="mt-2 font-display text-2xl font-bold">{value}</div></div>;
+function Summary({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <div className="mt-2 font-display text-2xl font-bold">{value}</div>
+    </div>
+  );
 }

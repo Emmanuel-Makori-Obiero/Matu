@@ -24,25 +24,33 @@ export const Route = createFileRoute("/_authenticated/ride/$routeId")({
 
 function RouteDetail() {
   const { routeId } = Route.useParams();
-  const [routeInfo, setRouteInfo] = useState<{ name: string; origin: string; destination: string } | null>(null);
+  const [routeInfo, setRouteInfo] = useState<{
+    name: string;
+    origin: string;
+    destination: string;
+  } | null>(null);
   const [stages, setStages] = useState<Stage[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
   const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
-  const [myBookings, setMyBookings] = useState<{ trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]>([]);
+  const [myBookings, setMyBookings] = useState<
+    { trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]
+  >([]);
   const notifiedRef = useRef<Set<string>>(new Set());
-
 
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
-
 
   useEffect(() => {
     (async () => {
       const [{ data: r }, { data: s }] = await Promise.all([
         supabase.from("routes").select("name,origin,destination").eq("id", routeId).maybeSingle(),
-        supabase.from("stages").select("id,name,lat,lng,order_index").eq("route_id", routeId).order("order_index"),
+        supabase
+          .from("stages")
+          .select("id,name,lat,lng,order_index")
+          .eq("route_id", routeId)
+          .order("order_index"),
       ]);
       if (r) setRouteInfo(r);
       setStages((s ?? []) as Stage[]);
@@ -59,9 +67,12 @@ function RouteDetail() {
     setTrips(t);
     const ids = [...new Set(t.map((x) => x.vehicle_id))];
     if (ids.length) {
-      const { data: v } = await supabase.from("vehicles").select("id,plate_number,capacity,nickname").in("id", ids);
+      const { data: v } = await supabase
+        .from("vehicles")
+        .select("id,plate_number,capacity,nickname")
+        .in("id", ids);
       const map: Record<string, Vehicle> = {};
-      (v ?? []).forEach((x: any) => (map[x.id] = x));
+      (v ?? []).forEach((x: Vehicle) => (map[x.id] = x));
       setVehicles(map);
     }
   }
@@ -114,7 +125,10 @@ function RouteDetail() {
 
   // Load my active bookings on this route's trips
   useEffect(() => {
-    if (trips.length === 0) { setMyBookings([]); return; }
+    if (trips.length === 0) {
+      setMyBookings([]);
+      return;
+    }
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
@@ -122,9 +136,18 @@ function RouteDetail() {
         .from("bookings")
         .select("trip_id,pickup_stage_id,dropoff_stage_id,status")
         .eq("passenger_id", u.user.id)
-        .in("trip_id", trips.map((t) => t.id))
+        .in(
+          "trip_id",
+          trips.map((t) => t.id),
+        )
         .in("status", ["reserved", "boarded"]);
-      setMyBookings((data ?? []) as any);
+      setMyBookings(
+        (data ?? []) as {
+          trip_id: string;
+          pickup_stage_id: string | null;
+          dropoff_stage_id: string | null;
+        }[],
+      );
     })();
   }, [trips]);
 
@@ -139,7 +162,9 @@ function RouteDetail() {
       const toRad = (x: number) => (x * Math.PI) / 180;
       const dLat = toRad(b.lat - a.lat);
       const dLng = toRad(b.lng - a.lng);
-      const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+      const s =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
       return 2 * R * Math.asin(Math.sqrt(s));
     };
     myBookings.forEach((b) => {
@@ -154,7 +179,10 @@ function RouteDetail() {
         if (dist(loc, stage) < 300) {
           notified.add(key);
           const title = kind === "pickup" ? "Matatu near your pickup" : "Approaching your stop";
-          const body = kind === "pickup" ? `Bus is <300m from ${stage.name}` : `Get ready to alight at ${stage.name}`;
+          const body =
+            kind === "pickup"
+              ? `Bus is <300m from ${stage.name}`
+              : `Get ready to alight at ${stage.name}`;
           toast.info(title, { description: body });
           if (Notification.permission === "granted") new Notification(title, { body });
         }
@@ -163,8 +191,6 @@ function RouteDetail() {
       check(b.dropoff_stage_id, "dropoff");
     });
   }, [tripLocs, myBookings, stages]);
-
-
 
   const mapStages: MapStage[] = stages;
   const mapVehicles: MapVehicle[] = useMemo(
@@ -179,7 +205,6 @@ function RouteDetail() {
         })),
     [trips, vehicles, tripLocs],
   );
-
 
   async function bookSeat(tripId: string) {
     const { data: u } = await supabase.auth.getUser();
@@ -206,16 +231,23 @@ function RouteDetail() {
       trip_id: tripId,
       passenger_id: u.user.id,
       type,
-      message: type === "alight_request" ? "Passenger wants to alight" : "Passenger waiting at pickup",
+      message:
+        type === "alight_request" ? "Passenger wants to alight" : "Passenger waiting at pickup",
     });
     if (error) return toast.error(error.message);
     toast.success("Driver notified");
   }
 
   return (
-    <AppShell title={routeInfo?.name ?? "Route"} subtitle={routeInfo ? `${routeInfo.origin} → ${routeInfo.destination}` : ""}>
+    <AppShell
+      title={routeInfo?.name ?? "Route"}
+      subtitle={routeInfo ? `${routeInfo.origin} → ${routeInfo.destination}` : ""}
+    >
       <div className="mb-4">
-        <Link to="/ride" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <Link
+          to="/ride"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
           <ArrowLeft className="size-4" /> All routes
         </Link>
       </div>
@@ -227,7 +259,9 @@ function RouteDetail() {
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Live matatus ({trips.length})</h2>
             {trips.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">No matatus on this route right now.</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                No matatus on this route right now.
+              </p>
             ) : (
               <ul className="mt-3 grid gap-2">
                 {trips.map((t) => {
@@ -241,7 +275,9 @@ function RouteDetail() {
                             {v?.nickname ?? ""} · {t.status}
                           </div>
                         </div>
-                        <div className="rounded-md bg-accent/40 px-2 py-1 text-xs font-semibold">KSh {t.fare}</div>
+                        <div className="rounded-md bg-accent/40 px-2 py-1 text-xs font-semibold">
+                          KSh {t.fare}
+                        </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -266,8 +302,18 @@ function RouteDetail() {
 
                       {selectedTrip === t.id && (
                         <div className="mt-3 grid gap-2 border-t border-border pt-3">
-                          <StageSelect stages={stages} value={pickup} onChange={setPickup} label="Pickup" />
-                          <StageSelect stages={stages} value={dropoff} onChange={setDropoff} label="Drop-off" />
+                          <StageSelect
+                            stages={stages}
+                            value={pickup}
+                            onChange={setPickup}
+                            label="Pickup"
+                          />
+                          <StageSelect
+                            stages={stages}
+                            value={dropoff}
+                            onChange={setDropoff}
+                            label="Drop-off"
+                          />
                           <div className="flex gap-2">
                             <button
                               onClick={() => bookSeat(t.id)}

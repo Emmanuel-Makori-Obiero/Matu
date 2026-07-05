@@ -7,9 +7,16 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Matu — Smart matatu & bus rides across Kenya" },
-      { name: "description", content: "Catch the right matatu, book a seat, and never miss your stage. Built for Kenyan commuters, drivers, and SACCOs." },
+      {
+        name: "description",
+        content:
+          "Catch the right matatu, book a seat, and never miss your stage. Built for Kenyan commuters, drivers, and SACCOs.",
+      },
       { property: "og:title", content: "Matu — Smart matatu rides" },
-      { property: "og:description", content: "Catch the right matatu, book a seat, and never miss your stage." },
+      {
+        property: "og:description",
+        content: "Catch the right matatu, book a seat, and never miss your stage.",
+      },
     ],
   }),
   component: Landing,
@@ -46,10 +53,13 @@ function Landing() {
               Now boarding · Nairobi
             </div>
             <h1 className="text-5xl font-display font-bold leading-[1.05] tracking-tight md:text-6xl">
-              The smarter way<br />to ride a matatu.
+              The smarter way
+              <br />
+              to ride a matatu.
             </h1>
             <p className="mt-5 max-w-md text-lg text-muted-foreground">
-              See matatus on your route in real time, book a seat, agree on the fare, and get a nudge when your stage is near.
+              See matatus on your route in real time, book a seat, agree on the fare, and get a
+              nudge when your stage is near.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -81,9 +91,21 @@ function Landing() {
                 </div>
               </div>
               <div className="space-y-4 p-5">
-                <Row icon={<MapPin className="size-4 text-primary" />} label="Next stage" value="T-Mall · 3 min" />
-                <Row icon={<Wallet className="size-4 text-primary" />} label="Fare today" value="KSh 80" />
-                <Row icon={<Bus className="size-4 text-primary" />} label="Seats" value="9 of 14 left" />
+                <Row
+                  icon={<MapPin className="size-4 text-primary" />}
+                  label="Next stage"
+                  value="T-Mall · 3 min"
+                />
+                <Row
+                  icon={<Wallet className="size-4 text-primary" />}
+                  label="Fare today"
+                  value="KSh 80"
+                />
+                <Row
+                  icon={<Bus className="size-4 text-primary" />}
+                  label="Seats"
+                  value="9 of 14 left"
+                />
                 <button className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground">
                   Book a seat
                 </button>
@@ -96,7 +118,9 @@ function Landing() {
       {/* How */}
       <section id="how" className="bg-surface py-20">
         <div className="mx-auto max-w-6xl px-5">
-          <h2 className="text-3xl font-display font-bold md:text-4xl">Built for everyone on the road</h2>
+          <h2 className="text-3xl font-display font-bold md:text-4xl">
+            Built for everyone on the road
+          </h2>
           <p className="mt-3 max-w-xl text-muted-foreground">
             Three apps in one — pick how you ride, drive, or run your SACCO.
           </p>
@@ -124,9 +148,21 @@ function Landing() {
       {/* Features strip */}
       <section className="mx-auto max-w-6xl px-5 py-20">
         <div className="grid gap-5 md:grid-cols-3">
-          <Feature icon={<Bell />} title="Smart alerts" desc="A buzz when your matatu is 300m away. Another when your stage is next." />
-          <Feature icon={<Wallet />} title="Adaptive fares" desc="Drivers and conductors agree on today's price — no surprises at the door." />
-          <Feature icon={<ShieldCheck />} title="Safer rides" desc="Every trip is tied to a driver, a vehicle, and a SACCO. Receipts on every fare." />
+          <Feature
+            icon={<Bell />}
+            title="Smart alerts"
+            desc="A buzz when your matatu is 300m away. Another when your stage is next."
+          />
+          <Feature
+            icon={<Wallet />}
+            title="Adaptive fares"
+            desc="Drivers and conductors agree on today's price — no surprises at the door."
+          />
+          <Feature
+            icon={<ShieldCheck />}
+            title="Safer rides"
+            desc="Every trip is tied to a driver, a vehicle, and a SACCO. Receipts on every fare."
+          />
         </div>
       </section>
 
@@ -167,11 +203,27 @@ function Row({ icon, label, value }: { icon: React.ReactNode; label: string; val
   );
 }
 
-function RoleCard({ title, desc, points, highlight = false }: { title: string; desc: string; points: string[]; highlight?: boolean }) {
+function RoleCard({
+  title,
+  desc,
+  points,
+  highlight = false,
+}: {
+  title: string;
+  desc: string;
+  points: string[];
+  highlight?: boolean;
+}) {
   return (
-    <div className={`rounded-2xl border p-6 transition ${highlight ? "border-primary/30 bg-primary text-primary-foreground shadow-lift" : "border-border bg-background"}`}>
+    <div
+      className={`rounded-2xl border p-6 transition ${highlight ? "border-primary/30 bg-primary text-primary-foreground shadow-lift" : "border-border bg-background"}`}
+    >
       <h3 className={`font-display text-xl font-semibold ${highlight ? "" : ""}`}>{title}</h3>
-      <p className={`mt-2 text-sm ${highlight ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{desc}</p>
+      <p
+        className={`mt-2 text-sm ${highlight ? "text-primary-foreground/80" : "text-muted-foreground"}`}
+      >
+        {desc}
+      </p>
       <ul className="mt-4 space-y-1.5 text-sm">
         {points.map((p) => (
           <li key={p} className="flex items-center gap-2">
@@ -187,7 +239,9 @@ function RoleCard({ title, desc, points, highlight = false }: { title: string; d
 function Feature({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
   return (
     <div className="rounded-2xl border border-border bg-surface p-6">
-      <div className="grid size-10 place-items-center rounded-lg bg-accent/30 text-accent-foreground">{icon}</div>
+      <div className="grid size-10 place-items-center rounded-lg bg-accent/30 text-accent-foreground">
+        {icon}
+      </div>
       <h3 className="mt-4 font-display text-lg font-semibold">{title}</h3>
       <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
     </div>

@@ -26,7 +26,14 @@ function SaccoHome() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [reg, setReg] = useState("");
-  const [totals, setTotals] = useState({ vehicles: 0, drivers: 0, routes: 0, live: 0, trips: 0, revenue: 0 });
+  const [totals, setTotals] = useState({
+    vehicles: 0,
+    drivers: 0,
+    routes: 0,
+    live: 0,
+    trips: 0,
+    revenue: 0,
+  });
 
   async function load() {
     const { data: u } = await supabase.auth.getUser();
@@ -60,7 +67,10 @@ function SaccoHome() {
       .on("postgres_changes", { event: "*", schema: "public", table: "trips" }, load)
       .subscribe();
     const timer = setInterval(load, 10000);
-    return () => { clearInterval(timer); supabase.removeChannel(channel); };
+    return () => {
+      clearInterval(timer);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   async function createSacco(e: React.FormEvent) {
@@ -79,7 +89,9 @@ function SaccoHome() {
       return;
     }
     toast.success("SACCO created");
-    setName(""); setReg(""); setCreating(false);
+    setName("");
+    setReg("");
+    setCreating(false);
     load();
   }
 
@@ -91,7 +103,8 @@ function SaccoHome() {
     >
       <div className="grid gap-5">
         <div className="rounded-2xl border border-border bg-surface p-6 text-sm text-muted-foreground">
-          <strong className="text-foreground">Phase 4 active:</strong> open a SACCO to add vehicles, assign drivers by phone, create routes, watch live trips, and adjust fares.
+          <strong className="text-foreground">Phase 4 active:</strong> open a SACCO to add vehicles,
+          assign drivers by phone, create routes, watch live trips, and adjust fares.
         </div>
 
         <section className="rounded-2xl border border-border bg-surface p-6">
@@ -108,20 +121,41 @@ function SaccoHome() {
           </div>
 
           {creating && (
-            <form onSubmit={createSacco} className="mt-4 grid gap-3 rounded-xl bg-secondary p-4 sm:grid-cols-2">
+            <form
+              onSubmit={createSacco}
+              className="mt-4 grid gap-3 rounded-xl bg-secondary p-4 sm:grid-cols-2"
+            >
               <label className="block sm:col-span-2">
                 <span className="mb-1 block text-sm font-medium">SACCO name</span>
-                <input value={name} onChange={(e) => setName(e.target.value)} required
-                  className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm" />
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm"
+                />
               </label>
               <label className="block sm:col-span-2">
                 <span className="mb-1 block text-sm font-medium">Registration # (optional)</span>
-                <input value={reg} onChange={(e) => setReg(e.target.value)}
-                  className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm" />
+                <input
+                  value={reg}
+                  onChange={(e) => setReg(e.target.value)}
+                  className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm"
+                />
               </label>
               <div className="flex gap-2 sm:col-span-2">
-                <button type="submit" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Create</button>
-                <button type="button" onClick={() => setCreating(false)} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+                <button
+                  type="submit"
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                >
+                  Create
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreating(false)}
+                  className="rounded-md border border-border px-4 py-2 text-sm"
+                >
+                  Cancel
+                </button>
               </div>
             </form>
           )}
@@ -129,7 +163,9 @@ function SaccoHome() {
           {loading ? (
             <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
           ) : saccos.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-foreground">No SACCOs yet. Register your first one to start adding vehicles.</p>
+            <p className="mt-4 text-sm text-muted-foreground">
+              No SACCOs yet. Register your first one to start adding vehicles.
+            </p>
           ) : (
             <ul className="mt-4 grid gap-3">
               {saccos.map((s) => (
@@ -141,10 +177,14 @@ function SaccoHome() {
                   >
                     <div>
                       <div className="font-display text-lg font-semibold">{s.name}</div>
-                      <div className="text-xs text-muted-foreground">Reg: {s.registration_number ?? "—"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Reg: {s.registration_number ?? "—"}
+                      </div>
                     </div>
                     <div className="flex gap-2 text-xs text-muted-foreground">
-                      <span className="inline-flex items-center gap-1"><Bus className="size-3" /> Manage fleet →</span>
+                      <span className="inline-flex items-center gap-1">
+                        <Bus className="size-3" /> Manage fleet →
+                      </span>
                     </div>
                   </Link>
                 </li>
@@ -162,7 +202,8 @@ function SaccoHome() {
           <Card icon={<Wallet />} title="Revenue today" value={`KSh ${totals.revenue}`} />
         </div>
         <p className="text-xs text-muted-foreground">
-          Tip: open a SACCO above to add vehicles and assign drivers (by their sign-up phone number).
+          Tip: open a SACCO above to add vehicles and assign drivers (by their sign-up phone
+          number).
         </p>
       </div>
     </AppShell>
@@ -173,7 +214,9 @@ function Card({ icon, title, value }: { icon: React.ReactNode; title: string; va
   return (
     <div className="rounded-xl border border-border bg-surface p-5">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span className="grid size-7 place-items-center rounded-md bg-accent/30 text-accent-foreground">{icon}</span>
+        <span className="grid size-7 place-items-center rounded-md bg-accent/30 text-accent-foreground">
+          {icon}
+        </span>
         {title}
       </div>
       <div className="mt-3 font-display text-3xl font-bold">{value}</div>

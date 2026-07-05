@@ -9,9 +9,26 @@ import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
 type Vehicle = { id: string; plate_number: string; capacity: number };
 type RouteRow = { id: string; name: string; base_fare: number | null };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
-type ActiveTrip = { id: string; fare: number; status: string; route_id: string; vehicle_id: string };
-type BookingWithProfile = { id: string; seat_number: number | null; status: string; passenger_id: string };
-type AlertRow = { id: string; type: string; message: string | null; created_at: string; passenger_id: string };
+type ActiveTrip = {
+  id: string;
+  fare: number;
+  status: string;
+  route_id: string;
+  vehicle_id: string;
+};
+type BookingWithProfile = {
+  id: string;
+  seat_number: number | null;
+  status: string;
+  passenger_id: string;
+};
+type AlertRow = {
+  id: string;
+  type: string;
+  message: string | null;
+  created_at: string;
+  passenger_id: string;
+};
 
 export const Route = createFileRoute("/_authenticated/drive/trip")({
   component: DriverTrip,
@@ -57,9 +74,20 @@ function DriverTrip() {
     if (!trip) return;
     (async () => {
       const [{ data: s }, { data: b }, { data: a }] = await Promise.all([
-        supabase.from("stages").select("id,name,lat,lng,order_index").eq("route_id", trip.route_id).order("order_index"),
-        supabase.from("bookings").select("id,seat_number,status,passenger_id").eq("trip_id", trip.id),
-        supabase.from("alerts").select("id,type,message,created_at,passenger_id").eq("trip_id", trip.id).order("created_at", { ascending: false }),
+        supabase
+          .from("stages")
+          .select("id,name,lat,lng,order_index")
+          .eq("route_id", trip.route_id)
+          .order("order_index"),
+        supabase
+          .from("bookings")
+          .select("id,seat_number,status,passenger_id")
+          .eq("trip_id", trip.id),
+        supabase
+          .from("alerts")
+          .select("id,type,message,created_at,passenger_id")
+          .eq("trip_id", trip.id)
+          .order("created_at", { ascending: false }),
       ]);
       setStages((s ?? []) as Stage[]);
       setBookings((b ?? []) as BookingWithProfile[]);
@@ -68,14 +96,25 @@ function DriverTrip() {
 
     const ch = supabase
       .channel(`trip-${trip.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookings", filter: `trip_id=eq.${trip.id}` }, async () => {
-        const { data } = await supabase.from("bookings").select("id,seat_number,status,passenger_id").eq("trip_id", trip.id);
-        setBookings((data ?? []) as BookingWithProfile[]);
-      })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "alerts", filter: `trip_id=eq.${trip.id}` }, (payload) => {
-        setAlerts((prev) => [payload.new as AlertRow, ...prev]);
-        toast.info(`Passenger alert: ${(payload.new as AlertRow).type}`);
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings", filter: `trip_id=eq.${trip.id}` },
+        async () => {
+          const { data } = await supabase
+            .from("bookings")
+            .select("id,seat_number,status,passenger_id")
+            .eq("trip_id", trip.id);
+          setBookings((data ?? []) as BookingWithProfile[]);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "alerts", filter: `trip_id=eq.${trip.id}` },
+        (payload) => {
+          setAlerts((prev) => [payload.new as AlertRow, ...prev]);
+          toast.info(`Passenger alert: ${(payload.new as AlertRow).type}`);
+        },
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
@@ -122,7 +161,10 @@ function DriverTrip() {
 
   async function endTrip() {
     if (!trip) return;
-    await supabase.from("trips").update({ status: "completed", ended_at: new Date().toISOString() }).eq("id", trip.id);
+    await supabase
+      .from("trips")
+      .update({ status: "completed", ended_at: new Date().toISOString() })
+      .eq("id", trip.id);
     toast.success("Trip ended");
     setTrip(null);
     navigate({ to: "/drive" });
@@ -152,7 +194,14 @@ function DriverTrip() {
     const nextOrder = stages.length ? Math.max(...stages.map((s) => s.order_index)) + 1 : 0;
     const { data, error } = await supabase
       .from("stages")
-      .insert({ route_id: trip.route_id, name: newStageName.trim(), lat, lng, order_index: nextOrder, added_by: u.user.id })
+      .insert({
+        route_id: trip.route_id,
+        name: newStageName.trim(),
+        lat,
+        lng,
+        order_index: nextOrder,
+        added_by: u.user.id,
+      })
       .select("id,name,lat,lng,order_index")
       .single();
     if (error) return toast.error(error.message);
@@ -164,9 +213,15 @@ function DriverTrip() {
 
   if (!trip) {
     return (
-      <AppShell title="Start a trip" subtitle="Pick your vehicle and route to begin broadcasting to passengers.">
+      <AppShell
+        title="Start a trip"
+        subtitle="Pick your vehicle and route to begin broadcasting to passengers."
+      >
         <div className="mb-4">
-          <Link to="/drive" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Link
+            to="/drive"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+          >
             <ArrowLeft className="size-4" /> Back
           </Link>
         </div>
@@ -179,7 +234,12 @@ function DriverTrip() {
         >
           <label className="text-sm">
             <span className="mb-1 block font-medium">Vehicle</span>
-            <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} required className="w-full rounded-md border border-input bg-background px-3 py-2">
+            <select
+              value={vehicleId}
+              onChange={(e) => setVehicleId(e.target.value)}
+              required
+              className="w-full rounded-md border border-input bg-background px-3 py-2"
+            >
               <option value="">— select —</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>
@@ -200,7 +260,12 @@ function DriverTrip() {
                 }}
               />
             </span>
-            <select value={routeId} onChange={(e) => setRouteId(e.target.value)} required className="w-full rounded-md border border-input bg-background px-3 py-2">
+            <select
+              value={routeId}
+              onChange={(e) => setRouteId(e.target.value)}
+              required
+              className="w-full rounded-md border border-input bg-background px-3 py-2"
+            >
               <option value="">— select —</option>
               {routes.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -219,7 +284,9 @@ function DriverTrip() {
               required
               className="w-full rounded-md border border-input bg-background px-3 py-2"
             />
-            <span className="mt-1 block text-xs text-muted-foreground">Agree with the conductor, then set it here.</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Agree with the conductor, then set it here.
+            </span>
           </label>
           <button className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground">
             <Play className="size-4" /> Start trip
@@ -235,10 +302,7 @@ function DriverTrip() {
     <AppShell title="Trip in progress" subtitle="Your live location is broadcasting to passengers.">
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <div className="grid gap-3">
-          <RouteMap
-            stages={stages}
-            onMapClick={addStage}
-          />
+          <RouteMap stages={stages} onMapClick={addStage} />
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
             <button
               onClick={() => setAddStageMode((v) => !v)}
@@ -266,8 +330,18 @@ function DriverTrip() {
                 <div className="font-display text-3xl font-bold">KSh {trip.fare}</div>
               </div>
               <div className="flex gap-1">
-                <button onClick={() => updateFare(Math.max(10, trip.fare - 10))} className="rounded-md border border-border px-2 py-1 text-sm">−10</button>
-                <button onClick={() => updateFare(trip.fare + 10)} className="rounded-md border border-border px-2 py-1 text-sm">+10</button>
+                <button
+                  onClick={() => updateFare(Math.max(10, trip.fare - 10))}
+                  className="rounded-md border border-border px-2 py-1 text-sm"
+                >
+                  −10
+                </button>
+                <button
+                  onClick={() => updateFare(trip.fare + 10)}
+                  className="rounded-md border border-border px-2 py-1 text-sm"
+                >
+                  +10
+                </button>
               </div>
             </div>
             <button
@@ -275,7 +349,9 @@ function DriverTrip() {
               className="mt-3 w-full rounded-md border border-border px-3 py-2 text-sm font-medium"
             >
               <DollarSign className="mr-1 inline size-4" />
-              {trip.status === "boarding" ? "Boarding → mark in transit" : "In transit → back to boarding"}
+              {trip.status === "boarding"
+                ? "Boarding → mark in transit"
+                : "In transit → back to boarding"}
             </button>
             <button
               onClick={endTrip}
@@ -292,7 +368,10 @@ function DriverTrip() {
             ) : (
               <ul className="mt-3 grid gap-1 text-sm">
                 {bookings.map((b) => (
-                  <li key={b.id} className="flex items-center justify-between rounded-md bg-background px-3 py-1.5">
+                  <li
+                    key={b.id}
+                    className="flex items-center justify-between rounded-md bg-background px-3 py-1.5"
+                  >
                     <span>Passenger · seat {b.seat_number ?? "—"}</span>
                     <span className="text-xs text-muted-foreground">{b.status}</span>
                   </li>
@@ -308,11 +387,16 @@ function DriverTrip() {
             ) : (
               <ul className="mt-3 grid gap-2 text-sm">
                 {alerts.slice(0, 5).map((a) => (
-                  <li key={a.id} className="flex items-start gap-2 rounded-md bg-background px-3 py-2">
+                  <li
+                    key={a.id}
+                    className="flex items-start gap-2 rounded-md bg-background px-3 py-2"
+                  >
                     <Bell className="mt-0.5 size-4 text-accent" />
                     <div>
                       <div className="font-medium">{a.type.replace("_", " ")}</div>
-                      {a.message && <div className="text-xs text-muted-foreground">{a.message}</div>}
+                      {a.message && (
+                        <div className="text-xs text-muted-foreground">{a.message}</div>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -347,7 +431,10 @@ function NewRouteButton({ onCreated }: { onCreated: (r: RouteRow) => void }) {
     if (!origin.trim() || !destination.trim()) return toast.error("Enter origin and destination");
     setBusy(true);
     const { data: u } = await supabase.auth.getUser();
-    if (!u.user) { setBusy(false); return; }
+    if (!u.user) {
+      setBusy(false);
+      return;
+    }
     await supabase.rpc("claim_role", { _role: "driver" });
     const name = `${origin.trim()} → ${destination.trim()}`;
     const { data, error } = await supabase
@@ -365,29 +452,59 @@ function NewRouteButton({ onCreated }: { onCreated: (r: RouteRow) => void }) {
     if (error) return toast.error(error.message);
     toast.success("Route created");
     onCreated(data as RouteRow);
-    setOrigin(""); setDestination(""); setBaseFare(""); setOpen(false);
+    setOrigin("");
+    setDestination("");
+    setBaseFare("");
+    setOpen(false);
   }
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-normal">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-normal"
+      >
         <Plus className="size-3" /> New route
       </button>
     );
   }
   return (
     <span className="flex flex-wrap items-center gap-1">
-      <input value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="From (e.g. Utawala)"
-        className="w-32 rounded-md border border-input bg-background px-2 py-1 text-xs" />
-      <input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="To (e.g. CBD)"
-        className="w-32 rounded-md border border-input bg-background px-2 py-1 text-xs" />
-      <input value={baseFare} onChange={(e) => setBaseFare(e.target.value)} placeholder="Fare"
-        type="number" className="w-14 rounded-md border border-input bg-background px-2 py-1 text-xs" />
-      <button type="button" disabled={busy} onClick={create}
-        className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60">
+      <input
+        value={origin}
+        onChange={(e) => setOrigin(e.target.value)}
+        placeholder="From (e.g. Utawala)"
+        className="w-32 rounded-md border border-input bg-background px-2 py-1 text-xs"
+      />
+      <input
+        value={destination}
+        onChange={(e) => setDestination(e.target.value)}
+        placeholder="To (e.g. CBD)"
+        className="w-32 rounded-md border border-input bg-background px-2 py-1 text-xs"
+      />
+      <input
+        value={baseFare}
+        onChange={(e) => setBaseFare(e.target.value)}
+        placeholder="Fare"
+        type="number"
+        className="w-14 rounded-md border border-input bg-background px-2 py-1 text-xs"
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={create}
+        className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-60"
+      >
         Save
       </button>
-      <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted-foreground">✕</button>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="text-xs text-muted-foreground"
+      >
+        ✕
+      </button>
     </span>
   );
 }
@@ -409,18 +526,25 @@ function JoinSaccoPanel() {
     setSaccos((s ?? []) as { id: string; name: string }[]);
     setMyReqs((r ?? []) as { sacco_id: string; status: string }[]);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   async function submit() {
     if (!saccoId) return toast.error("Pick a SACCO first");
     setBusy(true);
     const { data: u } = await supabase.auth.getUser();
-    if (!u.user) { setBusy(false); return; }
+    if (!u.user) {
+      setBusy(false);
+      return;
+    }
     await supabase.rpc("claim_role", { _role: "driver" });
-    const { error } = await supabase.from("driver_join_requests").upsert(
-      { driver_id: u.user.id, sacco_id: saccoId, note: note.trim() || null, status: "pending" },
-      { onConflict: "driver_id,sacco_id" },
-    );
+    const { error } = await supabase
+      .from("driver_join_requests")
+      .upsert(
+        { driver_id: u.user.id, sacco_id: saccoId, note: note.trim() || null, status: "pending" },
+        { onConflict: "driver_id,sacco_id" },
+      );
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Request sent — the SACCO owner will approve it");
@@ -433,32 +557,55 @@ function JoinSaccoPanel() {
   return (
     <div className="mt-2 rounded-lg border border-dashed border-border bg-secondary/60 p-3 text-xs">
       <div className="font-medium text-foreground">No vehicle yet? Join a SACCO</div>
-      <p className="mt-1 text-muted-foreground">Register as a driver by requesting to join a SACCO. Once approved they can assign you a vehicle.</p>
+      <p className="mt-1 text-muted-foreground">
+        Register as a driver by requesting to join a SACCO. Once approved they can assign you a
+        vehicle.
+      </p>
       {myReqs.length > 0 && (
         <ul className="mt-2 grid gap-1">
           {myReqs.map((r) => (
-            <li key={r.sacco_id} className="flex items-center justify-between rounded-md bg-background px-2 py-1">
+            <li
+              key={r.sacco_id}
+              className="flex items-center justify-between rounded-md bg-background px-2 py-1"
+            >
               <span>{nameFor(r.sacco_id)}</span>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium capitalize ${r.status === "approved" ? "bg-primary text-primary-foreground" : r.status === "rejected" ? "bg-destructive text-destructive-foreground" : "bg-accent text-accent-foreground"}`}>{r.status}</span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium capitalize ${r.status === "approved" ? "bg-primary text-primary-foreground" : r.status === "rejected" ? "bg-destructive text-destructive-foreground" : "bg-accent text-accent-foreground"}`}
+              >
+                {r.status}
+              </span>
             </li>
           ))}
         </ul>
       )}
       <div className="mt-2 grid gap-1.5">
-        <select value={saccoId} onChange={(e) => setSaccoId(e.target.value)} className="w-full rounded-md border border-input bg-background px-2 py-1.5">
+        <select
+          value={saccoId}
+          onChange={(e) => setSaccoId(e.target.value)}
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+        >
           <option value="">— pick a SACCO —</option>
-          {saccos.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          {saccos.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
         </select>
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional, e.g. license #)"
-          className="w-full rounded-md border border-input bg-background px-2 py-1.5" />
-        <button type="button" disabled={busy} onClick={submit}
-          className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-60">
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (optional, e.g. license #)"
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+        />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={submit}
+          className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-60"
+        >
           {busy ? "Sending…" : "Send join request"}
         </button>
       </div>
     </div>
   );
 }
-
-
-

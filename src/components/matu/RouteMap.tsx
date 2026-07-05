@@ -49,8 +49,9 @@ export function RouteMap({
   // Draw stages + polyline
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready || !(window as any).google) return;
-    const g = (window as any).google as typeof google;
+    const windowWithGoogle = window as Window & { google?: typeof google };
+    if (!map || !ready || !windowWithGoogle.google) return;
+    const g = windowWithGoogle.google;
     stageMarkers.current.forEach((m) => m.setMap(null));
     stageMarkers.current = stages.map(
       (s, i) =>
@@ -78,8 +79,9 @@ export function RouteMap({
   // Live vehicles
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready || !(window as any).google) return;
-    const g = (window as any).google as typeof google;
+    const windowWithGoogle = window as Window & { google?: typeof google };
+    if (!map || !ready || !windowWithGoogle.google) return;
+    const g = windowWithGoogle.google;
     const seen = new Set<string>();
     vehicles.forEach((v) => {
       seen.add(v.id);
@@ -111,5 +113,7 @@ export function RouteMap({
     });
   }, [vehicles, ready]);
 
-  return <div ref={ref} className={className ?? "h-[420px] w-full rounded-2xl border border-border"} />;
+  return (
+    <div ref={ref} className={className ?? "h-[420px] w-full rounded-2xl border border-border"} />
+  );
 }

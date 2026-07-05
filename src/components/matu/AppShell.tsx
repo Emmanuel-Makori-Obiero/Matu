@@ -32,7 +32,10 @@ export function AppShell({
     navigate({ to: "/auth", replace: true });
   }
 
-  async function switchTo(to: "/ride" | "/drive" | "/fleet", role: "passenger" | "driver" | "sacco_admin") {
+  async function switchTo(
+    to: "/ride" | "/drive" | "/fleet",
+    role: "passenger" | "driver" | "sacco_admin",
+  ) {
     // Claim role (idempotent) so RLS-protected actions work in that dashboard.
     await supabase.rpc("claim_role", { _role: role });
     navigate({ to });
@@ -40,7 +43,9 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-background">
-      <header className={`border-b border-border ${accent === "accent" ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground"}`}>
+      <header
+        className={`border-b border-border ${accent === "accent" ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground"}`}
+      >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
           <Link to="/" className="flex items-center gap-2">
             <span className="relative grid size-8 place-items-center overflow-hidden rounded-lg bg-surface/15">

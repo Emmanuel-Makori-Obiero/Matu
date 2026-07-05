@@ -10,10 +10,7 @@ export const ROLE_HOME: Record<AppRole, string> = {
 };
 
 export async function fetchPrimaryRole(userId: string): Promise<AppRole> {
-  const { data, error } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId);
+  const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId);
   if (error || !data || data.length === 0) return "passenger";
   const order: AppRole[] = ["sacco_admin", "driver", "conductor", "passenger"];
   for (const r of order) {
