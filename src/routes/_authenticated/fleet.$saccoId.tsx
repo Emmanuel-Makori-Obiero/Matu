@@ -18,6 +18,7 @@ type Vehicle = {
 type Sacco = { id: string; name: string };
 type SaccoRoute = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
 type DriverRow = { driver_id: string | null; full_name: string | null; phone: string | null; vehicle_id: string; plate_number: string; status: string };
+type JoinRequest = { id: string; driver_id: string; full_name: string | null; phone: string | null; note: string | null; status: string; created_at: string };
 type LiveTrip = {
   id: string;
   fare: number;
@@ -50,6 +51,7 @@ function FleetDetail() {
   const [liveTrips, setLiveTrips] = useState<LiveTrip[]>([]);
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [routes, setRoutes] = useState<SaccoRoute[]>([]);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [addingRoute, setAddingRoute] = useState(false);
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
@@ -66,7 +68,7 @@ function FleetDetail() {
   }
 
   async function load() {
-    const [{ data: s }, { data: v }, { data: d }, { data: r }] = await Promise.all([
+    const [{ data: s }, { data: v }, { data: d }, { data: r }, { data: jr }] = await Promise.all([
       supabase.from("saccos").select("id,name").eq("id", saccoId).maybeSingle(),
       supabase
         .from("vehicles")
@@ -75,12 +77,14 @@ function FleetDetail() {
         .order("plate_number"),
       supabase.rpc("get_my_sacco_drivers", { _sacco_id: saccoId }),
       supabase.from("routes").select("id,name,origin,destination,base_fare").eq("sacco_id", saccoId).order("name"),
+      supabase.rpc("list_sacco_join_requests", { _sacco_id: saccoId }),
     ]);
     if (s) setSacco(s as Sacco);
     const vs = (v ?? []) as Vehicle[];
     setVehicles(vs);
     setDrivers((d ?? []) as DriverRow[]);
     setRoutes((r ?? []) as SaccoRoute[]);
+    setJoinRequests((jr ?? []) as JoinRequest[]);
     await loadLive(vs.map((x) => x.id));
   }
   useEffect(() => {
@@ -153,6 +157,22 @@ function FleetDetail() {
     if (error) return toast.error(error.message);
     setRoutes((prev) => prev.map((r) => (r.id === routeId ? { ...r, base_fare: next } : r)));
   }
+
+
+
+  async function approveJoin(id: string) {
+    const { error } = await supabase.rpc("approve_driver_request", { _request_id: id });
+    if (error) return toast.error(error.message);
+    toast.success("Driver approved — assign them a vehicle below");
+    load();
+  }
+  async function rejectJoin(id: string) {
+    const { error } = await supabase.from("driver_join_requests").update({ status: "rejected" }).eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success("Request rejected");
+    load();
+  }
+
 
   const mapVehicles: MapVehicle[] = liveTrips
     .filter((t) => t.current_lat && t.current_lng)
@@ -265,6 +285,39 @@ function FleetDetail() {
           </ul>
         )}
       </section>
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <h2 className="font-display text-xl font-semibold">
+          Driver requests ({joinRequests.filter((r) => r.status === "pending").length} pending)
+        </h2>
+        {joinRequests.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No requests yet. Drivers can request to join your SACCO from their dashboard.</p>
+        ) : (
+          <ul className="mt-3 grid gap-2">
+            {joinRequests.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-background p-3 text-sm">
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{r.full_name ?? "Driver"}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {r.phone ?? "no phone"} · {new Date(r.created_at).toLocaleDateString()}
+                    {r.note ? ` · "${r.note}"` : ""}
+                  </div>
+                </div>
+                {r.status === "pending" ? (
+                  <div className="flex gap-2">
+                    <button onClick={() => approveJoin(r.id)} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Approve</button>
+                    <button onClick={() => rejectJoin(r.id)} className="rounded-md border border-border px-3 py-1.5 text-xs">Reject</button>
+                  </div>
+                ) : (
+                  <span className={`rounded-md px-2 py-1 text-xs capitalize ${r.status === "approved" ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{r.status}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+
 
       <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <h2 className="font-display text-xl font-semibold">Drivers</h2>

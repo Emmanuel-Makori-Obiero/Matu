@@ -110,6 +110,44 @@ export type Database = {
           },
         ]
       }
+      driver_join_requests: {
+        Row: {
+          created_at: string
+          driver_id: string
+          id: string
+          note: string | null
+          sacco_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          id?: string
+          note?: string | null
+          sacco_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          id?: string
+          note?: string | null
+          sacco_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_join_requests_sacco_id_fkey"
+            columns: ["sacco_id"]
+            isOneToOne: false
+            referencedRelation: "saccos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       escrow_transactions: {
         Row: {
           created_at: string
@@ -460,6 +498,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      approve_driver_request: {
+        Args: { _request_id: string }
+        Returns: undefined
+      }
       can_manage_route: { Args: { _route_id: string }; Returns: boolean }
       claim_role: {
         Args: { _role: Database["public"]["Enums"]["app_role"] }
@@ -512,6 +554,25 @@ export type Database = {
       }
       is_sacco_owner: { Args: { _sacco_id: string }; Returns: boolean }
       is_trip_driver: { Args: { _trip_id: string }; Returns: boolean }
+      list_public_saccos: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+        }[]
+      }
+      list_sacco_join_requests: {
+        Args: { _sacco_id: string }
+        Returns: {
+          created_at: string
+          driver_id: string
+          full_name: string
+          id: string
+          note: string
+          phone: string
+          status: string
+        }[]
+      }
       owns_vehicle_sacco: { Args: { _vehicle_id: string }; Returns: boolean }
       vehicle_has_active_trip: {
         Args: { _vehicle_id: string }

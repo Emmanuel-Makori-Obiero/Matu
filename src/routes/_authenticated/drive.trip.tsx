@@ -187,11 +187,7 @@ function DriverTrip() {
                 </option>
               ))}
             </select>
-            {vehicles.length === 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                No vehicles yet. Ask your SACCO to assign one to you.
-              </p>
-            )}
+            {vehicles.length === 0 && <JoinSaccoPanel />}
           </label>
           <label className="text-sm">
             <span className="mb-1 flex items-center justify-between font-medium">
@@ -395,5 +391,74 @@ function NewRouteButton({ onCreated }: { onCreated: (r: RouteRow) => void }) {
     </span>
   );
 }
+
+function JoinSaccoPanel() {
+  const [saccos, setSaccos] = useState<{ id: string; name: string }[]>([]);
+  const [saccoId, setSaccoId] = useState("");
+  const [note, setNote] = useState("");
+  const [myReqs, setMyReqs] = useState<{ sacco_id: string; status: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    const [{ data: s }, { data: r }] = await Promise.all([
+      supabase.rpc("list_public_saccos"),
+      supabase.from("driver_join_requests").select("sacco_id,status").eq("driver_id", u.user.id),
+    ]);
+    setSaccos((s ?? []) as { id: string; name: string }[]);
+    setMyReqs((r ?? []) as { sacco_id: string; status: string }[]);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function submit() {
+    if (!saccoId) return toast.error("Pick a SACCO first");
+    setBusy(true);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) { setBusy(false); return; }
+    await supabase.rpc("claim_role", { _role: "driver" });
+    const { error } = await supabase.from("driver_join_requests").upsert(
+      { driver_id: u.user.id, sacco_id: saccoId, note: note.trim() || null, status: "pending" },
+      { onConflict: "driver_id,sacco_id" },
+    );
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Request sent — the SACCO owner will approve it");
+    setNote("");
+    load();
+  }
+
+  const nameFor = (id: string) => saccos.find((s) => s.id === id)?.name ?? "SACCO";
+
+  return (
+    <div className="mt-2 rounded-lg border border-dashed border-border bg-secondary/60 p-3 text-xs">
+      <div className="font-medium text-foreground">No vehicle yet? Join a SACCO</div>
+      <p className="mt-1 text-muted-foreground">Register as a driver by requesting to join a SACCO. Once approved they can assign you a vehicle.</p>
+      {myReqs.length > 0 && (
+        <ul className="mt-2 grid gap-1">
+          {myReqs.map((r) => (
+            <li key={r.sacco_id} className="flex items-center justify-between rounded-md bg-background px-2 py-1">
+              <span>{nameFor(r.sacco_id)}</span>
+              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium capitalize ${r.status === "approved" ? "bg-primary text-primary-foreground" : r.status === "rejected" ? "bg-destructive text-destructive-foreground" : "bg-accent text-accent-foreground"}`}>{r.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-2 grid gap-1.5">
+        <select value={saccoId} onChange={(e) => setSaccoId(e.target.value)} className="w-full rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">— pick a SACCO —</option>
+          {saccos.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional, e.g. license #)"
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5" />
+        <button type="button" disabled={busy} onClick={submit}
+          className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-60">
+          {busy ? "Sending…" : "Send join request"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 
