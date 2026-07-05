@@ -29,9 +29,11 @@ function RouteDetail() {
   const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
   const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
+  const [myBookings, setMyBookings] = useState<{ trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]>([]);
 
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
+
 
   useEffect(() => {
     (async () => {
