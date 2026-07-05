@@ -50,6 +50,7 @@ function FleetDetail() {
   const [liveTrips, setLiveTrips] = useState<LiveTrip[]>([]);
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [routes, setRoutes] = useState<SaccoRoute[]>([]);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [addingRoute, setAddingRoute] = useState(false);
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
