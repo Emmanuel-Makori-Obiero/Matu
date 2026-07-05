@@ -187,11 +187,7 @@ function DriverTrip() {
                 </option>
               ))}
             </select>
-            {vehicles.length === 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                No vehicles yet. Ask your SACCO to assign one to you.
-              </p>
-            )}
+            {vehicles.length === 0 && <JoinSaccoPanel />}
           </label>
           <label className="text-sm">
             <span className="mb-1 flex items-center justify-between font-medium">
