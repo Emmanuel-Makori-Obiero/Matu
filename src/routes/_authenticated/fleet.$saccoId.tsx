@@ -156,7 +156,20 @@ function FleetDetail() {
     const { error } = await supabase.from("routes").update({ base_fare: next }).eq("id", routeId);
     if (error) return toast.error(error.message);
     setRoutes((prev) => prev.map((r) => (r.id === routeId ? { ...r, base_fare: next } : r)));
+
+  async function approveJoin(id: string) {
+    const { error } = await supabase.rpc("approve_driver_request", { _request_id: id });
+    if (error) return toast.error(error.message);
+    toast.success("Driver approved — assign them a vehicle below");
+    load();
   }
+  async function rejectJoin(id: string) {
+    const { error } = await supabase.from("driver_join_requests").update({ status: "rejected" }).eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success("Request rejected");
+    load();
+  }
+
 
   const mapVehicles: MapVehicle[] = liveTrips
     .filter((t) => t.current_lat && t.current_lng)
