@@ -70,13 +70,14 @@ function PassengerHome() {
         const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setMyLoc(p);
         // Find nearest stage name to prefill From
-        let best: { name: string; d: number } | null = null;
+        let bestName: string | null = null;
+        let bestD = Infinity;
         stages.forEach((s) => {
           const d = (s.lat - p.lat) ** 2 + (s.lng - p.lng) ** 2;
-          if (!best || d < best.d) best = { name: s.name, d };
+          if (d < bestD) { bestD = d; bestName = s.name; }
         });
-        if (best) setFrom(best.name);
-        toast.success(`Pickup set to ${best?.name ?? "your location"}`, { id: "geo" });
+        if (bestName) setFrom(bestName);
+        toast.success(`Pickup set to ${bestName ?? "your location"}`, { id: "geo" });
       },
       () => toast.error("Could not get location", { id: "geo" }),
       { enableHighAccuracy: true, timeout: 10000 },
