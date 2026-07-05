@@ -18,6 +18,7 @@ type Vehicle = {
 type Sacco = { id: string; name: string };
 type SaccoRoute = { id: string; name: string; origin: string; destination: string; base_fare: number | null };
 type DriverRow = { driver_id: string | null; full_name: string | null; phone: string | null; vehicle_id: string; plate_number: string; status: string };
+type JoinRequest = { id: string; driver_id: string; full_name: string | null; phone: string | null; note: string | null; status: string; created_at: string };
 type LiveTrip = {
   id: string;
   fare: number;
