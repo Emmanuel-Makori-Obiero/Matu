@@ -116,6 +116,7 @@ export type Database = {
           driver_id: string
           id: string
           note: string | null
+          phone: string | null
           sacco_id: string
           status: string
           updated_at: string
@@ -125,6 +126,7 @@ export type Database = {
           driver_id: string
           id?: string
           note?: string | null
+          phone?: string | null
           sacco_id: string
           status?: string
           updated_at?: string
@@ -134,6 +136,7 @@ export type Database = {
           driver_id?: string
           id?: string
           note?: string | null
+          phone?: string | null
           sacco_id?: string
           status?: string
           updated_at?: string
