@@ -548,6 +548,12 @@ export type Database = {
           current_lng: number
         }[]
       }
+      get_trip_taken_seats: {
+        Args: { _trip_id: string }
+        Returns: {
+          seat_number: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
