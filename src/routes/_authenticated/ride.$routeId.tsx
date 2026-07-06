@@ -297,7 +297,7 @@ function RouteDetail() {
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
-                          onClick={() => setSelectedTrip(t.id)}
+                          onClick={() => openSeatPicker(t.id)}
                           className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
                         >
                           <Users className="mr-1 inline size-3" /> Book seat
@@ -317,7 +317,7 @@ function RouteDetail() {
                       </div>
 
                       {selectedTrip === t.id && (
-                        <div className="mt-3 grid gap-2 border-t border-border pt-3">
+                        <div className="mt-3 grid gap-3 border-t border-border pt-3">
                           <StageSelect
                             stages={stages}
                             value={pickup}
@@ -330,15 +330,25 @@ function RouteDetail() {
                             onChange={setDropoff}
                             label="Drop-off"
                           />
+                          <SeatPicker
+                            capacity={v?.capacity ?? 14}
+                            taken={takenSeats[t.id] ?? []}
+                            selected={selectedSeat}
+                            onSelect={setSelectedSeat}
+                          />
                           <div className="flex gap-2">
                             <button
                               onClick={() => bookSeat(t.id)}
-                              className="flex-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                              className="flex-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                              disabled={!selectedSeat || !pickup || !dropoff}
                             >
-                              Confirm booking
+                              Confirm seat {selectedSeat ?? ""}
                             </button>
                             <button
-                              onClick={() => setSelectedTrip(null)}
+                              onClick={() => {
+                                setSelectedTrip(null);
+                                setSelectedSeat(null);
+                              }}
                               className="rounded-md border border-border px-3 py-1.5 text-xs"
                             >
                               Cancel
