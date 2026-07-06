@@ -247,7 +247,17 @@ function DriverTrip() {
                 </option>
               ))}
             </select>
-            {vehicles.length === 0 && <JoinSaccoPanel />}
+            {vehicles.length === 0 && (
+              <div className="mt-3 grid gap-3">
+                <RegisterOwnVehicle
+                  onCreated={(v) => {
+                    setVehicles((prev) => [...prev, v]);
+                    setVehicleId(v.id);
+                  }}
+                />
+                <JoinSaccoPanel />
+              </div>
+            )}
           </label>
           <label className="text-sm">
             <span className="mb-1 flex items-center justify-between font-medium">
