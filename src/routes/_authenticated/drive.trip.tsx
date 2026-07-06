@@ -247,7 +247,17 @@ function DriverTrip() {
                 </option>
               ))}
             </select>
-            {vehicles.length === 0 && <JoinSaccoPanel />}
+            {vehicles.length === 0 && (
+              <div className="mt-3 grid gap-3">
+                <RegisterOwnVehicle
+                  onCreated={(v) => {
+                    setVehicles((prev) => [...prev, v]);
+                    setVehicleId(v.id);
+                  }}
+                />
+                <JoinSaccoPanel />
+              </div>
+            )}
           </label>
           <label className="text-sm">
             <span className="mb-1 flex items-center justify-between font-medium">
@@ -513,25 +523,30 @@ function JoinSaccoPanel() {
   const [saccos, setSaccos] = useState<{ id: string; name: string }[]>([]);
   const [saccoId, setSaccoId] = useState("");
   const [note, setNote] = useState("");
+  const [phone, setPhone] = useState("");
   const [myReqs, setMyReqs] = useState<{ sacco_id: string; status: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
   async function load() {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
-    const [{ data: s }, { data: r }] = await Promise.all([
+    const [{ data: s }, { data: r }, { data: p }] = await Promise.all([
       supabase.rpc("list_public_saccos"),
       supabase.from("driver_join_requests").select("sacco_id,status").eq("driver_id", u.user.id),
+      supabase.from("profiles").select("phone").eq("id", u.user.id).maybeSingle(),
     ]);
     setSaccos((s ?? []) as { id: string; name: string }[]);
     setMyReqs((r ?? []) as { sacco_id: string; status: string }[]);
+    if (p?.phone && !phone) setPhone(p.phone);
   }
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function submit() {
     if (!saccoId) return toast.error("Pick a SACCO first");
+    if (!phone.trim()) return toast.error("Enter your phone number so the SACCO can reach you");
     setBusy(true);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) {
@@ -539,15 +554,21 @@ function JoinSaccoPanel() {
       return;
     }
     await supabase.rpc("claim_role", { _role: "driver" });
-    const { error } = await supabase
-      .from("driver_join_requests")
-      .upsert(
-        { driver_id: u.user.id, sacco_id: saccoId, note: note.trim() || null, status: "pending" },
-        { onConflict: "driver_id,sacco_id" },
-      );
+    // Keep the profile phone in sync so it appears everywhere
+    await supabase.from("profiles").update({ phone: phone.trim() }).eq("id", u.user.id);
+    const { error } = await supabase.from("driver_join_requests").upsert(
+      {
+        driver_id: u.user.id,
+        sacco_id: saccoId,
+        phone: phone.trim(),
+        note: note.trim() || null,
+        status: "pending",
+      },
+      { onConflict: "driver_id,sacco_id" },
+    );
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success("Request sent — the SACCO owner will approve it");
+    toast.success("Request sent — the SACCO owner will see your phone and approve it");
     setNote("");
     load();
   }
@@ -555,11 +576,10 @@ function JoinSaccoPanel() {
   const nameFor = (id: string) => saccos.find((s) => s.id === id)?.name ?? "SACCO";
 
   return (
-    <div className="mt-2 rounded-lg border border-dashed border-border bg-secondary/60 p-3 text-xs">
-      <div className="font-medium text-foreground">No vehicle yet? Join a SACCO</div>
+    <div className="rounded-lg border border-dashed border-border bg-secondary/60 p-3 text-xs">
+      <div className="font-medium text-foreground">Prefer joining a SACCO?</div>
       <p className="mt-1 text-muted-foreground">
-        Register as a driver by requesting to join a SACCO. Once approved they can assign you a
-        vehicle.
+        Request to join a SACCO and get assigned a vehicle once approved.
       </p>
       {myReqs.length > 0 && (
         <ul className="mt-2 grid gap-1">
@@ -592,6 +612,12 @@ function JoinSaccoPanel() {
           ))}
         </select>
         <input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="Your phone (e.g. 0712 345 678)"
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+        />
+        <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Note (optional, e.g. license #)"
@@ -604,6 +630,105 @@ function JoinSaccoPanel() {
           className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-60"
         >
           {busy ? "Sending…" : "Send join request"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RegisterOwnVehicle({ onCreated }: { onCreated: (v: Vehicle) => void }) {
+  const [open, setOpen] = useState(false);
+  const [plate, setPlate] = useState("");
+  const [capacity, setCapacity] = useState("14");
+  const [type, setType] = useState<"matatu_14" | "matatu_25" | "bus_33" | "bus_51">("matatu_14");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!plate.trim()) return toast.error("Enter a plate number");
+    setBusy(true);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
+      setBusy(false);
+      return;
+    }
+    await supabase.rpc("claim_role", { _role: "driver" });
+    const { data, error } = await supabase
+      .from("vehicles")
+      .insert({
+        plate_number: plate.trim().toUpperCase(),
+        capacity: Number(capacity),
+        vehicle_type: type,
+        driver_id: u.user.id,
+        sacco_id: null,
+      })
+      .select("id,plate_number,capacity")
+      .single();
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Vehicle registered");
+    onCreated(data as Vehicle);
+    setPlate("");
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-lg border border-dashed border-border bg-secondary/60 p-3 text-left text-xs"
+      >
+        <div className="font-medium text-foreground">Register your own vehicle</div>
+        <div className="mt-0.5 text-muted-foreground">
+          Independent driver? Add your matatu directly (no SACCO required).
+        </div>
+      </button>
+    );
+  }
+  return (
+    <div className="grid gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-xs">
+      <input
+        value={plate}
+        onChange={(e) => setPlate(e.target.value)}
+        placeholder="Plate (e.g. KDA 123A)"
+        className="rounded-md border border-input bg-background px-2 py-1.5"
+      />
+      <div className="flex gap-2">
+        <select
+          value={type}
+          onChange={(e) =>
+            setType(e.target.value as "matatu_14" | "matatu_25" | "bus_33" | "bus_51")
+          }
+          className="flex-1 rounded-md border border-input bg-background px-2 py-1.5"
+        >
+          <option value="matatu_14">Matatu · 14</option>
+          <option value="matatu_25">Matatu · 25</option>
+          <option value="bus_33">Bus · 33</option>
+          <option value="bus_51">Bus · 51</option>
+        </select>
+        <input
+          type="number"
+          min={1}
+          value={capacity}
+          onChange={(e) => setCapacity(e.target.value)}
+          className="w-20 rounded-md border border-input bg-background px-2 py-1.5"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={submit}
+          className="flex-1 rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-60"
+        >
+          {busy ? "Saving…" : "Save vehicle"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-md border border-border px-3 py-1.5"
+        >
+          Cancel
         </button>
       </div>
     </div>

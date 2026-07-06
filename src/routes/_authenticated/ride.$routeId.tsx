@@ -34,6 +34,8 @@ function RouteDetail() {
   const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
   const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
+  const [takenSeats, setTakenSeats] = useState<Record<string, number[]>>({});
+  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const [myBookings, setMyBookings] = useState<
     { trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]
   >([]);
@@ -206,22 +208,36 @@ function RouteDetail() {
     [trips, vehicles, tripLocs],
   );
 
+  async function openSeatPicker(tripId: string) {
+    setSelectedTrip(tripId);
+    setSelectedSeat(null);
+    const { data } = await supabase.rpc("get_trip_taken_seats", { _trip_id: tripId });
+    const seats = (data ?? [])
+      .map((r: { seat_number: number | null }) => r.seat_number)
+      .filter((n: number | null): n is number => n != null);
+    setTakenSeats((prev) => ({ ...prev, [tripId]: seats }));
+  }
+
   async function bookSeat(tripId: string) {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     const trip = trips.find((t) => t.id === tripId);
     if (!trip) return;
+    if (!selectedSeat) return toast.error("Pick a seat");
+    if (!pickup || !dropoff) return toast.error("Pick your pickup and drop-off stages");
     const { error } = await supabase.from("bookings").insert({
       trip_id: tripId,
       passenger_id: u.user.id,
-      pickup_stage_id: pickup || null,
-      dropoff_stage_id: dropoff || null,
+      seat_number: selectedSeat,
+      pickup_stage_id: pickup,
+      dropoff_stage_id: dropoff,
       fare_paid: trip.fare,
       status: "reserved",
     });
     if (error) return toast.error(error.message);
-    toast.success("Seat reserved — pay the conductor on board.");
+    toast.success(`Seat ${selectedSeat} reserved — pay the conductor on board.`);
     setSelectedTrip(null);
+    setSelectedSeat(null);
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {
@@ -281,7 +297,7 @@ function RouteDetail() {
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
-                          onClick={() => setSelectedTrip(t.id)}
+                          onClick={() => openSeatPicker(t.id)}
                           className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
                         >
                           <Users className="mr-1 inline size-3" /> Book seat
@@ -301,7 +317,7 @@ function RouteDetail() {
                       </div>
 
                       {selectedTrip === t.id && (
-                        <div className="mt-3 grid gap-2 border-t border-border pt-3">
+                        <div className="mt-3 grid gap-3 border-t border-border pt-3">
                           <StageSelect
                             stages={stages}
                             value={pickup}
@@ -314,15 +330,25 @@ function RouteDetail() {
                             onChange={setDropoff}
                             label="Drop-off"
                           />
+                          <SeatPicker
+                            capacity={v?.capacity ?? 14}
+                            taken={takenSeats[t.id] ?? []}
+                            selected={selectedSeat}
+                            onSelect={setSelectedSeat}
+                          />
                           <div className="flex gap-2">
                             <button
                               onClick={() => bookSeat(t.id)}
-                              className="flex-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                              className="flex-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                              disabled={!selectedSeat || !pickup || !dropoff}
                             >
-                              Confirm booking
+                              Confirm seat {selectedSeat ?? ""}
                             </button>
                             <button
-                              onClick={() => setSelectedTrip(null)}
+                              onClick={() => {
+                                setSelectedTrip(null);
+                                setSelectedSeat(null);
+                              }}
                               className="rounded-md border border-border px-3 py-1.5 text-xs"
                             >
                               Cancel
@@ -380,5 +406,65 @@ function StageSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+function SeatPicker({
+  capacity,
+  taken,
+  selected,
+  onSelect,
+}: {
+  capacity: number;
+  taken: number[];
+  selected: number | null;
+  onSelect: (n: number) => void;
+}) {
+  const seats = Array.from({ length: capacity }, (_, i) => i + 1);
+  const takenSet = new Set(taken);
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium">Pick a seat</span>
+        <span className="text-muted-foreground">
+          {capacity - taken.length} of {capacity} free
+        </span>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
+        {seats.map((n) => {
+          const isTaken = takenSet.has(n);
+          const isSel = selected === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              disabled={isTaken}
+              onClick={() => onSelect(n)}
+              className={`aspect-square rounded-md border text-xs font-medium transition ${
+                isTaken
+                  ? "cursor-not-allowed border-border bg-muted text-muted-foreground line-through"
+                  : isSel
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-background hover:border-primary"
+              }`}
+              aria-label={`Seat ${n}${isTaken ? " (taken)" : ""}`}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2 rounded-sm border border-border bg-background" /> Free
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2 rounded-sm bg-primary" /> You
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2 rounded-sm bg-muted" /> Taken
+        </span>
+      </div>
+    </div>
   );
 }

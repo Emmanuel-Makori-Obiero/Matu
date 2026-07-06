@@ -204,27 +204,61 @@ function PassengerHome() {
               </div>
             ) : (
               <ul className="mt-3 grid max-h-[440px] gap-2 overflow-y-auto pr-1">
-                {filtered.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      onClick={() => navigate({ to: "/ride/$routeId", params: { routeId: r.id } })}
-                      className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 text-left transition hover:border-primary"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate font-display text-sm font-semibold">{r.name}</div>
-                        <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="size-3 shrink-0" />
-                          <span className="truncate">
-                            {r.origin} → {r.destination}
-                          </span>
+                {filtered.map((r) => {
+                  const routeStages = stages
+                    .filter((s) => s.route_id === r.id)
+                    .sort((a, b) => a.order_index - b.order_index);
+                  const fLow = from.trim().toLowerCase();
+                  const tLow = to.trim().toLowerCase();
+                  const findIdx = (q: string) =>
+                    routeStages.findIndex((s) => s.name.toLowerCase().includes(q));
+                  let fromIdx = fLow ? findIdx(fLow) : -1;
+                  let toIdx = tLow ? findIdx(tLow) : -1;
+                  if (fromIdx > -1 && toIdx > -1 && fromIdx > toIdx)
+                    [fromIdx, toIdx] = [toIdx, fromIdx];
+                  const between =
+                    fromIdx > -1 && toIdx > -1
+                      ? routeStages.slice(fromIdx, toIdx + 1)
+                      : routeStages;
+                  const showBetween = (fLow || tLow) && between.length > 0;
+                  return (
+                    <li key={r.id}>
+                      <button
+                        onClick={() =>
+                          navigate({ to: "/ride/$routeId", params: { routeId: r.id } })
+                        }
+                        className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 text-left transition hover:border-primary"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-display text-sm font-semibold">
+                            {r.name}
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                            <MapPin className="size-3 shrink-0" />
+                            <span className="truncate">
+                              {r.origin} → {r.destination}
+                            </span>
+                          </div>
+                          {showBetween && (
+                            <ol className="mt-2 grid gap-0.5 border-l-2 border-primary/40 pl-2 text-[11px] text-muted-foreground">
+                              {between.map((s, i) => (
+                                <li key={s.id} className="flex items-center gap-1">
+                                  <span
+                                    className={`size-1.5 rounded-full ${i === 0 ? "bg-accent" : i === between.length - 1 ? "bg-primary" : "bg-muted-foreground/50"}`}
+                                  />
+                                  <span className="truncate">{s.name}</span>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
                         </div>
-                      </div>
-                      <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
-                        KSh {r.base_fare ?? "—"}
-                      </div>
-                    </button>
-                  </li>
-                ))}
+                        <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
+                          KSh {r.base_fare ?? "—"}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <Link to="/ride" className="mt-3 inline-flex items-center gap-1 text-xs text-primary">
