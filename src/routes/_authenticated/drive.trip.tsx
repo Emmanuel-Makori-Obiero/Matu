@@ -619,3 +619,102 @@ function JoinSaccoPanel() {
     </div>
   );
 }
+
+function RegisterOwnVehicle({ onCreated }: { onCreated: (v: Vehicle) => void }) {
+  const [open, setOpen] = useState(false);
+  const [plate, setPlate] = useState("");
+  const [capacity, setCapacity] = useState("14");
+  const [type, setType] = useState<"matatu_14" | "matatu_25" | "bus_33" | "bus_51">("matatu_14");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!plate.trim()) return toast.error("Enter a plate number");
+    setBusy(true);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
+      setBusy(false);
+      return;
+    }
+    await supabase.rpc("claim_role", { _role: "driver" });
+    const { data, error } = await supabase
+      .from("vehicles")
+      .insert({
+        plate_number: plate.trim().toUpperCase(),
+        capacity: Number(capacity),
+        vehicle_type: type,
+        driver_id: u.user.id,
+        sacco_id: null,
+      })
+      .select("id,plate_number,capacity")
+      .single();
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Vehicle registered");
+    onCreated(data as Vehicle);
+    setPlate("");
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="rounded-lg border border-dashed border-border bg-secondary/60 p-3 text-left text-xs"
+      >
+        <div className="font-medium text-foreground">Register your own vehicle</div>
+        <div className="mt-0.5 text-muted-foreground">
+          Independent driver? Add your matatu directly (no SACCO required).
+        </div>
+      </button>
+    );
+  }
+  return (
+    <div className="grid gap-2 rounded-lg border border-border bg-secondary/60 p-3 text-xs">
+      <input
+        value={plate}
+        onChange={(e) => setPlate(e.target.value)}
+        placeholder="Plate (e.g. KDA 123A)"
+        className="rounded-md border border-input bg-background px-2 py-1.5"
+      />
+      <div className="flex gap-2">
+        <select
+          value={type}
+          onChange={(e) =>
+            setType(e.target.value as "matatu_14" | "matatu_25" | "bus_33" | "bus_51")
+          }
+          className="flex-1 rounded-md border border-input bg-background px-2 py-1.5"
+        >
+          <option value="matatu_14">Matatu · 14</option>
+          <option value="matatu_25">Matatu · 25</option>
+          <option value="bus_33">Bus · 33</option>
+          <option value="bus_51">Bus · 51</option>
+        </select>
+        <input
+          type="number"
+          min={1}
+          value={capacity}
+          onChange={(e) => setCapacity(e.target.value)}
+          className="w-20 rounded-md border border-input bg-background px-2 py-1.5"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={submit}
+          className="flex-1 rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-60"
+        >
+          {busy ? "Saving…" : "Save vehicle"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="rounded-md border border-border px-3 py-1.5"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
