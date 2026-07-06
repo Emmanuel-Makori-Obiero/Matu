@@ -208,22 +208,36 @@ function RouteDetail() {
     [trips, vehicles, tripLocs],
   );
 
+  async function openSeatPicker(tripId: string) {
+    setSelectedTrip(tripId);
+    setSelectedSeat(null);
+    const { data } = await supabase.rpc("get_trip_taken_seats", { _trip_id: tripId });
+    const seats = (data ?? [])
+      .map((r: { seat_number: number | null }) => r.seat_number)
+      .filter((n: number | null): n is number => n != null);
+    setTakenSeats((prev) => ({ ...prev, [tripId]: seats }));
+  }
+
   async function bookSeat(tripId: string) {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     const trip = trips.find((t) => t.id === tripId);
     if (!trip) return;
+    if (!selectedSeat) return toast.error("Pick a seat");
+    if (!pickup || !dropoff) return toast.error("Pick your pickup and drop-off stages");
     const { error } = await supabase.from("bookings").insert({
       trip_id: tripId,
       passenger_id: u.user.id,
-      pickup_stage_id: pickup || null,
-      dropoff_stage_id: dropoff || null,
+      seat_number: selectedSeat,
+      pickup_stage_id: pickup,
+      dropoff_stage_id: dropoff,
       fare_paid: trip.fare,
       status: "reserved",
     });
     if (error) return toast.error(error.message);
-    toast.success("Seat reserved — pay the conductor on board.");
+    toast.success(`Seat ${selectedSeat} reserved — pay the conductor on board.`);
     setSelectedTrip(null);
+    setSelectedSeat(null);
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {
