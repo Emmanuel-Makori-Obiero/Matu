@@ -408,3 +408,63 @@ function StageSelect({
     </label>
   );
 }
+
+function SeatPicker({
+  capacity,
+  taken,
+  selected,
+  onSelect,
+}: {
+  capacity: number;
+  taken: number[];
+  selected: number | null;
+  onSelect: (n: number) => void;
+}) {
+  const seats = Array.from({ length: capacity }, (_, i) => i + 1);
+  const takenSet = new Set(taken);
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium">Pick a seat</span>
+        <span className="text-muted-foreground">
+          {capacity - taken.length} of {capacity} free
+        </span>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
+        {seats.map((n) => {
+          const isTaken = takenSet.has(n);
+          const isSel = selected === n;
+          return (
+            <button
+              key={n}
+              type="button"
+              disabled={isTaken}
+              onClick={() => onSelect(n)}
+              className={`aspect-square rounded-md border text-xs font-medium transition ${
+                isTaken
+                  ? "cursor-not-allowed border-border bg-muted text-muted-foreground line-through"
+                  : isSel
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-background hover:border-primary"
+              }`}
+              aria-label={`Seat ${n}${isTaken ? " (taken)" : ""}`}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2 rounded-sm border border-border bg-background" /> Free
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2 rounded-sm bg-primary" /> You
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2 rounded-sm bg-muted" /> Taken
+        </span>
+      </div>
+    </div>
+  );
+}
