@@ -36,6 +36,13 @@ function RouteDetail() {
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
   const [takenSeats, setTakenSeats] = useState<Record<string, number[]>>({});
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
+  const [bookedBookingId, setBookedBookingId] = useState<string | null>(null);
+  const [bookedTripId, setBookedTripId] = useState<string | null>(null);
+  const [payPhone, setPayPhone] = useState("");
+  const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<Record<string, "pending" | "held" | "failed">>(
+    {},
+  );
   const [myBookings, setMyBookings] = useState<
     { trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]
   >([]);
@@ -153,6 +160,33 @@ function RouteDetail() {
     })();
   }, [trips]);
 
+  // Watch for M-Pesa confirming the payment (updated by the mpesa-callback edge function)
+  useEffect(() => {
+    if (!bookedBookingId) return;
+    const ch = supabase
+      .channel(`payment-${bookedBookingId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "payments",
+          filter: `booking_id=eq.${bookedBookingId}`,
+        },
+        (payload) => {
+          const status = payload.new.status as "pending" | "held" | "failed";
+          setPaymentStatus((prev) => ({ ...prev, [bookedBookingId]: status }));
+          setPayingBookingId(null);
+          if (status === "held") toast.success("Payment confirmed! Seat secured.");
+          if (status === "failed") toast.error("Payment failed. Try again.");
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [bookedBookingId]);
+
   // Auto proximity notifications: fire once per stage when driver GPS < 300m
   useEffect(() => {
     if (myBookings.length === 0) return;
@@ -225,19 +259,42 @@ function RouteDetail() {
     if (!trip) return;
     if (!selectedSeat) return toast.error("Pick a seat");
     if (!pickup || !dropoff) return toast.error("Pick your pickup and drop-off stages");
-    const { error } = await supabase.from("bookings").insert({
-      trip_id: tripId,
-      passenger_id: u.user.id,
-      seat_number: selectedSeat,
-      pickup_stage_id: pickup,
-      dropoff_stage_id: dropoff,
-      fare_paid: trip.fare,
-      status: "reserved",
-    });
-    if (error) return toast.error(error.message);
-    toast.success(`Seat ${selectedSeat} reserved — pay the conductor on board.`);
-    setSelectedTrip(null);
+    const { data: newBooking, error } = await supabase
+      .from("bookings")
+      .insert({
+        trip_id: tripId,
+        passenger_id: u.user.id,
+        seat_number: selectedSeat,
+        pickup_stage_id: pickup,
+        dropoff_stage_id: dropoff,
+        fare_paid: trip.fare,
+        status: "reserved",
+      })
+      .select("id")
+      .single();
+    if (error || !newBooking) return toast.error(error?.message ?? "Could not reserve seat");
+    toast.success(`Seat ${selectedSeat} reserved — pay to confirm it.`);
+    setBookedBookingId(newBooking.id);
+    setBookedTripId(tripId);
     setSelectedSeat(null);
+  }
+
+  async function payForBooking(tripId: string) {
+    if (!bookedBookingId) return;
+    if (!payPhone.trim()) return toast.error("Enter your M-Pesa phone number");
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return;
+    setPayingBookingId(bookedBookingId);
+    const { error } = await supabase.functions.invoke("mpesa-stk-push", {
+      body: { bookingId: bookedBookingId, phone: payPhone.trim(), amount: trip.fare },
+    });
+    if (error) {
+      toast.error("Could not start payment. Try again.");
+      setPayingBookingId(null);
+      return;
+    }
+    toast.success("Check your phone and enter your M-Pesa PIN");
+    setPaymentStatus((prev) => ({ ...prev, [bookedBookingId]: "pending" }));
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {
@@ -356,6 +413,32 @@ function RouteDetail() {
                           </div>
                         </div>
                       )}
+
+                      {bookedTripId === t.id &&
+                        bookedBookingId &&
+                        paymentStatus[bookedBookingId] !== "held" && (
+                          <div className="mt-3 grid gap-2 border-t border-border pt-3">
+                            <p className="text-xs font-medium">Pay KSh {t.fare} with M-Pesa</p>
+                            <input
+                              type="tel"
+                              placeholder="07XX XXX XXX"
+                              value={payPhone}
+                              onChange={(e) => setPayPhone(e.target.value)}
+                              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                            />
+                            <button
+                              onClick={() => payForBooking(t.id)}
+                              disabled={payingBookingId === bookedBookingId}
+                              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                            >
+                              {payingBookingId === bookedBookingId
+                                ? "Check your phone…"
+                                : paymentStatus[bookedBookingId] === "failed"
+                                  ? "Try payment again"
+                                  : "Pay Now"}
+                            </button>
+                          </div>
+                        )}
                     </li>
                   );
                 })}
