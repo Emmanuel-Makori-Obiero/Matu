@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { Bus, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { homePathForUser, type AppRole } from "@/lib/matu-auth";
 
 export const Route = createFileRoute("/auth")({
@@ -85,20 +84,18 @@ function AuthPage() {
   async function handleGoogle() {
     setLoading(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin + "/auth",
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin + "/auth",
+        },
       });
-      if (result.error) {
+      if (error) {
         toast.error("Google sign-in failed");
         setLoading(false);
-        return;
       }
-      if (result.redirected) return;
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        const home = await homePathForUser(data.user.id);
-        navigate({ to: home, replace: true });
-      }
+      // On success, Supabase redirects the browser to Google automatically —
+      // nothing else needs to happen here.
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Google sign-in failed");
       setLoading(false);
