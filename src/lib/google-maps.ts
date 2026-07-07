@@ -7,8 +7,8 @@ export function loadGoogleMaps(): Promise<typeof google> {
   if (windowWithGoogle.google?.maps) return Promise.resolve(windowWithGoogle.google);
   if (loader) return loader;
 
-  const key = import.meta.env.VITE_LOVABLE_CONNECTOR_GOOGLE_MAPS_BROWSER_KEY as string;
-  const channel = import.meta.env.VITE_LOVABLE_CONNECTOR_GOOGLE_MAPS_TRACKING_ID as string;
+  const key = import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY as string;
+  const channel = import.meta.env.VITE_GOOGLE_MAPS_TRACKING_ID as string;
 
   loader = new Promise((resolve, reject) => {
     const windowWithInit = window as Window & { __matuInitMap?: (value: typeof google) => void };
