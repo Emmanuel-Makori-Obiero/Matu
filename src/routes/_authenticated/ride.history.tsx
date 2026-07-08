@@ -1,9 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Ban, CheckCircle2, Clock, MapPin, XCircle } from "lucide-react";
+import { Ban, CheckCircle2, Clock, MapPin, QrCode, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 type BookingRow = {
   id: string;
@@ -19,6 +26,11 @@ type TripRow = { id: string; fare: number; status: string; route_id: string; veh
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type VehicleRow = { id: string; plate_number: string; nickname: string | null };
 type StageRow = { id: string; name: string };
+type PaymentRow = {
+  id: string;
+  booking_id: string | null;
+  status: "pending" | "held" | "released" | "refunded" | "failed";
+};
 
 export const Route = createFileRoute("/_authenticated/ride/history")({
   component: BookingHistory,
@@ -33,6 +45,8 @@ const STATUS_LABEL: Record<BookingRow["status"], string> = {
 };
 
 const UPCOMING_STATUSES = new Set(["reserved", "confirmed", "boarded"]);
+// A booking is considered paid once its payment has been captured into escrow or released.
+const PAID_PAYMENT_STATUSES = new Set(["held", "released"]);
 
 function BookingHistory() {
   const [loading, setLoading] = useState(true);
@@ -41,8 +55,10 @@ function BookingHistory() {
   const [routes, setRoutes] = useState<Record<string, RouteRow>>({});
   const [vehicles, setVehicles] = useState<Record<string, VehicleRow>>({});
   const [stages, setStages] = useState<Record<string, StageRow>>({});
+  const [paymentByBooking, setPaymentByBooking] = useState<Record<string, PaymentRow>>({});
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
+  const [ticketBooking, setTicketBooking] = useState<BookingRow | null>(null);
 
   async function load() {
     setLoading(true);
@@ -58,6 +74,20 @@ function BookingHistory() {
       .order("created_at", { ascending: false });
     const bookingRows = (b ?? []) as BookingRow[];
     setBookings(bookingRows);
+
+    const bookingIds = bookingRows.map((r) => r.id);
+    if (bookingIds.length) {
+      const { data: p } = await supabase
+        .from("payments")
+        .select("id,booking_id,status")
+        .in("booking_id", bookingIds)
+        .eq("payer_id", u.user.id);
+      const paymentMap: Record<string, PaymentRow> = {};
+      (p ?? []).forEach((x: PaymentRow) => {
+        if (x.booking_id) paymentMap[x.booking_id] = x;
+      });
+      setPaymentByBooking(paymentMap);
+    }
 
     const tripIds = [...new Set(bookingRows.map((r) => r.trip_id))];
     if (tripIds.length) {
@@ -126,6 +156,24 @@ function BookingHistory() {
   const upcoming = bookings.filter((b) => UPCOMING_STATUSES.has(b.status));
   const past = bookings.filter((b) => !UPCOMING_STATUSES.has(b.status));
 
+  const ticketTrip = ticketBooking ? trips[ticketBooking.trip_id] : undefined;
+  const ticketRoute = ticketTrip ? routes[ticketTrip.route_id] : undefined;
+  const ticketVehicle = ticketTrip ? vehicles[ticketTrip.vehicle_id] : undefined;
+  const ticketPickup = ticketBooking?.pickup_stage_id
+    ? stages[ticketBooking.pickup_stage_id]
+    : undefined;
+  const ticketDropoff = ticketBooking?.dropoff_stage_id
+    ? stages[ticketBooking.dropoff_stage_id]
+    : undefined;
+  // The QR payload is just the booking id — a conductor/driver scanning it can look the
+  // booking up directly. No external QR library needed: this free image API renders a PNG
+  // from the encoded text.
+  const qrUrl = ticketBooking
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
+        `MATU-TICKET:${ticketBooking.id}`,
+      )}`
+    : "";
+
   return (
     <AppShell
       title="My bookings"
@@ -162,6 +210,10 @@ function BookingHistory() {
                   const pickup = b.pickup_stage_id ? stages[b.pickup_stage_id] : undefined;
                   const dropoff = b.dropoff_stage_id ? stages[b.dropoff_stage_id] : undefined;
                   const canCancel = b.status === "reserved" || b.status === "confirmed";
+                  const payment = paymentByBooking[b.id];
+                  const isPaid = !!payment && PAID_PAYMENT_STATUSES.has(payment.status);
+                  const canShowTicket =
+                    isPaid && (b.status === "confirmed" || b.status === "boarded");
                   return (
                     <li key={b.id} className="rounded-2xl border border-border bg-surface p-4">
                       <div className="flex items-start justify-between gap-3">
@@ -190,9 +242,17 @@ function BookingHistory() {
                           </div>
                         </div>
                       </div>
-                      {canCancel && (
-                        <div className="mt-3 border-t border-border pt-3">
-                          {confirmingCancel === b.id ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                        {canShowTicket && (
+                          <button
+                            onClick={() => setTicketBooking(b)}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                          >
+                            <QrCode className="size-3" /> View ticket
+                          </button>
+                        )}
+                        {canCancel &&
+                          (confirmingCancel === b.id ? (
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-muted-foreground">
                                 Cancel this booking?
@@ -218,9 +278,8 @@ function BookingHistory() {
                             >
                               <Ban className="size-3" /> Cancel booking
                             </button>
-                          )}
-                        </div>
-                      )}
+                          ))}
+                      </div>
                     </li>
                   );
                 })}
@@ -271,6 +330,45 @@ function BookingHistory() {
           </section>
         </div>
       )}
+
+      <Dialog open={!!ticketBooking} onOpenChange={(open) => !open && setTicketBooking(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Your ticket</DialogTitle>
+            <DialogDescription>
+              Show this to the conductor to board. It refreshes automatically — no need to
+              screenshot it.
+            </DialogDescription>
+          </DialogHeader>
+          {ticketBooking && (
+            <div className="flex flex-col items-center gap-4 py-2">
+              <img
+                src={qrUrl}
+                alt="Boarding QR ticket"
+                width={200}
+                height={200}
+                className="rounded-lg border border-border"
+              />
+              <div className="w-full rounded-xl border border-border bg-surface p-3 text-center">
+                <div className="font-display text-sm font-semibold">
+                  {ticketRoute?.name ?? "Route"}
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {ticketPickup?.name ?? "—"} → {ticketDropoff?.name ?? "—"}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {ticketVehicle?.plate_number ?? "—"}
+                  {ticketVehicle?.nickname ? ` · ${ticketVehicle.nickname}` : ""}
+                  {ticketBooking.seat_number ? ` · Seat ${ticketBooking.seat_number}` : ""}
+                </div>
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  Ticket ID: {ticketBooking.id.slice(0, 8).toUpperCase()}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
