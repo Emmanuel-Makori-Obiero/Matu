@@ -16,6 +16,10 @@ dist-ssr
 .nitro
 *.local
 
+# Vercel build output — must never be committed, it's regenerated on every deploy
+# and Vercel's own build step gets confused if a stale copy is already in the repo.
+.vercel
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
