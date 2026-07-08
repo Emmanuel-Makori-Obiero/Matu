@@ -169,7 +169,7 @@ function SaccoHome() {
           ) : (
             <ul className="mt-4 grid gap-3">
               {saccos.map((s) => (
-                <li key={s.id}>
+                <li key={s.id} className="grid gap-2">
                   <Link
                     to="/fleet/$saccoId"
                     params={{ saccoId: s.id }}
@@ -187,6 +187,7 @@ function SaccoHome() {
                       </span>
                     </div>
                   </Link>
+                  <SubscriptionCard saccoId={s.id} />
                 </li>
               ))}
             </ul>
@@ -220,6 +221,133 @@ function Card({ icon, title, value }: { icon: React.ReactNode; title: string; va
         {title}
       </div>
       <div className="mt-3 font-display text-3xl font-bold">{value}</div>
+    </div>
+  );
+}
+
+type SubStatus = "idle" | "pending" | "active" | "failed" | "timeout";
+
+function SubscriptionCard({ saccoId }: { saccoId: string }) {
+  const [vehicleCount, setVehicleCount] = useState(0);
+  const [fee, setFee] = useState(0);
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState<SubStatus>("idle");
+  const [subId, setSubId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { count } = await supabase
+        .from("vehicles")
+        .select("id", { count: "exact", head: true })
+        .eq("sacco_id", saccoId);
+      const n = count ?? 0;
+      setVehicleCount(n);
+      const { data } = await supabase.rpc("calculate_subscription_fee", { _vehicle_count: n });
+      setFee(Number(data ?? 0));
+    })();
+  }, [saccoId]);
+
+  // Watch the subscription row for the M-Pesa callback to update it.
+  useEffect(() => {
+    if (!subId) return;
+    const channel = supabase
+      .channel(`sub-${subId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "sacco_subscriptions",
+          filter: `id=eq.${subId}`,
+        },
+        (payload) => {
+          const row = payload.new as { status: SubStatus; failure_reason: string | null };
+          setStatus(row.status);
+          if (row.status === "active") toast.success("Subscription payment confirmed.");
+          if (row.status === "failed")
+            toast.error(row.failure_reason || "Payment failed. Try again.");
+        },
+      )
+      .subscribe();
+
+    // Safety timeout: if M-Pesa never calls back within 60s, tell the owner instead of
+    // leaving the button stuck on "waiting for M-Pesa PIN...".
+    const timer = setTimeout(() => {
+      setStatus((s) => (s === "pending" ? "timeout" : s));
+    }, 60_000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearTimeout(timer);
+    };
+  }, [subId]);
+
+  async function pay() {
+    if (!phone.trim()) return toast.error("Enter the M-Pesa number to pay with");
+    setStatus("pending");
+    const { data: sub, error: insertError } = await supabase
+      .from("sacco_subscriptions")
+      .insert({ sacco_id: saccoId, vehicle_count: vehicleCount, amount: fee })
+      .select("id")
+      .single();
+    if (insertError || !sub) {
+      setStatus("idle");
+      return toast.error("Could not start subscription. Try again.");
+    }
+    setSubId(sub.id);
+    const { error } = await supabase.functions.invoke("mpesa-stk-push", {
+      body: { phone, amount: fee, purpose: "sacco_subscription", reference_id: sub.id },
+    });
+    if (error) {
+      setStatus("failed");
+      await supabase
+        .from("sacco_subscriptions")
+        .update({ status: "failed", failure_reason: "Could not reach M-Pesa" })
+        .eq("id", sub.id);
+      return toast.error("Could not start payment. Check the number and try again.");
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="font-medium">Monthly subscription</div>
+          <div className="text-sm text-muted-foreground">
+            {vehicleCount} vehicle{vehicleCount === 1 ? "" : "s"} · Ksh {fee.toLocaleString()}/month
+          </div>
+        </div>
+      </div>
+      {status === "active" ? (
+        <p className="mt-3 text-sm text-primary">✓ Active — paid for this period.</p>
+      ) : (
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="M-Pesa number, e.g. 07XX XXX XXX"
+            disabled={status === "pending"}
+            className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+          />
+          <button
+            onClick={pay}
+            disabled={status === "pending"}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {status === "pending" ? "Check your phone..." : "Pay via M-Pesa"}
+          </button>
+        </div>
+      )}
+      {status === "failed" && (
+        <p className="mt-2 text-sm text-destructive">
+          Payment failed or was cancelled on your phone. Please try again.
+        </p>
+      )}
+      {status === "timeout" && (
+        <p className="mt-2 text-sm text-destructive">
+          We didn't hear back from M-Pesa. If you weren't prompted, try again below.
+        </p>
+      )}
     </div>
   );
 }

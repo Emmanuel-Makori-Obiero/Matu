@@ -36,6 +36,10 @@ type JoinRequest = {
   driver_id: string;
   full_name: string | null;
   phone: string | null;
+  id_number: string | null;
+  license_number: string | null;
+  brings_own_vehicle: boolean;
+  vehicle_plate: string | null;
   note: string | null;
   status: string;
   created_at: string;
@@ -377,6 +381,15 @@ function FleetDetail() {
                   <div className="text-xs text-muted-foreground truncate">
                     {r.phone ?? "no phone"} · {new Date(r.created_at).toLocaleDateString()}
                     {r.note ? ` · "${r.note}"` : ""}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                    {r.id_number && <span>ID: {r.id_number}</span>}
+                    {r.license_number && <span>License: {r.license_number}</span>}
+                    <span>
+                      {r.brings_own_vehicle
+                        ? `Bringing own vehicle${r.vehicle_plate ? ` (${r.vehicle_plate})` : ""}`
+                        : "Needs a vehicle assigned"}
+                    </span>
                   </div>
                 </div>
                 {r.status === "pending" ? (

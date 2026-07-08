@@ -295,6 +295,21 @@ function RouteDetail() {
     }
     toast.success("Check your phone and enter your M-Pesa PIN");
     setPaymentStatus((prev) => ({ ...prev, [bookedBookingId]: "pending" }));
+
+    // Safety net: if M-Pesa/the callback never responds at all (e.g. the passenger
+    // closes the STK prompt without entering a PIN), stop waiting after 60s instead
+    // of leaving the button stuck on "pending" forever. The existing realtime
+    // subscription above already flips this the moment the callback confirms or
+    // fails, so this only fires if nothing ever comes back.
+    setTimeout(() => {
+      setPaymentStatus((prev) => {
+        if (prev[bookedBookingId] !== "pending") return prev; // already resolved by the callback
+        toast.error(
+          "Payment not received. If you weren't prompted, check the number and try again.",
+        );
+        return { ...prev, [bookedBookingId]: "failed" };
+      });
+    }, 60_000);
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {

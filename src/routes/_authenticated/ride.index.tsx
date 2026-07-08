@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
+import { findNearestStage, type NearestStageResult } from "@/lib/stage-match";
 
 type RouteRow = {
   id: string;
@@ -34,6 +35,7 @@ function PassengerHome() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [myLoc, setMyLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [nearestSuggestions, setNearestSuggestions] = useState<NearestStageResult[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -73,6 +75,23 @@ function PassengerHome() {
       return matchesF && matchesT;
     });
   }, [routes, stages, from, to]);
+
+  // If nothing matches what the passenger typed, look up the nearest real stage
+  // instead of just saying "no results".
+  useEffect(() => {
+    const query = (to || from).trim();
+    if (filtered.length > 0 || !query) {
+      setNearestSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    findNearestStage(query).then((matches) => {
+      if (!cancelled) setNearestSuggestions(matches);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filtered.length, to, from]);
 
   // Stages shown on map: from filtered routes (or all if nothing filtered)
   const mapStages: MapStage[] = useMemo(() => {
@@ -200,7 +219,33 @@ function PassengerHome() {
               <p className="mt-3 text-sm text-muted-foreground">Loading routes…</p>
             ) : filtered.length === 0 ? (
               <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                No routes match. Try a nearby stage or clear the search.
+                <p>No routes match. Try a nearby stage or clear the search.</p>
+                {nearestSuggestions.length > 0 && (
+                  <div className="mt-3">
+                    {!nearestSuggestions[0].exactNameMatch && (
+                      <p className="text-xs">
+                        No stage called "{to || from}" — nearest stop is{" "}
+                        <strong>{nearestSuggestions[0].stage.name}</strong> (
+                        {nearestSuggestions[0].distanceKm.toFixed(1)} km away)
+                      </p>
+                    )}
+                    <ul className="mt-2 grid gap-1.5">
+                      {nearestSuggestions.map((m) => (
+                        <li key={m.stage.id}>
+                          <button
+                            type="button"
+                            onClick={() => (to ? setTo(m.stage.name) : setFrom(m.stage.name))}
+                            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs hover:border-primary"
+                          >
+                            {m.stage.name}
+                            {!m.exactNameMatch &&
+                              ` · ${m.distanceKm.toFixed(1)} km from "${to || from}"`}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             ) : (
               <ul className="mt-3 grid max-h-[440px] gap-2 overflow-y-auto pr-1">

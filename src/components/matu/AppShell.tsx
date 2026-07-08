@@ -1,13 +1,21 @@
+// FILE: src/components/matu/AppShell.tsx
+// Replace the whole file with this version. The only real change: instead of letting
+// anyone click between Ride / Drive / SACCO and silently "claim" that role, we fetch the
+// roles the user ACTUALLY holds and only show tabs for those. Everyone still always has
+// "passenger" (riding), but Drive/SACCO only appear once registered for them.
+
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Bus, LogOut, User, Building2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import type { AppRole } from "@/lib/matu-auth";
 
 const NAV = [
-  { to: "/ride" as const, label: "Ride", icon: User, role: "passenger" as const },
-  { to: "/drive" as const, label: "Drive", icon: Bus, role: "driver" as const },
-  { to: "/fleet" as const, label: "SACCO", icon: Building2, role: "sacco_admin" as const },
+  { to: "/ride" as const, label: "Ride", icon: User, role: "passenger" as AppRole },
+  { to: "/drive" as const, label: "Drive", icon: Bus, role: "driver" as AppRole },
+  { to: "/fleet" as const, label: "SACCO", icon: Building2, role: "sacco_admin" as AppRole },
 ];
 
 export function AppShell({
@@ -25,6 +33,18 @@ export function AppShell({
 }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [myRoles, setMyRoles] = useState<AppRole[]>([]);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", data.user.id);
+      setMyRoles((roles ?? []).map((r) => r.role as AppRole));
+    });
+  }, []);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -32,14 +52,10 @@ export function AppShell({
     navigate({ to: "/auth", replace: true });
   }
 
-  async function switchTo(
-    to: "/ride" | "/drive" | "/fleet",
-    role: "passenger" | "driver" | "sacco_admin",
-  ) {
-    // Claim role (idempotent) so RLS-protected actions work in that dashboard.
-    await supabase.rpc("claim_role", { _role: role });
-    navigate({ to });
-  }
+  // Only tabs the user actually holds a role for are visible. Passenger is implicit for
+  // everyone since anybody can ride. Drive/SACCO require registration (see drive/register
+  // and fleet/register flows) before the tab appears.
+  const visibleNav = NAV.filter((n) => n.role === "passenger" || myRoles.includes(n.role));
 
   return (
     <div className="min-h-screen bg-background">
@@ -55,18 +71,34 @@ export function AppShell({
             <span className="font-display text-xl font-bold">Matu</span>
           </Link>
           <div className="flex items-center gap-1">
-            {NAV.map((n) => {
+            {visibleNav.map((n) => {
               const active = pathname.startsWith(n.to);
               return (
-                <button
+                <Link
                   key={n.to}
-                  onClick={() => switchTo(n.to, n.role)}
+                  to={n.to}
                   className={`hidden sm:inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${active ? "bg-surface text-foreground" : "bg-surface/15 hover:bg-surface/25"}`}
                 >
                   <n.icon className="size-4" /> {n.label}
-                </button>
+                </Link>
               );
             })}
+            {!myRoles.includes("driver") && (
+              <Link
+                to="/drive/register"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
+              >
+                Become a driver
+              </Link>
+            )}
+            {!myRoles.includes("sacco_admin") && (
+              <Link
+                to="/fleet/register"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
+              >
+                Register a SACCO
+              </Link>
+            )}
             <button
               onClick={signOut}
               className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
@@ -76,18 +108,17 @@ export function AppShell({
           </div>
         </div>
         <div className="mx-auto max-w-6xl px-5 pb-6 pt-2">
-          {/* Mobile role switcher */}
           <div className="mb-3 flex gap-1 sm:hidden">
-            {NAV.map((n) => {
+            {visibleNav.map((n) => {
               const active = pathname.startsWith(n.to);
               return (
-                <button
+                <Link
                   key={n.to}
-                  onClick={() => switchTo(n.to, n.role)}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${active ? "bg-surface text-foreground" : "bg-surface/15"}`}
+                  to={n.to}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-center text-xs font-medium transition ${active ? "bg-surface text-foreground" : "bg-surface/15"}`}
                 >
                   {n.label}
-                </button>
+                </Link>
               );
             })}
           </div>
