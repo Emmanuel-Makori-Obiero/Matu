@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
 import { startNoisyAlert, stopNoisyAlert } from "@/lib/noisy-alert";
+import { TicketScanner } from "@/components/matu/TicketScanner";
 
 type Vehicle = { id: string; plate_number: string; capacity: number };
 type RouteRow = { id: string; name: string; base_fare: number | null };
@@ -200,6 +201,17 @@ function DriverTrip() {
     setTrip({ ...trip, status: next });
   }
 
+  // Realtime subscription will also catch this, but we refresh immediately so the
+  // driver sees the boarded status update right after closing the scanner.
+  async function refreshBookings() {
+    if (!trip) return;
+    const { data } = await supabase
+      .from("bookings")
+      .select("id,seat_number,status,passenger_id")
+      .eq("trip_id", trip.id);
+    setBookings((data ?? []) as BookingWithProfile[]);
+  }
+
   async function addStage(lat: number, lng: number) {
     if (!trip || !addStageMode || !newStageName.trim()) {
       if (addStageMode && !newStageName.trim()) toast.error("Type a stage name first");
@@ -389,6 +401,9 @@ function DriverTrip() {
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Bookings ({seatsBooked})</h2>
+            <div className="mt-3">
+              <TicketScanner tripId={trip.id} onBoarded={refreshBookings} />
+            </div>
             {bookings.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">No bookings yet.</p>
             ) : (
