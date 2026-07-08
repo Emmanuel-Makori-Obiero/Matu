@@ -334,6 +334,10 @@ function RouteDetail() {
     <AppShell
       title={routeInfo?.name ?? "Route"}
       subtitle={routeInfo ? `${routeInfo.origin} → ${routeInfo.destination}` : ""}
+      tabs={[
+        { to: "/ride", label: "Find a ride" },
+        { to: "/ride/history", label: "My bookings" },
+      ]}
     >
       <div className="mb-4">
         <Link

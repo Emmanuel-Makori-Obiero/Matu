@@ -130,6 +130,10 @@ function PassengerHome() {
     <AppShell
       title="Where to?"
       subtitle="Pick pickup and destination — we'll match you to matatus on your route."
+      tabs={[
+        { to: "/ride", label: "Find a ride" },
+        { to: "/ride/history", label: "My bookings" },
+      ]}
     >
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         {/* Map (left) */}
