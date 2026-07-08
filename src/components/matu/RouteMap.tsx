@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { loadGoogleMaps, NAIROBI_CENTER } from "@/lib/google-maps";
 
 export type MapStage = { id: string; name: string; lat: number; lng: number };
-export type MapVehicle = { id: string; lat: number; lng: number; label?: string };
+export type MapVehicle = {
+  id: string;
+  lat: number;
+  lng: number;
+  heading?: number | null;
+  label?: string;
+};
 
 export function RouteMap({
   stages,
@@ -85,22 +91,37 @@ export function RouteMap({
     const seen = new Set<string>();
     vehicles.forEach((v) => {
       seen.add(v.id);
-      const existing = vehicleMarkers.current[v.id];
-      if (existing) {
-        existing.setPosition({ lat: v.lat, lng: v.lng });
-      } else {
-        vehicleMarkers.current[v.id] = new g.maps.Marker({
-          position: { lat: v.lat, lng: v.lng },
-          map,
-          title: v.label ?? "Matatu",
-          icon: {
+      const hasHeading = v.heading != null && !Number.isNaN(v.heading);
+      const icon = hasHeading
+        ? {
+            // Directional wedge, like Bolt/Uber — rotates to face travel direction.
+            path: g.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            scale: 6,
+            rotation: v.heading as number,
+            fillColor: "#f4c430",
+            fillOpacity: 1,
+            strokeColor: "#0a5f3d",
+            strokeWeight: 2,
+          }
+        : {
+            // No heading yet (vehicle stationary / no compass) — plain dot.
             path: g.maps.SymbolPath.CIRCLE,
             scale: 9,
             fillColor: "#f4c430",
             fillOpacity: 1,
             strokeColor: "#0a5f3d",
             strokeWeight: 2,
-          },
+          };
+      const existing = vehicleMarkers.current[v.id];
+      if (existing) {
+        existing.setPosition({ lat: v.lat, lng: v.lng });
+        existing.setIcon(icon);
+      } else {
+        vehicleMarkers.current[v.id] = new g.maps.Marker({
+          position: { lat: v.lat, lng: v.lng },
+          map,
+          title: v.label ?? "Matatu",
+          icon,
         });
       }
     });

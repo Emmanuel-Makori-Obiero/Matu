@@ -14,7 +14,7 @@ type Trip = {
   status: string;
   vehicle_id: string;
 };
-type TripLoc = { lat: number; lng: number };
+type TripLoc = { lat: number; lng: number; heading: number | null };
 
 type Vehicle = { id: string; plate_number: string; capacity: number; nickname: string | null };
 
@@ -112,7 +112,10 @@ function RouteDetail() {
           const { data } = await supabase.rpc("get_trip_location", { _trip_id: t.id });
           const row = Array.isArray(data) ? data[0] : null;
           if (row?.current_lat != null && row?.current_lng != null) {
-            return [t.id, { lat: row.current_lat, lng: row.current_lng }] as const;
+            return [
+              t.id,
+              { lat: row.current_lat, lng: row.current_lng, heading: row.current_heading ?? null },
+            ] as const;
           }
           return null;
         }),
@@ -237,6 +240,7 @@ function RouteDetail() {
           id: t.id,
           lat: tripLocs[t.id].lat,
           lng: tripLocs[t.id].lng,
+          heading: tripLocs[t.id].heading,
           label: vehicles[t.vehicle_id]?.plate_number ?? "Matatu",
         })),
     [trips, vehicles, tripLocs],

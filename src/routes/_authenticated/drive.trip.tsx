@@ -143,6 +143,7 @@ function DriverTrip() {
           .update({
             current_lat: pos.coords.latitude,
             current_lng: pos.coords.longitude,
+            current_heading: pos.coords.heading,
             current_stage_id: currentStageId,
           })
           .eq("id", trip.id);
