@@ -85,7 +85,7 @@ export function AppShell({
             })}
             {!myRoles.includes("driver") && (
               <Link
-                to="/drive/register"
+                to="/drive"
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
               >
                 Become a driver
@@ -93,7 +93,7 @@ export function AppShell({
             )}
             {!myRoles.includes("sacco_admin") && (
               <Link
-                to="/fleet/register"
+                to="/fleet"
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
               >
                 Register a SACCO

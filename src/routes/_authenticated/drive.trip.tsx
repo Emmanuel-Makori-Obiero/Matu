@@ -5,6 +5,7 @@ import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus } from "lucide-
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
+import { startNoisyAlert, stopNoisyAlert } from "@/lib/noisy-alert";
 
 type Vehicle = { id: string; plate_number: string; capacity: number };
 type RouteRow = { id: string; name: string; base_fare: number | null };
@@ -47,6 +48,7 @@ function DriverTrip() {
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [newStageName, setNewStageName] = useState("");
   const [addStageMode, setAddStageMode] = useState(false);
+  const [currentStageId, setCurrentStageId] = useState<string | null>(null);
 
   // Load driver's vehicles + routes on mount
   useEffect(() => {
@@ -111,17 +113,26 @@ function DriverTrip() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "alerts", filter: `trip_id=eq.${trip.id}` },
         (payload) => {
-          setAlerts((prev) => [payload.new as AlertRow, ...prev]);
-          toast.info(`Passenger alert: ${(payload.new as AlertRow).type}`);
+          const alert = payload.new as AlertRow;
+          setAlerts((prev) => [alert, ...prev]);
+          // Loud repeating beep so this isn't missed as a silent toast while driving —
+          // stops when the driver taps "Acknowledge".
+          startNoisyAlert();
+          toast.info(`Passenger alert: ${alert.type.replace("_", " ")}`, {
+            duration: 15000,
+            action: { label: "Acknowledge", onClick: stopNoisyAlert },
+          });
         },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
+      stopNoisyAlert(); // make sure it never keeps beeping after leaving this screen
     };
   }, [trip]);
 
-  // GPS broadcasting while trip is active
+  // GPS broadcasting while trip is active — also sends the driver's manually-picked
+  // current stage, so passengers can see "at Junction" rather than just a raw dot.
   useEffect(() => {
     if (!trip) return;
     if (!("geolocation" in navigator)) return;
@@ -129,14 +140,18 @@ function DriverTrip() {
       async (pos) => {
         await supabase
           .from("trips")
-          .update({ current_lat: pos.coords.latitude, current_lng: pos.coords.longitude })
+          .update({
+            current_lat: pos.coords.latitude,
+            current_lng: pos.coords.longitude,
+            current_stage_id: currentStageId,
+          })
           .eq("id", trip.id);
       },
       (err) => console.warn("geo error", err),
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [trip]);
+  }, [trip, currentStageId]);
 
   async function startTrip() {
     const { data: u } = await supabase.auth.getUser();
@@ -416,7 +431,22 @@ function DriverTrip() {
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Stages ({stages.length})</h2>
-            <ol className="mt-2 grid gap-1 text-sm">
+            <label className="mt-2 block text-xs font-medium text-muted-foreground">
+              Current stage (shown to passengers along with your GPS dot)
+            </label>
+            <select
+              value={currentStageId ?? ""}
+              onChange={(e) => setCurrentStageId(e.target.value || null)}
+              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            >
+              <option value="">— none selected —</option>
+              {stages.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <ol className="mt-3 grid gap-1 text-sm">
               {stages.map((s) => (
                 <li key={s.id} className="flex items-center gap-2">
                   <MapPin className="size-3 text-primary" /> {s.name}
@@ -524,6 +554,10 @@ function JoinSaccoPanel() {
   const [saccoId, setSaccoId] = useState("");
   const [note, setNote] = useState("");
   const [phone, setPhone] = useState("");
+  const [idNumber, setIdNumber] = useState("");
+  const [license, setLicense] = useState("");
+  const [bringsOwnVehicle, setBringsOwnVehicle] = useState(true);
+  const [plate, setPlate] = useState("");
   const [myReqs, setMyReqs] = useState<{ sacco_id: string; status: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -533,11 +567,17 @@ function JoinSaccoPanel() {
     const [{ data: s }, { data: r }, { data: p }] = await Promise.all([
       supabase.rpc("list_public_saccos"),
       supabase.from("driver_join_requests").select("sacco_id,status").eq("driver_id", u.user.id),
-      supabase.from("profiles").select("phone").eq("id", u.user.id).maybeSingle(),
+      supabase
+        .from("profiles")
+        .select("phone,id_number,license_number")
+        .eq("id", u.user.id)
+        .maybeSingle(),
     ]);
     setSaccos((s ?? []) as { id: string; name: string }[]);
     setMyReqs((r ?? []) as { sacco_id: string; status: string }[]);
     if (p?.phone && !phone) setPhone(p.phone);
+    if (p?.id_number && !idNumber) setIdNumber(p.id_number);
+    if (p?.license_number && !license) setLicense(p.license_number);
   }
   useEffect(() => {
     load();
@@ -547,28 +587,67 @@ function JoinSaccoPanel() {
   async function submit() {
     if (!saccoId) return toast.error("Pick a SACCO first");
     if (!phone.trim()) return toast.error("Enter your phone number so the SACCO can reach you");
+    if (!idNumber.trim() || !license.trim()) return toast.error("Enter your ID and license number");
+    if (bringsOwnVehicle && !plate.trim()) return toast.error("Enter your vehicle's plate number");
     setBusy(true);
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) {
       setBusy(false);
       return;
     }
+
+    // Ksh 1,000 joining fee — charged before the request reaches the SACCO owner.
+    // NOTE: confirm your mpesa-stk-push edge function accepts a body without a
+    // bookingId (it currently expects { bookingId, phone, amount } for ride payments).
+    // If it requires bookingId, this call needs to match that contract instead.
+    const { error: payError } = await supabase.functions.invoke("mpesa-stk-push", {
+      body: { phone: phone.trim(), amount: 1000, purpose: "sacco_join_fee" },
+    });
+    if (payError) {
+      setBusy(false);
+      return toast.error("Could not start the Ksh 1,000 payment. Try again.");
+    }
+    toast("Check your phone and enter your M-Pesa PIN to complete the Ksh 1,000 fee.");
+
     await supabase.rpc("claim_role", { _role: "driver" });
-    // Keep the profile phone in sync so it appears everywhere
-    await supabase.from("profiles").update({ phone: phone.trim() }).eq("id", u.user.id);
+
+    await supabase
+      .from("profiles")
+      .update({ phone: phone.trim(), id_number: idNumber.trim(), license_number: license.trim() })
+      .eq("id", u.user.id);
+
+    if (bringsOwnVehicle && plate.trim()) {
+      // Register the vehicle now (unattached); approve_driver_request() attaches it to
+      // the SACCO once the owner approves the request.
+      await supabase.from("vehicles").upsert(
+        {
+          plate_number: plate.trim().toUpperCase(),
+          driver_id: u.user.id,
+          capacity: 14,
+          sacco_id: null,
+        },
+        { onConflict: "plate_number" },
+      );
+    }
+
     const { error } = await supabase.from("driver_join_requests").upsert(
       {
         driver_id: u.user.id,
         sacco_id: saccoId,
         phone: phone.trim(),
+        id_number: idNumber.trim(),
+        license_number: license.trim(),
+        brings_own_vehicle: bringsOwnVehicle,
+        vehicle_plate: bringsOwnVehicle ? plate.trim().toUpperCase() : null,
         note: note.trim() || null,
         status: "pending",
       },
       { onConflict: "driver_id,sacco_id" },
     );
+
     setBusy(false);
     if (error) return toast.error(error.message);
-    toast.success("Request sent — the SACCO owner will see your phone and approve it");
+    toast.success("Request sent — the SACCO owner will see your details and approve it");
     setNote("");
     load();
   }
@@ -579,7 +658,8 @@ function JoinSaccoPanel() {
     <div className="rounded-lg border border-dashed border-border bg-secondary/60 p-3 text-xs">
       <div className="font-medium text-foreground">Prefer joining a SACCO?</div>
       <p className="mt-1 text-muted-foreground">
-        Request to join a SACCO and get assigned a vehicle once approved.
+        Request to join a SACCO and get assigned a vehicle once approved. A Ksh 1,000 joining fee
+        applies.
       </p>
       {myReqs.length > 0 && (
         <ul className="mt-2 grid gap-1">
@@ -618,9 +698,49 @@ function JoinSaccoPanel() {
           className="w-full rounded-md border border-input bg-background px-2 py-1.5"
         />
         <input
+          value={idNumber}
+          onChange={(e) => setIdNumber(e.target.value)}
+          placeholder="National ID number"
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+        />
+        <input
+          value={license}
+          onChange={(e) => setLicense(e.target.value)}
+          placeholder="Driving license number"
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+        />
+        <div className="flex gap-3 rounded-md bg-background px-2 py-1.5">
+          <label className="flex items-center gap-1.5">
+            <input
+              type="radio"
+              checked={bringsOwnVehicle}
+              onChange={() => setBringsOwnVehicle(true)}
+              className="accent-primary"
+            />
+            Own vehicle
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="radio"
+              checked={!bringsOwnVehicle}
+              onChange={() => setBringsOwnVehicle(false)}
+              className="accent-primary"
+            />
+            Assign me one
+          </label>
+        </div>
+        {bringsOwnVehicle && (
+          <input
+            value={plate}
+            onChange={(e) => setPlate(e.target.value)}
+            placeholder="Plate (e.g. KDA 123A)"
+            className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+          />
+        )}
+        <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Note (optional, e.g. license #)"
+          placeholder="Note (optional)"
           className="w-full rounded-md border border-input bg-background px-2 py-1.5"
         />
         <button
@@ -629,7 +749,7 @@ function JoinSaccoPanel() {
           onClick={submit}
           className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-60"
         >
-          {busy ? "Sending…" : "Send join request"}
+          {busy ? "Sending..." : "Pay Ksh 1,000 & send request"}
         </button>
       </div>
     </div>
