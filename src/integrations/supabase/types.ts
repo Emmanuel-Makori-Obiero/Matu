@@ -106,34 +106,46 @@ export type Database = {
       };
       driver_join_requests: {
         Row: {
+          brings_own_vehicle: boolean;
           created_at: string;
           driver_id: string;
           id: string;
+          id_number: string | null;
+          license_number: string | null;
           note: string | null;
           phone: string | null;
           sacco_id: string;
           status: string;
           updated_at: string;
+          vehicle_plate: string | null;
         };
         Insert: {
+          brings_own_vehicle?: boolean;
           created_at?: string;
           driver_id: string;
           id?: string;
+          id_number?: string | null;
+          license_number?: string | null;
           note?: string | null;
           phone?: string | null;
           sacco_id: string;
           status?: string;
           updated_at?: string;
+          vehicle_plate?: string | null;
         };
         Update: {
+          brings_own_vehicle?: boolean;
           created_at?: string;
           driver_id?: string;
           id?: string;
+          id_number?: string | null;
+          license_number?: string | null;
           note?: string | null;
           phone?: string | null;
           sacco_id?: string;
           status?: string;
           updated_at?: string;
+          vehicle_plate?: string | null;
         };
         Relationships: [
           {
@@ -192,7 +204,9 @@ export type Database = {
           amount: number;
           booking_id: string | null;
           created_at: string;
+          failure_reason: string | null;
           id: string;
+          mpesa_checkout_request_id: string | null;
           mpesa_receipt: string | null;
           payer_id: string;
           status: Database["public"]["Enums"]["payment_status"];
@@ -201,7 +215,9 @@ export type Database = {
           amount: number;
           booking_id?: string | null;
           created_at?: string;
+          failure_reason?: string | null;
           id?: string;
+          mpesa_checkout_request_id?: string | null;
           mpesa_receipt?: string | null;
           payer_id: string;
           status?: Database["public"]["Enums"]["payment_status"];
@@ -210,7 +226,9 @@ export type Database = {
           amount?: number;
           booking_id?: string | null;
           created_at?: string;
+          failure_reason?: string | null;
           id?: string;
+          mpesa_checkout_request_id?: string | null;
           mpesa_receipt?: string | null;
           payer_id?: string;
           status?: Database["public"]["Enums"]["payment_status"];
@@ -229,24 +247,33 @@ export type Database = {
         Row: {
           avatar_url: string | null;
           created_at: string;
+          driver_type: Database["public"]["Enums"]["driver_type"] | null;
           full_name: string | null;
           id: string;
+          id_number: string | null;
+          license_number: string | null;
           phone: string | null;
           updated_at: string;
         };
         Insert: {
           avatar_url?: string | null;
           created_at?: string;
+          driver_type?: Database["public"]["Enums"]["driver_type"] | null;
           full_name?: string | null;
           id: string;
+          id_number?: string | null;
+          license_number?: string | null;
           phone?: string | null;
           updated_at?: string;
         };
         Update: {
           avatar_url?: string | null;
           created_at?: string;
+          driver_type?: Database["public"]["Enums"]["driver_type"] | null;
           full_name?: string | null;
           id?: string;
+          id_number?: string | null;
+          license_number?: string | null;
           phone?: string | null;
           updated_at?: string;
         };
@@ -319,6 +346,109 @@ export type Database = {
           registration_number?: string | null;
         };
         Relationships: [];
+      };
+      sacco_join_requests: {
+        Row: {
+          brings_own_vehicle: boolean;
+          created_at: string;
+          driver_id: string;
+          full_name: string;
+          id: string;
+          id_number: string;
+          license_number: string;
+          phone: string;
+          reviewed_at: string | null;
+          sacco_id: string;
+          status: Database["public"]["Enums"]["join_request_status"];
+          vehicle_plate: string | null;
+        };
+        Insert: {
+          brings_own_vehicle?: boolean;
+          created_at?: string;
+          driver_id: string;
+          full_name: string;
+          id?: string;
+          id_number: string;
+          license_number: string;
+          phone: string;
+          reviewed_at?: string | null;
+          sacco_id: string;
+          status?: Database["public"]["Enums"]["join_request_status"];
+          vehicle_plate?: string | null;
+        };
+        Update: {
+          brings_own_vehicle?: boolean;
+          created_at?: string;
+          driver_id?: string;
+          full_name?: string;
+          id?: string;
+          id_number?: string;
+          license_number?: string;
+          phone?: string;
+          reviewed_at?: string | null;
+          sacco_id?: string;
+          status?: Database["public"]["Enums"]["join_request_status"];
+          vehicle_plate?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sacco_join_requests_sacco_id_fkey";
+            columns: ["sacco_id"];
+            isOneToOne: false;
+            referencedRelation: "saccos";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      sacco_subscriptions: {
+        Row: {
+          amount: number;
+          created_at: string;
+          failure_reason: string | null;
+          id: string;
+          mpesa_checkout_request_id: string | null;
+          mpesa_receipt: string | null;
+          period_end: string;
+          period_start: string;
+          sacco_id: string;
+          status: Database["public"]["Enums"]["subscription_status"];
+          vehicle_count: number;
+        };
+        Insert: {
+          amount: number;
+          created_at?: string;
+          failure_reason?: string | null;
+          id?: string;
+          mpesa_checkout_request_id?: string | null;
+          mpesa_receipt?: string | null;
+          period_end?: string;
+          period_start?: string;
+          sacco_id: string;
+          status?: Database["public"]["Enums"]["subscription_status"];
+          vehicle_count: number;
+        };
+        Update: {
+          amount?: number;
+          created_at?: string;
+          failure_reason?: string | null;
+          id?: string;
+          mpesa_checkout_request_id?: string | null;
+          mpesa_receipt?: string | null;
+          period_end?: string;
+          period_start?: string;
+          sacco_id?: string;
+          status?: Database["public"]["Enums"]["subscription_status"];
+          vehicle_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sacco_subscriptions_sacco_id_fkey";
+            columns: ["sacco_id"];
+            isOneToOne: false;
+            referencedRelation: "saccos";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       stages: {
         Row: {
@@ -502,6 +632,10 @@ export type Database = {
         Args: { _request_id: string };
         Returns: undefined;
       };
+      calculate_subscription_fee: {
+        Args: { _vehicle_count: number };
+        Returns: number;
+      };
       can_manage_route: { Args: { _route_id: string }; Returns: boolean };
       claim_role: {
         Args: { _role: Database["public"]["Enums"]["app_role"] };
@@ -541,6 +675,7 @@ export type Database = {
       get_trip_location: {
         Args: { _trip_id: string };
         Returns: {
+          current_heading: number | null;
           current_lat: number;
           current_lng: number;
         }[];
@@ -589,7 +724,10 @@ export type Database = {
       alert_type: "near_pickup" | "near_dropoff" | "alight_request";
       app_role: "passenger" | "driver" | "conductor" | "sacco_admin";
       booking_status: "reserved" | "confirmed" | "boarded" | "alighted" | "cancelled";
+      driver_type: "sacco_driver" | "independent";
+      join_request_status: "pending" | "approved" | "rejected";
       payment_status: "pending" | "held" | "released" | "refunded" | "failed";
+      subscription_status: "pending" | "active" | "past_due" | "failed";
       trip_status: "scheduled" | "boarding" | "in_transit" | "completed" | "cancelled";
       vehicle_type: "matatu_14" | "matatu_25" | "bus_33" | "bus_51";
     };
@@ -716,7 +854,10 @@ export const Constants = {
       alert_type: ["near_pickup", "near_dropoff", "alight_request"],
       app_role: ["passenger", "driver", "conductor", "sacco_admin"],
       booking_status: ["reserved", "confirmed", "boarded", "alighted", "cancelled"],
+      driver_type: ["sacco_driver", "independent"],
+      join_request_status: ["pending", "approved", "rejected"],
       payment_status: ["pending", "held", "released", "refunded", "failed"],
+      subscription_status: ["pending", "active", "past_due", "failed"],
       trip_status: ["scheduled", "boarding", "in_transit", "completed", "cancelled"],
       vehicle_type: ["matatu_14", "matatu_25", "bus_33", "bus_51"],
     },
