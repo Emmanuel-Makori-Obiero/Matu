@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { AppRole } from "@/lib/matu-auth";
+import { AIAssistant, type AssistantContext } from "@/components/matu/AIAssistant";
 
 const NAV = [
   { to: "/ride" as const, label: "Ride", icon: User, role: "passenger" as AppRole },
@@ -18,17 +19,41 @@ const NAV = [
   { to: "/fleet" as const, label: "SACCO", icon: Building2, role: "sacco_admin" as AppRole },
 ];
 
+// Every authenticated page renders through AppShell, so mounting the assistant here once
+// means it's on every page automatically — no per-page wiring needed. The context is
+// auto-detected from the URL so the assistant knows whether it's talking to a passenger,
+// a driver, or a SACCO admin, and adjusts what it helps with accordingly. A page can still
+// pass `assistantContext` explicitly (e.g. to include a specific route/trip id) when it
+// has more specific info than the URL alone provides.
+function detectContext(pathname: string): AssistantContext {
+  if (pathname.startsWith("/drive")) {
+    return pathname.startsWith("/drive/trip") ? { page: "driver_trip" } : { page: "driver_home" };
+  }
+  if (pathname.startsWith("/fleet")) {
+    return { page: "sacco_admin" };
+  }
+  if (pathname === "/ride/history" || pathname.startsWith("/ride/history")) {
+    return { page: "passenger_history" };
+  }
+  if (pathname.startsWith("/ride/") && pathname !== "/ride/history") {
+    return { page: "passenger_route_details" };
+  }
+  return { page: "passenger_search" };
+}
+
 export function AppShell({
   title,
   subtitle,
   accent = "primary",
   tabs,
+  assistantContext,
   children,
 }: {
   title: string;
   subtitle?: string;
   accent?: "primary" | "accent";
   tabs?: { to: string; label: string }[];
+  assistantContext?: AssistantContext;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -143,6 +168,7 @@ export function AppShell({
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-5 py-8">{children}</main>
+      <AIAssistant context={assistantContext ?? detectContext(pathname)} />
     </div>
   );
 }

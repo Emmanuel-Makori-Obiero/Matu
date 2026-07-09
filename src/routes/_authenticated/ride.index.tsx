@@ -13,7 +13,6 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
-import { AIAssistant } from "@/components/matu/AIAssistant";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
 import {
   findNearestStage,
@@ -221,7 +220,6 @@ function PassengerHome() {
         { to: "/ride/history", label: "My bookings" },
       ]}
     >
-      <AIAssistant />
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         {/* Map (left) */}
         <div className="order-2 lg:order-1">

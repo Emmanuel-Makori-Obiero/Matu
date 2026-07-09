@@ -19,14 +19,47 @@ type ChatMessage = {
   }[];
 };
 
-export function AIAssistant() {
+// Which page the assistant is mounted on, and any extra detail the page already knows
+// (e.g. the route id someone's currently viewing). The edge function uses this to decide
+// which tools are relevant and how to frame its replies for that audience.
+export type AssistantContext = {
+  page:
+    | "passenger_search"
+    | "passenger_route_details"
+    | "passenger_history"
+    | "driver_home"
+    | "driver_trip"
+    | "sacco_admin";
+  details?: string;
+};
+
+const GREETINGS: Record<AssistantContext["page"], string> = {
+  passenger_search:
+    "Hi! Tell me where you're going — e.g. \"I want to go from Kasarani to Ambassadeur\" — and I'll check what's available.",
+  passenger_route_details:
+    "Hi! Ask me about this route — seats left, fare, or how long the trip usually takes.",
+  passenger_history:
+    "Hi! Ask me about a past or upcoming booking, or say where you want to go next.",
+  driver_home:
+    "Hi! Ask me about routes, fares, or availability — useful if a passenger asks before you head out.",
+  driver_trip: "Hi! I can look up route or fare info while you're on this trip.",
+  sacco_admin:
+    "Hi! Ask me about any of your SACCO's routes — fares, or how busy a route tends to be.",
+};
+
+const PLACEHOLDERS: Record<AssistantContext["page"], string> = {
+  passenger_search: "Where are you headed?",
+  passenger_route_details: "Ask about this route…",
+  passenger_history: "Ask about a booking…",
+  driver_home: "Ask about a route…",
+  driver_trip: "Ask about this route…",
+  sacco_admin: "Ask about your routes…",
+};
+
+export function AIAssistant({ context }: { context: AssistantContext }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content:
-        "Hi! Tell me where you're going — e.g. \"I want to go from Kasarani to Ambassadeur\" — and I'll check what's available.",
-    },
+    { role: "assistant", content: GREETINGS[context.page] },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -47,6 +80,8 @@ export function AIAssistant() {
       const { data, error } = await supabase.functions.invoke("ai-assistant", {
         body: {
           message: text,
+          page: context.page,
+          details: context.details,
           // Plain role/content history only — strip matchedRoutes before sending back,
           // the edge function doesn't need it and it'd just bloat the request.
           history: nextMessages.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
@@ -139,7 +174,7 @@ export function AIAssistant() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
-              placeholder="Where are you headed?"
+              placeholder={PLACEHOLDERS[context.page]}
               disabled={loading}
               className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
             />

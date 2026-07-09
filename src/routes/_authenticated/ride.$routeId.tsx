@@ -7,7 +7,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
-import { AIAssistant } from "@/components/matu/AIAssistant";
 
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type Trip = {
@@ -340,8 +339,8 @@ function RouteDetail() {
         { to: "/ride", label: "Find a ride" },
         { to: "/ride/history", label: "My bookings" },
       ]}
+      assistantContext={{ page: "passenger_route_details", details: routeId }}
     >
-      <AIAssistant />
       <div className="mb-4">
         <Link
           to="/ride"
