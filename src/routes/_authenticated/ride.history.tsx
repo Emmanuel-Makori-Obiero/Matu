@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Ban, CheckCircle2, Clock, MapPin, QrCode, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import { AIAssistant } from "@/components/matu/AIAssistant";
 import {
   Dialog,
   DialogContent,
@@ -183,6 +184,7 @@ function BookingHistory() {
         { to: "/ride/history", label: "My bookings" },
       ]}
     >
+      <AIAssistant />
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading your bookings…</p>
       ) : bookings.length === 0 ? (

@@ -1,11 +1,25 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Bus, Search, ArrowRightLeft, LocateFixed, Navigation, Star } from "lucide-react";
+import {
+  MapPin,
+  Bus,
+  Search,
+  ArrowRightLeft,
+  LocateFixed,
+  Navigation,
+  Star,
+  MapPinned,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import { AIAssistant } from "@/components/matu/AIAssistant";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
-import { findNearestStage, type NearestStageResult } from "@/lib/stage-match";
+import {
+  findNearestStage,
+  findNearestStageByCoords,
+  type NearestStageResult,
+} from "@/lib/stage-match";
 
 type RouteRow = {
   id: string;
@@ -37,6 +51,24 @@ function PassengerHome() {
   const [myLoc, setMyLoc] = useState<{ lat: number; lng: number } | null>(null);
   const [nearestSuggestions, setNearestSuggestions] = useState<NearestStageResult[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [pickTarget, setPickTarget] = useState<"from" | "to">("from");
+  const [droppedPin, setDroppedPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickingOnMap, setPickingOnMap] = useState(false);
+
+  async function handleMapClick(lat: number, lng: number) {
+    if (!pickingOnMap) return;
+    setDroppedPin({ lat, lng });
+    const matches = await findNearestStageByCoords(lat, lng, 1);
+    if (matches.length === 0) return toast.error("No nearby stage found for that spot");
+    const nearest = matches[0];
+    if (pickTarget === "from") setFrom(nearest.stage.name);
+    else setTo(nearest.stage.name);
+    const distanceLabel =
+      nearest.distanceKm < 0.05 ? "right there" : `${nearest.distanceKm.toFixed(1)} km away`;
+    toast.success(
+      `${pickTarget === "from" ? "Pickup" : "Destination"} set to ${nearest.stage.name} (nearest stage, ${distanceLabel})`,
+    );
+  }
 
   useEffect(() => {
     (async () => {
@@ -189,13 +221,48 @@ function PassengerHome() {
         { to: "/ride/history", label: "My bookings" },
       ]}
     >
+      <AIAssistant />
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         {/* Map (left) */}
         <div className="order-2 lg:order-1">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPickingOnMap((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium ${
+                pickingOnMap
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              <MapPinned className="size-3.5" />
+              {pickingOnMap ? "Tap the map to set location" : "Pick location on map"}
+            </button>
+            {pickingOnMap && (
+              <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
+                <button
+                  type="button"
+                  onClick={() => setPickTarget("from")}
+                  className={`px-2.5 py-1.5 font-medium ${pickTarget === "from" ? "bg-accent/30 text-accent-foreground" : "text-muted-foreground"}`}
+                >
+                  Setting pickup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPickTarget("to")}
+                  className={`px-2.5 py-1.5 font-medium ${pickTarget === "to" ? "bg-primary/20 text-primary" : "text-muted-foreground"}`}
+                >
+                  Setting destination
+                </button>
+              </div>
+            )}
+          </div>
           <RouteMap
             stages={mapStages}
             vehicles={myLoc ? [{ id: "me", lat: myLoc.lat, lng: myLoc.lng, label: "You" }] : []}
-            className="h-[420px] w-full rounded-2xl border border-border lg:h-[600px]"
+            pin={droppedPin}
+            onMapClick={handleMapClick}
+            className={`h-[420px] w-full rounded-2xl border lg:h-[600px] ${pickingOnMap ? "border-primary" : "border-border"}`}
           />
         </div>
 

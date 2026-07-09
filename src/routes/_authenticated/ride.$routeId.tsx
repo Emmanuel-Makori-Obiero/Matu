@@ -6,6 +6,8 @@ import { ArrowLeft, MapPin, Users, Bell } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
+import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
+import { AIAssistant } from "@/components/matu/AIAssistant";
 
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type Trip = {
@@ -339,6 +341,7 @@ function RouteDetail() {
         { to: "/ride/history", label: "My bookings" },
       ]}
     >
+      <AIAssistant />
       <div className="mb-4">
         <Link
           to="/ride"
@@ -466,6 +469,24 @@ function RouteDetail() {
                                   ? "Try payment again"
                                   : "Pay Now"}
                             </button>
+                          </div>
+                        )}
+
+                      {bookedTripId === t.id &&
+                        bookedBookingId &&
+                        paymentStatus[bookedBookingId] === "held" && (
+                          <div className="mt-3 border-t border-border pt-3">
+                            <LeaveNowBanner
+                              busPos={
+                                tripLocs[t.id]
+                                  ? { lat: tripLocs[t.id].lat, lng: tripLocs[t.id].lng }
+                                  : null
+                              }
+                              stage={(() => {
+                                const s = stages.find((st) => st.id === pickup);
+                                return s ? { lat: s.lat, lng: s.lng, name: s.name } : null;
+                              })()}
+                            />
                           </div>
                         )}
                     </li>
