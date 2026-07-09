@@ -1,10 +1,9 @@
 // The passenger's "from"/"to" text (e.g. "Roysambu") often isn't the exact name of a
-// stage. This geocodes what they typed with Google Maps, then finds the nearest actual
-// stage across ALL routes (using straight-line/haversine distance), so we can say
-// "closest stop: Roysambu is served by CBD <-> Kasarani, alight at Roasters" instead of
-// finding nothing.
+// stage. This geocodes what they typed with Nominatim (OpenStreetMap's free geocoder,
+// no key/billing), then finds the nearest actual stage across ALL routes (using
+// straight-line/haversine distance), so we can say "closest stop: Roysambu is served by
+// CBD <-> Kasarani, alight at Roasters" instead of finding nothing.
 
-import { loadGoogleMaps } from "@/lib/google-maps";
 import { supabase } from "@/integrations/supabase/client";
 
 type StageRow = { id: string; route_id: string; name: string; lat: number; lng: number };
@@ -24,6 +23,22 @@ export type NearestStageResult = {
   distanceKm: number;
   exactNameMatch: boolean;
 };
+
+// Nominatim (OpenStreetMap's free geocoder) — no key, no billing. Their usage policy
+// asks for at most ~1 req/sec and a descriptive User-Agent/Referer, which the browser
+// sets automatically; keep this to on-demand lookups (not polling) to stay within it.
+async function geocodeWithNominatim(query: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    const results = (await res.json()) as Array<{ lat: string; lon: string }>;
+    if (!results[0]) return null;
+    return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+  } catch {
+    return null;
+  }
+}
 
 // Given raw coordinates (e.g. from a map click/tap), returns the closest stage(s) on
 // file — no geocoding needed since we already have a lat/lng. Used by the "tap the map
@@ -62,17 +77,10 @@ export async function findNearestStage(query: string, limit = 3): Promise<Neares
   }
 
   // No stage literally named that — geocode it and find the nearest real stage.
-  const google = await loadGoogleMaps();
-  const geocoder = new google.maps.Geocoder();
-  const result = await new Promise<google.maps.GeocoderResult | null>((resolve) => {
-    geocoder.geocode({ address: `${query}, Nairobi, Kenya` }, (results, status) => {
-      resolve(status === "OK" && results?.[0] ? results[0] : null);
-    });
-  });
-  if (!result) return [];
+  const geocoded = await geocodeWithNominatim(`${query}, Nairobi, Kenya`);
+  if (!geocoded) return [];
 
-  const lat = result.geometry.location.lat();
-  const lng = result.geometry.location.lng();
+  const { lat, lng } = geocoded;
 
   return (stages as StageRow[])
     .map((stage) => ({

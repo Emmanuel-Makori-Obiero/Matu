@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { loadGoogleMaps, NAIROBI_CENTER } from "@/lib/google-maps";
+import { L, NAIROBI_CENTER } from "@/lib/leaflet-map";
 
 export type MapStage = { id: string; name: string; lat: number; lng: number };
 export type MapVehicle = {
@@ -9,6 +9,45 @@ export type MapVehicle = {
   heading?: number | null;
   label?: string;
 };
+
+// Directional wedge icon (rotates to face travel direction) — mirrors the old
+// Google FORWARD_CLOSED_ARROW look using a rotated div + CSS triangle.
+function vehicleDivIcon(hasHeading: boolean, heading: number | null | undefined) {
+  const html = hasHeading
+    ? `<div style="
+        width:0;height:0;
+        border-left:7px solid transparent;
+        border-right:7px solid transparent;
+        border-bottom:16px solid #f4c430;
+        filter:drop-shadow(0 0 1px #0a5f3d) drop-shadow(0 0 1px #0a5f3d);
+        transform:rotate(${heading}deg);
+        transform-origin:center;
+      "></div>`
+    : `<div style="
+        width:18px;height:18px;border-radius:50%;
+        background:#f4c430;border:2px solid #0a5f3d;
+      "></div>`;
+  return L.divIcon({ html, className: "", iconSize: [18, 18], iconAnchor: [9, 9] });
+}
+
+function pinDivIcon() {
+  const html = `<div style="
+    width:16px;height:16px;border-radius:50%;
+    background:#e11d48;border:2px solid #ffffff;
+    box-shadow:0 0 0 1px rgba(0,0,0,0.15);
+  "></div>`;
+  return L.divIcon({ html, className: "", iconSize: [16, 16], iconAnchor: [8, 8] });
+}
+
+function stageDivIcon(index: number) {
+  const html = `<div style="
+    width:22px;height:22px;border-radius:50%;
+    background:#0a5f3d;color:#fff;font-size:11px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+    border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.15);
+  ">${index + 1}</div>`;
+  return L.divIcon({ html, className: "", iconSize: [22, 22], iconAnchor: [11, 11] });
+}
 
 export function RouteMap({
   stages,
@@ -24,33 +63,32 @@ export function RouteMap({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const stageMarkers = useRef<google.maps.Marker[]>([]);
-  const vehicleMarkers = useRef<Record<string, google.maps.Marker>>({});
-  const pinMarker = useRef<google.maps.Marker | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const stageMarkers = useRef<L.Marker[]>([]);
+  const polylineRef = useRef<L.Polyline | null>(null);
+  const vehicleMarkers = useRef<Record<string, L.Marker>>({});
+  const pinMarker = useRef<L.Marker | null>(null);
   const [ready, setReady] = useState(false);
 
+  // Init map once.
   useEffect(() => {
-    let cancelled = false;
-    loadGoogleMaps().then((g) => {
-      if (cancelled || !ref.current) return;
-      const first = stages[0];
-      const map = new g.maps.Map(ref.current, {
-        center: first ? { lat: first.lat, lng: first.lng } : NAIROBI_CENTER,
-        zoom: 12,
-        disableDefaultUI: true,
-        zoomControl: true,
-      });
-      mapRef.current = map;
-      setReady(true);
-      if (onMapClick) {
-        map.addListener("click", (e: google.maps.MapMouseEvent) => {
-          if (e.latLng) onMapClick(e.latLng.lat(), e.latLng.lng());
-        });
-      }
-    });
+    if (!ref.current || mapRef.current) return;
+    const first = stages[0];
+    const center = first ? { lat: first.lat, lng: first.lng } : NAIROBI_CENTER;
+    const map = L.map(ref.current, { zoomControl: true }).setView([center.lat, center.lng], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
+    mapRef.current = map;
+    setReady(true);
+    if (onMapClick) {
+      map.on("click", (e: L.LeafletMouseEvent) => onMapClick(e.latlng.lat, e.latlng.lng));
+    }
     return () => {
-      cancelled = true;
+      map.remove();
+      mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -58,80 +96,45 @@ export function RouteMap({
   // Draw stages + polyline
   useEffect(() => {
     const map = mapRef.current;
-    const windowWithGoogle = window as Window & { google?: typeof google };
-    if (!map || !ready || !windowWithGoogle.google) return;
-    const g = windowWithGoogle.google;
-    stageMarkers.current.forEach((m) => m.setMap(null));
-    stageMarkers.current = stages.map(
-      (s, i) =>
-        new g.maps.Marker({
-          position: { lat: s.lat, lng: s.lng },
-          map,
-          label: { text: String(i + 1), color: "#fff", fontSize: "11px" },
-          title: s.name,
-        }),
+    if (!map || !ready) return;
+    stageMarkers.current.forEach((m) => m.remove());
+    stageMarkers.current = stages.map((s, i) =>
+      L.marker([s.lat, s.lng], { icon: stageDivIcon(i), title: s.name }).addTo(map),
     );
+    polylineRef.current?.remove();
+    polylineRef.current = null;
     if (stages.length > 1) {
-      new g.maps.Polyline({
-        path: stages.map((s) => ({ lat: s.lat, lng: s.lng })),
-        strokeColor: "#0a5f3d",
-        strokeOpacity: 0.9,
-        strokeWeight: 3,
+      const path = stages.map((s) => [s.lat, s.lng] as [number, number]);
+      polylineRef.current = L.polyline(path, { color: "#0a5f3d", opacity: 0.9, weight: 3 }).addTo(
         map,
-      });
-      const bounds = new g.maps.LatLngBounds();
-      stages.forEach((s) => bounds.extend({ lat: s.lat, lng: s.lng }));
-      map.fitBounds(bounds, 40);
+      );
+      map.fitBounds(L.latLngBounds(path), { padding: [40, 40] });
     }
   }, [stages, ready]);
 
   // Live vehicles
   useEffect(() => {
     const map = mapRef.current;
-    const windowWithGoogle = window as Window & { google?: typeof google };
-    if (!map || !ready || !windowWithGoogle.google) return;
-    const g = windowWithGoogle.google;
+    if (!map || !ready) return;
     const seen = new Set<string>();
     vehicles.forEach((v) => {
       seen.add(v.id);
       const hasHeading = v.heading != null && !Number.isNaN(v.heading);
-      const icon = hasHeading
-        ? {
-            // Directional wedge, like Bolt/Uber — rotates to face travel direction.
-            path: g.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-            scale: 6,
-            rotation: v.heading as number,
-            fillColor: "#f4c430",
-            fillOpacity: 1,
-            strokeColor: "#0a5f3d",
-            strokeWeight: 2,
-          }
-        : {
-            // No heading yet (vehicle stationary / no compass) — plain dot.
-            path: g.maps.SymbolPath.CIRCLE,
-            scale: 9,
-            fillColor: "#f4c430",
-            fillOpacity: 1,
-            strokeColor: "#0a5f3d",
-            strokeWeight: 2,
-          };
+      const icon = vehicleDivIcon(hasHeading, v.heading);
       const existing = vehicleMarkers.current[v.id];
       if (existing) {
-        existing.setPosition({ lat: v.lat, lng: v.lng });
+        existing.setLatLng([v.lat, v.lng]);
         existing.setIcon(icon);
       } else {
-        vehicleMarkers.current[v.id] = new g.maps.Marker({
-          position: { lat: v.lat, lng: v.lng },
-          map,
-          title: v.label ?? "Matatu",
+        vehicleMarkers.current[v.id] = L.marker([v.lat, v.lng], {
           icon,
-        });
+          title: v.label ?? "Matatu",
+        }).addTo(map);
       }
     });
-    // Remove stale
     Object.keys(vehicleMarkers.current).forEach((id) => {
       if (!seen.has(id)) {
-        vehicleMarkers.current[id].setMap(null);
+        vehicleMarkers.current[id].remove();
         delete vehicleMarkers.current[id];
       }
     });
@@ -140,37 +143,24 @@ export function RouteMap({
   // Dropped pin — where the passenger tapped to set pickup/destination.
   useEffect(() => {
     const map = mapRef.current;
-    const windowWithGoogle = window as Window & { google?: typeof google };
-    if (!map || !ready || !windowWithGoogle.google) return;
-    const g = windowWithGoogle.google;
+    if (!map || !ready) return;
 
     if (!pin) {
-      pinMarker.current?.setMap(null);
+      pinMarker.current?.remove();
       pinMarker.current = null;
       return;
     }
 
-    const icon = {
-      path: g.maps.SymbolPath.CIRCLE,
-      scale: 8,
-      fillColor: "#e11d48",
-      fillOpacity: 1,
-      strokeColor: "#ffffff",
-      strokeWeight: 2,
-    };
-
     if (pinMarker.current) {
-      pinMarker.current.setPosition({ lat: pin.lat, lng: pin.lng });
+      pinMarker.current.setLatLng([pin.lat, pin.lng]);
     } else {
-      pinMarker.current = new g.maps.Marker({
-        position: { lat: pin.lat, lng: pin.lng },
-        map,
-        icon,
+      pinMarker.current = L.marker([pin.lat, pin.lng], {
+        icon: pinDivIcon(),
         title: "Selected location",
-        zIndex: 999,
-      });
+        zIndexOffset: 999,
+      }).addTo(map);
     }
-    map.panTo({ lat: pin.lat, lng: pin.lng });
+    map.panTo([pin.lat, pin.lng]);
   }, [pin, ready]);
 
   return (
