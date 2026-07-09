@@ -302,7 +302,7 @@ function RouteDetail() {
 
     // Safety net: if M-Pesa/the callback never responds at all (e.g. the passenger
     // cancels the STK prompt, which the sandbox doesn't always report back as a
-    // callback), stop waiting after 25s instead of leaving the button stuck on
+    // callback), stop waiting after 15s instead of leaving the button stuck on
     // "Check your phone..." forever. The realtime subscription above already handles
     // the normal case where the callback does arrive — this only fires if nothing
     // ever comes back at all.
@@ -313,7 +313,7 @@ function RouteDetail() {
       });
       setPayingBookingId((prev) => (prev === bookedBookingId ? null : prev));
       toast.error("Payment not received. If you cancelled or weren't prompted, try again.");
-    }, 25_000);
+    }, 15_000);
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {
