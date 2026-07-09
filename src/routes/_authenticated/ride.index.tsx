@@ -19,6 +19,7 @@ import {
   findNearestStageByCoords,
   type NearestStageResult,
 } from "@/lib/stage-match";
+import { OnboardingGuide, useOnboardingSeen } from "@/components/matu/OnboardingGuide";
 
 type RouteRow = {
   id: string;
@@ -42,6 +43,11 @@ export const Route = createFileRoute("/_authenticated/ride/")({
 
 function PassengerHome() {
   const navigate = useNavigate();
+  const onboardingSeen = useOnboardingSeen();
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (!onboardingSeen) setShowOnboarding(true);
+  }, [onboardingSeen]);
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [stages, setStages] = useState<StageRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -220,6 +226,7 @@ function PassengerHome() {
         { to: "/ride/history", label: "My bookings" },
       ]}
     >
+      {showOnboarding && <OnboardingGuide onClose={() => setShowOnboarding(false)} />}
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         {/* Map (left) */}
         <div className="order-2 lg:order-1">
@@ -267,6 +274,23 @@ function PassengerHome() {
         {/* Form + results (right) */}
         <aside className="order-1 flex flex-col gap-4 lg:order-2">
           <section className="rounded-2xl border border-border bg-surface p-4 shadow-soft">
+            <button
+              type="button"
+              onClick={useMyLocation}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-4 text-base font-semibold text-primary-foreground shadow-soft transition hover:opacity-90"
+            >
+              <LocateFixed className="size-5" /> Use my location as pickup
+            </button>
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Easiest way to start — we'll find your nearest matatu stop automatically.
+            </p>
+
+            <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              or type it in
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
             <div className="grid gap-3">
               <PlaceField
                 icon={<div className="size-2.5 rounded-full bg-accent" />}
@@ -275,15 +299,6 @@ function PassengerHome() {
                 onChange={setFrom}
                 options={places}
                 placeholder="Where from? (e.g. Utawala)"
-                rightSlot={
-                  <button
-                    type="button"
-                    onClick={useMyLocation}
-                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium hover:bg-secondary"
-                  >
-                    <LocateFixed className="size-3" /> Use my location
-                  </button>
-                }
               />
               <div className="flex justify-center">
                 <button
@@ -307,26 +322,28 @@ function PassengerHome() {
                 options={places}
                 placeholder="Where to? (e.g. CBD)"
               />
-              <div className="flex gap-2">
+              <p className="text-center text-xs text-muted-foreground">
+                Matching matatus appear below as you type — no need to press search.
+              </p>
+              {(from || to) && (
                 <button
                   type="button"
-                  className="flex-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"
+                  onClick={() => {
+                    setFrom("");
+                    setTo("");
+                  }}
+                  className="rounded-lg border border-border px-3 py-2.5 text-sm font-medium"
                 >
-                  <Search className="mr-1 inline size-4" /> Find matatus
+                  Clear search
                 </button>
-                {(from || to) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFrom("");
-                      setTo("");
-                    }}
-                    className="rounded-lg border border-border px-3 py-2.5 text-xs"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowOnboarding(true)}
+                className="text-xs text-primary underline underline-offset-2"
+              >
+                How this works
+              </button>
             </div>
           </section>
 
