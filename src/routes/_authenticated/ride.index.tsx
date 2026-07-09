@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Bus, Search, ArrowRightLeft, LocateFixed, Navigation } from "lucide-react";
+import { MapPin, Bus, Search, ArrowRightLeft, LocateFixed, Navigation, Star } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
@@ -36,6 +36,7 @@ function PassengerHome() {
   const [to, setTo] = useState("");
   const [myLoc, setMyLoc] = useState<{ lat: number; lng: number } | null>(null);
   const [nearestSuggestions, setNearestSuggestions] = useState<NearestStageResult[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -46,8 +47,52 @@ function PassengerHome() {
       setRoutes((r ?? []) as RouteRow[]);
       setStages((s ?? []) as StageRow[]);
       setLoading(false);
+
+      const { data: u } = await supabase.auth.getUser();
+      if (u.user) {
+        const { data: favs } = await supabase
+          .from("favorite_routes")
+          .select("route_id")
+          .eq("passenger_id", u.user.id);
+        setFavoriteIds(new Set((favs ?? []).map((f) => f.route_id)));
+      }
     })();
   }, []);
+
+  async function toggleFavorite(routeId: string) {
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return toast.error("Sign in to save favorite routes");
+    const isFav = favoriteIds.has(routeId);
+    // Optimistic update — feels instant, and we roll back on error below.
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      isFav ? next.delete(routeId) : next.add(routeId);
+      return next;
+    });
+    if (isFav) {
+      const { error } = await supabase
+        .from("favorite_routes")
+        .delete()
+        .eq("passenger_id", u.user.id)
+        .eq("route_id", routeId);
+      if (error) {
+        setFavoriteIds((prev) => new Set(prev).add(routeId));
+        toast.error("Could not remove favorite");
+      }
+    } else {
+      const { error } = await supabase
+        .from("favorite_routes")
+        .insert({ passenger_id: u.user.id, route_id: routeId });
+      if (error) {
+        setFavoriteIds((prev) => {
+          const next = new Set(prev);
+          next.delete(routeId);
+          return next;
+        });
+        toast.error("Could not save favorite");
+      }
+    }
+  }
 
   const places = useMemo(() => {
     const s = new Set<string>();
@@ -62,19 +107,28 @@ function PassengerHome() {
   const filtered = useMemo(() => {
     const f = from.trim().toLowerCase();
     const t = to.trim().toLowerCase();
-    if (!f && !t) return routes;
-    return routes.filter((r) => {
-      const o = r.origin.toLowerCase();
-      const d = r.destination.toLowerCase();
-      const routeStages = stages
-        .filter((s) => s.route_id === r.id)
-        .map((s) => s.name.toLowerCase());
-      const hay = [o, d, ...routeStages].join(" | ");
-      const matchesF = !f || hay.includes(f);
-      const matchesT = !t || hay.includes(t);
-      return matchesF && matchesT;
+    const base =
+      !f && !t
+        ? routes
+        : routes.filter((r) => {
+            const o = r.origin.toLowerCase();
+            const d = r.destination.toLowerCase();
+            const routeStages = stages
+              .filter((s) => s.route_id === r.id)
+              .map((s) => s.name.toLowerCase());
+            const hay = [o, d, ...routeStages].join(" | ");
+            const matchesF = !f || hay.includes(f);
+            const matchesT = !t || hay.includes(t);
+            return matchesF && matchesT;
+          });
+    // Favorited routes float to the top so regular riders can jump straight to their
+    // usual route instead of re-searching every time.
+    return [...base].sort((a, b) => {
+      const aFav = favoriteIds.has(a.id) ? 1 : 0;
+      const bFav = favoriteIds.has(b.id) ? 1 : 0;
+      return bFav - aFav;
     });
-  }, [routes, stages, from, to]);
+  }, [routes, stages, from, to, favoriteIds]);
 
   // If nothing matches what the passenger typed, look up the nearest real stage
   // instead of just saying "no results".
@@ -271,12 +325,12 @@ function PassengerHome() {
                       : routeStages;
                   const showBetween = (fLow || tLow) && between.length > 0;
                   return (
-                    <li key={r.id}>
+                    <li key={r.id} className="relative">
                       <button
                         onClick={() =>
                           navigate({ to: "/ride/$routeId", params: { routeId: r.id } })
                         }
-                        className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 text-left transition hover:border-primary"
+                        className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-display text-sm font-semibold">
@@ -304,6 +358,21 @@ function PassengerHome() {
                         <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
                           KSh {r.base_fare ?? "—"}
                         </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(r.id);
+                        }}
+                        aria-label={
+                          favoriteIds.has(r.id) ? "Remove from favorites" : "Save as favorite"
+                        }
+                        className="absolute right-2 top-2 rounded-full p-1 hover:bg-secondary"
+                      >
+                        <Star
+                          className={`size-4 ${favoriteIds.has(r.id) ? "fill-accent text-accent" : "text-muted-foreground"}`}
+                        />
                       </button>
                     </li>
                   );
