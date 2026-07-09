@@ -40,7 +40,7 @@ export function OnboardingGuide({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[2000] grid place-items-center bg-black/50 p-4">
       <div className="relative w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-lift">
         <button
           onClick={finish}
