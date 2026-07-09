@@ -24,6 +24,7 @@ type ChatMessage = {
 // which tools are relevant and how to frame its replies for that audience.
 export type AssistantContext = {
   page:
+    | "landing"
     | "passenger_search"
     | "passenger_route_details"
     | "passenger_history"
@@ -34,6 +35,8 @@ export type AssistantContext = {
 };
 
 const GREETINGS: Record<AssistantContext["page"], string> = {
+  landing:
+    "Hi! Ask me anything about Matu — how booking works, what drivers get, or how SACCOs manage their fleet.",
   passenger_search:
     "Hi! Tell me where you're going — e.g. \"I want to go from Kasarani to Ambassadeur\" — and I'll check what's available.",
   passenger_route_details:
@@ -48,6 +51,7 @@ const GREETINGS: Record<AssistantContext["page"], string> = {
 };
 
 const PLACEHOLDERS: Record<AssistantContext["page"], string> = {
+  landing: "Ask about Matu…",
   passenger_search: "Where are you headed?",
   passenger_route_details: "Ask about this route…",
   passenger_history: "Ask about a booking…",

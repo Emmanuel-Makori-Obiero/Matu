@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { MapPin, Bell, Wallet, Bus, ShieldCheck, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { AIAssistant } from "@/components/matu/AIAssistant";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -175,6 +176,7 @@ function Landing() {
           <div>© {new Date().getFullYear()} Matu</div>
         </div>
       </footer>
+      <AIAssistant context={{ page: "landing" }} />
     </div>
   );
 }
