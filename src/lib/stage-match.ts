@@ -25,6 +25,27 @@ export type NearestStageResult = {
   exactNameMatch: boolean;
 };
 
+// Given raw coordinates (e.g. from a map click/tap), returns the closest stage(s) on
+// file — no geocoding needed since we already have a lat/lng. Used by the "tap the map
+// to set pickup/destination" flow.
+export async function findNearestStageByCoords(
+  lat: number,
+  lng: number,
+  limit = 3,
+): Promise<NearestStageResult[]> {
+  const { data: stages, error } = await supabase.from("stages").select("id,route_id,name,lat,lng");
+  if (error || !stages || stages.length === 0) return [];
+
+  return (stages as StageRow[])
+    .map((stage) => ({
+      stage,
+      distanceKm: haversineKm(lat, lng, stage.lat, stage.lng),
+      exactNameMatch: false,
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, limit);
+}
+
 // Geocodes `query` (e.g. "Roysambu, Nairobi") then returns the closest stage on file,
 // across every route, sorted nearest-first. Also flags an exact/partial name match so
 // the UI can say "found" vs. "nearest alternative".

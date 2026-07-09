@@ -13,11 +13,13 @@ export type MapVehicle = {
 export function RouteMap({
   stages,
   vehicles = [],
+  pin = null,
   onMapClick,
   className,
 }: {
   stages: MapStage[];
   vehicles?: MapVehicle[];
+  pin?: { lat: number; lng: number } | null;
   onMapClick?: (lat: number, lng: number) => void;
   className?: string;
 }) {
@@ -25,6 +27,7 @@ export function RouteMap({
   const mapRef = useRef<google.maps.Map | null>(null);
   const stageMarkers = useRef<google.maps.Marker[]>([]);
   const vehicleMarkers = useRef<Record<string, google.maps.Marker>>({});
+  const pinMarker = useRef<google.maps.Marker | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -133,6 +136,42 @@ export function RouteMap({
       }
     });
   }, [vehicles, ready]);
+
+  // Dropped pin — where the passenger tapped to set pickup/destination.
+  useEffect(() => {
+    const map = mapRef.current;
+    const windowWithGoogle = window as Window & { google?: typeof google };
+    if (!map || !ready || !windowWithGoogle.google) return;
+    const g = windowWithGoogle.google;
+
+    if (!pin) {
+      pinMarker.current?.setMap(null);
+      pinMarker.current = null;
+      return;
+    }
+
+    const icon = {
+      path: g.maps.SymbolPath.CIRCLE,
+      scale: 8,
+      fillColor: "#e11d48",
+      fillOpacity: 1,
+      strokeColor: "#ffffff",
+      strokeWeight: 2,
+    };
+
+    if (pinMarker.current) {
+      pinMarker.current.setPosition({ lat: pin.lat, lng: pin.lng });
+    } else {
+      pinMarker.current = new g.maps.Marker({
+        position: { lat: pin.lat, lng: pin.lng },
+        map,
+        icon,
+        title: "Selected location",
+        zIndex: 999,
+      });
+    }
+    map.panTo({ lat: pin.lat, lng: pin.lng });
+  }, [pin, ready]);
 
   return (
     <div ref={ref} className={className ?? "h-[420px] w-full rounded-2xl border border-border"} />
