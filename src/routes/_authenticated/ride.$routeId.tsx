@@ -301,19 +301,19 @@ function RouteDetail() {
     setPaymentStatus((prev) => ({ ...prev, [bookedBookingId]: "pending" }));
 
     // Safety net: if M-Pesa/the callback never responds at all (e.g. the passenger
-    // closes the STK prompt without entering a PIN), stop waiting after 60s instead
-    // of leaving the button stuck on "pending" forever. The existing realtime
-    // subscription above already flips this the moment the callback confirms or
-    // fails, so this only fires if nothing ever comes back.
+    // cancels the STK prompt, which the sandbox doesn't always report back as a
+    // callback), stop waiting after 25s instead of leaving the button stuck on
+    // "Check your phone..." forever. The realtime subscription above already handles
+    // the normal case where the callback does arrive — this only fires if nothing
+    // ever comes back at all.
     setTimeout(() => {
       setPaymentStatus((prev) => {
         if (prev[bookedBookingId] !== "pending") return prev; // already resolved by the callback
-        toast.error(
-          "Payment not received. If you weren't prompted, check the number and try again.",
-        );
         return { ...prev, [bookedBookingId]: "failed" };
       });
-    }, 60_000);
+      setPayingBookingId((prev) => (prev === bookedBookingId ? null : prev));
+      toast.error("Payment not received. If you cancelled or weren't prompted, try again.");
+    }, 25_000);
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {
@@ -442,6 +442,12 @@ function RouteDetail() {
                         paymentStatus[bookedBookingId] !== "held" && (
                           <div className="mt-3 grid gap-2 border-t border-border pt-3">
                             <p className="text-xs font-medium">Pay KSh {t.fare} with M-Pesa</p>
+                            {paymentStatus[bookedBookingId] === "failed" &&
+                              payingBookingId !== bookedBookingId && (
+                                <p className="text-xs font-medium text-destructive">
+                                  Payment failed — you weren't charged. Try again below.
+                                </p>
+                              )}
                             <input
                               type="tel"
                               placeholder="07XX XXX XXX"
