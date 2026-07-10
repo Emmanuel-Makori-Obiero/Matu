@@ -111,8 +111,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/89f7705c-017f-440d-be35-128d96c0c385/id-preview-eaa5de05--f4c18098-ca98-49e9-bd12-5c36a3374c76.lovable.app-1782891678310.png",
       },
+      // PWA / "Add to Home Screen" support
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Matu" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "icon", href: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { rel: "icon", href: "/icons/favicon-16.png", sizes: "16x16", type: "image/png" },
+      { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
@@ -141,6 +152,14 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch((err) => {
+        console.error("Service worker registration failed:", err);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {

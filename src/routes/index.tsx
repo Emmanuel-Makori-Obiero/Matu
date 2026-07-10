@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { MapPin, Bell, Wallet, Bus, ShieldCheck, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AIAssistant } from "@/components/matu/AIAssistant";
+import { InstallAppButton } from "@/components/matu/InstallAppButton";
 import { homePathForUser } from "@/lib/matu-auth";
 
 export const Route = createFileRoute("/")({
@@ -44,12 +45,15 @@ function Landing() {
           <Logo />
           <span className="font-display text-2xl font-bold tracking-tight">Matu</span>
         </Link>
-        <Link
-          to={signedIn ? homePath : "/auth"}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
-        >
-          {signedIn ? "Open app" : "Sign in"}
-        </Link>
+        <div className="flex items-center gap-2">
+          <InstallAppButton />
+          <Link
+            to={signedIn ? homePath : "/auth"}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+          >
+            {signedIn ? "Open app" : "Sign in"}
+          </Link>
+        </div>
       </header>
 
       {/* Hero */}

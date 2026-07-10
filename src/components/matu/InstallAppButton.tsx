@@ -1,0 +1,138 @@
+// FILE: src/components/matu/InstallAppButton.tsx
+//
+// "Install app" / "Add to Home Screen" button. Browsers differ a lot here:
+//  - Chrome/Edge on Android & desktop: fire a `beforeinstallprompt` event we can
+//    capture and trigger programmatically via `.prompt()`.
+//  - iOS Safari: does NOT support `beforeinstallprompt` at all — there is no
+//    programmatic install. The only way is Share sheet -> "Add to Home Screen",
+//    so on iOS we show instructions instead of a fake button that does nothing.
+//  - Already installed (running in standalone/display-mode): hide the button
+//    entirely, there's nothing to install.
+import { useEffect, useState } from "react";
+import { Download, Share, X } from "lucide-react";
+
+// Not in the default lib.dom types.
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
+function isIos() {
+  if (typeof navigator === "undefined") return false;
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isStandalone() {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    // iOS Safari's own flag for "launched from home screen"
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
+export function InstallAppButton({ className }: { className?: string }) {
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(false);
+  const [showIosHelp, setShowIosHelp] = useState(false);
+  const ios = isIos();
+
+  useEffect(() => {
+    setInstalled(isStandalone());
+
+    function onBeforeInstallPrompt(e: Event) {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    }
+    function onInstalled() {
+      setInstalled(true);
+      setDeferredPrompt(null);
+    }
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  // Already running as an installed app — nothing to offer.
+  if (installed) return null;
+
+  // Neither a captured Chrome/Edge prompt nor iOS (which always supports the
+  // manual Share-sheet path) — most likely an unsupported browser. Don't show a
+  // button that can't do anything.
+  if (!deferredPrompt && !ios) return null;
+
+  async function handleClick() {
+    if (ios) {
+      setShowIosHelp(true);
+      return;
+    }
+    if (!deferredPrompt) return;
+    await deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === "accepted") setInstalled(true);
+    setDeferredPrompt(null);
+  }
+
+  return (
+    <>
+      <button
+        onClick={handleClick}
+        className={
+          className ??
+          "inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium transition hover:bg-secondary"
+        }
+      >
+        <Download className="size-4" /> Download app
+      </button>
+
+      {showIosHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          onClick={() => setShowIosHelp(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <h3 className="font-display text-lg font-semibold">Add Matu to your Home Screen</h3>
+              <button
+                onClick={() => setShowIosHelp(false)}
+                className="rounded-md p-1 text-muted-foreground hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <ol className="mt-4 space-y-3 text-sm text-muted-foreground">
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  1
+                </span>
+                <span>
+                  Tap the <Share className="mb-0.5 inline size-4" /> Share button in Safari's
+                  toolbar.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  2
+                </span>
+                <span>Scroll down and tap "Add to Home Screen".</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  3
+                </span>
+                <span>Tap "Add" — Matu will appear as an app icon on your Home Screen.</span>
+              </li>
+            </ol>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
