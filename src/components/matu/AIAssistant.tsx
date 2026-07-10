@@ -30,7 +30,8 @@ export type AssistantContext = {
     | "passenger_history"
     | "driver_home"
     | "driver_trip"
-    | "sacco_admin";
+    | "sacco_admin"
+    | "account";
   details?: string;
 };
 
@@ -48,6 +49,7 @@ const GREETINGS: Record<AssistantContext["page"], string> = {
   driver_trip: "Hi! I can look up route or fare info while you're on this trip.",
   sacco_admin:
     "Hi! Ask me about any of your SACCO's routes — fares, or how busy a route tends to be.",
+  account: "Hi! Ask me about your account, roles, or anything else about how Matu works.",
 };
 
 const PLACEHOLDERS: Record<AssistantContext["page"], string> = {
@@ -58,6 +60,7 @@ const PLACEHOLDERS: Record<AssistantContext["page"], string> = {
   driver_home: "Ask about a route…",
   driver_trip: "Ask about this route…",
   sacco_admin: "Ask about your routes…",
+  account: "Ask a question…",
 };
 
 export function AIAssistant({ context }: { context: AssistantContext }) {

@@ -24,7 +24,7 @@ function detectContext(pathname: string): AssistantContext {
     return { page: "sacco_admin" };
   }
   if (pathname.startsWith("/account")) {
-    return { page: "general" };
+    return { page: "account" };
   }
   if (pathname === "/ride/history" || pathname.startsWith("/ride/history")) {
     return { page: "passenger_history" };
