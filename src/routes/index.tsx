@@ -56,10 +56,6 @@ function Landing() {
       <section className="mx-auto max-w-6xl px-5 pb-16 pt-10 md:pb-24 md:pt-16">
         <div className="grid items-center gap-12 md:grid-cols-2">
           <div>
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-accent/30 px-3 py-1 text-xs font-medium text-accent-foreground">
-              <span className="size-2 rounded-full bg-green-500 animate-pulse" />
-              24 Active Routes • 412 Passengers Today
-            </div>
             <h1 className="text-5xl font-display font-bold leading-[1.05] tracking-tight md:text-6xl">
               Never wait for
               <br />a matatu again
