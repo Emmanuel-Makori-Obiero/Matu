@@ -434,6 +434,28 @@ function DriverTrip() {
                 </button>
               </div>
             </div>
+            {(() => {
+              const capacity = vehicles.find((v) => v.id === trip.vehicle_id)?.capacity ?? 14;
+              const left = Math.max(capacity - seatsBooked, 0);
+              const isLow = left <= 3 && left > 0;
+              const isFull = left === 0;
+              return (
+                <div
+                  className={`mt-3 flex items-center justify-between rounded-md px-3 py-2 text-xs font-semibold ${
+                    isFull
+                      ? "bg-destructive/15 text-destructive"
+                      : isLow
+                        ? "bg-amber-500/15 text-amber-600"
+                        : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <span>
+                    {seatsBooked} of {capacity} seats booked
+                  </span>
+                  <span>{isFull ? "Full" : `${left} left`}</span>
+                </div>
+              );
+            })()}
             <button
               onClick={toggleTransit}
               className="mt-3 w-full rounded-md border border-border px-3 py-2 text-sm font-medium"

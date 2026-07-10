@@ -210,6 +210,33 @@ function RouteDetail() {
     loadPingCounts();
   }
 
+  // Load taken-seat counts for every visible trip so "seats left" shows on
+  // the collapsed card, not just after opening the seat picker.
+  useEffect(() => {
+    if (trips.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        trips.map(async (t) => {
+          const { data } = await supabase.rpc("get_trip_taken_seats", { _trip_id: t.id });
+          const seats = (data ?? [])
+            .map((r: { seat_number: number | null }) => r.seat_number)
+            .filter((n: number | null): n is number => n != null);
+          return [t.id, seats] as const;
+        }),
+      );
+      if (cancelled) return;
+      setTakenSeats((prev) => {
+        const next = { ...prev };
+        entries.forEach(([id, seats]) => (next[id] = seats));
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trips]);
+
   // Watch for M-Pesa confirming the payment (updated by the mpesa-callback edge function)
   useEffect(() => {
     if (!bookedBookingId) return;
@@ -434,8 +461,30 @@ function RouteDetail() {
                             {v?.nickname ?? ""} · {t.status}
                           </div>
                         </div>
-                        <div className="rounded-md bg-accent/40 px-2 py-1 text-xs font-semibold">
-                          KSh {t.fare}
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="rounded-md bg-accent/40 px-2 py-1 text-xs font-semibold">
+                            KSh {t.fare}
+                          </div>
+                          {(() => {
+                            const capacity = v?.capacity ?? 14;
+                            const takenCount = takenSeats[t.id]?.length ?? 0;
+                            const left = Math.max(capacity - takenCount, 0);
+                            const isLow = left <= 3 && left > 0;
+                            const isFull = left === 0;
+                            return (
+                              <span
+                                className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                                  isFull
+                                    ? "bg-destructive/15 text-destructive"
+                                    : isLow
+                                      ? "bg-amber-500/15 text-amber-600"
+                                      : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {isFull ? "Full" : `${left} seat${left === 1 ? "" : "s"} left`}
+                              </span>
+                            );
+                          })()}
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
