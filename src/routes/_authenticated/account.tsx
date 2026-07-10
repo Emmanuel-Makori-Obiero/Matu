@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Bus, Building2, LogOut, User, Check } from "lucide-react";
+import { Bus, Building2, LogOut, User, Check, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ROLE_HOME, type AppRole } from "@/lib/matu-auth";
@@ -39,6 +39,11 @@ function AccountSettings() {
   const [claimingRole, setClaimingRole] = useState<AppRole | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const heldSaccoRole = myRoles.includes("sacco_admin");
+  const heldDriverRole = myRoles.includes("driver") || myRoles.includes("conductor");
 
   useEffect(() => {
     (async () => {
@@ -110,6 +115,30 @@ function AccountSettings() {
       toast.error(err instanceof Error ? err.message : "Couldn't register that role");
     } finally {
       setClaimingRole(null);
+    }
+  }
+
+  async function deleteAccount() {
+    if (confirmDelete !== "DELETE") return;
+    setDeleting(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const { data, error } = await supabase.functions.invoke("delete-account", {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      toast.success("Your account has been deleted.");
+      // The account (and its session) no longer exists server-side, so just clear the
+      // local session and send them off the app entirely.
+      await supabase.auth.signOut();
+      navigate({ to: "/", replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't delete your account");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -244,6 +273,47 @@ function AccountSettings() {
           >
             <LogOut className="size-4" /> Sign out
           </button>
+        </section>
+
+        {/* Danger zone */}
+        <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-destructive">
+            <AlertTriangle className="size-5" /> Delete account
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This permanently deletes your account, profile, bookings, and payment history. This
+            cannot be undone.
+            {(heldSaccoRole || heldDriverRole) && (
+              <>
+                {" "}
+                Since you're registered as a{" "}
+                {[heldSaccoRole && "SACCO admin", heldDriverRole && "driver"]
+                  .filter(Boolean)
+                  .join(" and ")}
+                , this will also delete{" "}
+                {heldSaccoRole ? "your SACCO and its vehicle records" : "trips you've driven"}
+                {heldSaccoRole && heldDriverRole ? " and trips you've driven" : ""} — passengers
+                with bookings on those trips will lose them too.
+              </>
+            )}
+          </p>
+          <div className="mt-4 space-y-3">
+            <Field label={'Type "DELETE" to confirm'}>
+              <input
+                value={confirmDelete}
+                onChange={(e) => setConfirmDelete(e.target.value)}
+                placeholder="DELETE"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
+              />
+            </Field>
+            <button
+              onClick={deleteAccount}
+              disabled={confirmDelete !== "DELETE" || deleting}
+              className="rounded-lg bg-destructive px-4 py-2.5 text-sm font-medium text-destructive-foreground transition hover:opacity-90 disabled:opacity-40"
+            >
+              {deleting ? "Deleting…" : "Permanently delete my account"}
+            </button>
+          </div>
         </section>
       </div>
     </AppShell>
