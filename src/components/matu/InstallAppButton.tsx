@@ -83,10 +83,10 @@ export function InstallAppButton({ className }: { className?: string }) {
         onClick={handleClick}
         className={
           className ??
-          "inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium transition hover:bg-secondary"
+          "inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium transition hover:bg-secondary"
         }
       >
-        <Download className="size-4" /> Download app
+        <Download className="size-3.5" /> Download app
       </button>
 
       {showIosHelp && (
