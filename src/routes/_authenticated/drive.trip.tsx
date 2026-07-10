@@ -612,12 +612,46 @@ function JoinSaccoPanel() {
       return;
     }
 
-    // Ksh 1,000 joining fee — charged before the request reaches the SACCO owner.
-    // NOTE: confirm your mpesa-stk-push edge function accepts a body without a
-    // bookingId (it currently expects { bookingId, phone, amount } for ride payments).
-    // If it requires bookingId, this call needs to match that contract instead.
+    // Create (or reuse, thanks to the driver_id+sacco_id unique constraint) the join
+    // request row FIRST — mpesa-stk-push needs a real reference_id to attach the Ksh
+    // 1,000 fee to, the same way sacco_subscriptions payments work. Trying to pay before
+    // this row exists is exactly why this fee never worked before: there was nothing for
+    // the STK push to reference.
+    const { data: requestRow, error: requestError } = await supabase
+      .from("driver_join_requests")
+      .upsert(
+        {
+          driver_id: u.user.id,
+          sacco_id: saccoId,
+          phone: phone.trim(),
+          id_number: idNumber.trim(),
+          license_number: license.trim(),
+          brings_own_vehicle: bringsOwnVehicle,
+          vehicle_plate: bringsOwnVehicle ? plate.trim().toUpperCase() : null,
+          note: note.trim() || null,
+          status: "pending",
+        },
+        { onConflict: "driver_id,sacco_id" },
+      )
+      .select("id")
+      .single();
+
+    if (requestError || !requestRow) {
+      setBusy(false);
+      return toast.error(requestError?.message ?? "Could not create the join request.");
+    }
+
+    // Ksh 1,000 joining fee — charged now that we have a real request row to attach it
+    // to. mpesa-stk-push recognizes purpose: "sacco_join_fee" + reference_id (added
+    // alongside its existing sacco_subscription handling) and stamps the checkout id
+    // onto this row; mpesa-callback then marks join_fee_status paid/failed on it.
     const { error: payError } = await supabase.functions.invoke("mpesa-stk-push", {
-      body: { phone: phone.trim(), amount: 1000, purpose: "sacco_join_fee" },
+      body: {
+        purpose: "sacco_join_fee",
+        reference_id: requestRow.id,
+        phone: phone.trim(),
+        amount: 1000,
+      },
     });
     if (payError) {
       setBusy(false);
@@ -646,23 +680,7 @@ function JoinSaccoPanel() {
       );
     }
 
-    const { error } = await supabase.from("driver_join_requests").upsert(
-      {
-        driver_id: u.user.id,
-        sacco_id: saccoId,
-        phone: phone.trim(),
-        id_number: idNumber.trim(),
-        license_number: license.trim(),
-        brings_own_vehicle: bringsOwnVehicle,
-        vehicle_plate: bringsOwnVehicle ? plate.trim().toUpperCase() : null,
-        note: note.trim() || null,
-        status: "pending",
-      },
-      { onConflict: "driver_id,sacco_id" },
-    );
-
     setBusy(false);
-    if (error) return toast.error(error.message);
     toast.success("Request sent — the SACCO owner will see your details and approve it");
     setNote("");
     load();

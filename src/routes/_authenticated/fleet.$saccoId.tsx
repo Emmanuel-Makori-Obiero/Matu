@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, Bus, Map, Plus, Radio, UserPlus, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -62,7 +62,9 @@ export const Route = createFileRoute("/_authenticated/fleet/$saccoId")({
 
 function FleetDetail() {
   const { saccoId } = Route.useParams();
+  const navigate = useNavigate();
   const [sacco, setSacco] = useState<Sacco | null>(null);
+  const hasConfirmedAccess = useRef(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [adding, setAdding] = useState(false);
   const [plate, setPlate] = useState("");
@@ -115,6 +117,18 @@ function FleetDetail() {
     setRoutes((r ?? []) as SaccoRoute[]);
     setJoinRequests((jr ?? []) as JoinRequest[]);
     await loadLive(vs.map((x) => x.id));
+
+    // `saccos` SELECT is RLS-scoped to owner_id = auth.uid(), so a null result here
+    // means either the sacco doesn't exist or (far more likely if they navigated here
+    // directly) this user doesn't own it. Only act on this on the very first load —
+    // not on the 15s poll — so a brief network hiccup on a later refresh never bounces
+    // someone out of a dashboard they're legitimately viewing.
+    if (!s && !hasConfirmedAccess.current) {
+      toast.error("That SACCO dashboard isn't available to you.");
+      navigate({ to: "/fleet", replace: true });
+      return;
+    }
+    hasConfirmedAccess.current = true;
   }
   useEffect(() => {
     load();
