@@ -21,6 +21,10 @@ const ROLE_OPTIONS: { value: AppRole; label: string; desc: string }[] = [
   { value: "sacco_admin", label: "SACCO Admin", desc: "Manage your fleet & drivers" },
 ];
 
+function roleLabel(role: AppRole) {
+  return ROLE_OPTIONS.find((r) => r.value === role)?.label ?? role;
+}
+
 function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -55,12 +59,20 @@ function AuthPage() {
           },
         });
         if (error) throw error;
-        toast.success("Welcome to Matu!");
+
         if (data.session?.user) {
           // Guarantee chosen role is assigned even if the DB trigger missed it.
           await supabase.rpc("claim_role", { _role: role });
           const home = await homePathForUser(data.session.user.id);
+          toast.success(`Welcome to Matu, ${roleLabel(role)}!`);
           navigate({ to: home, replace: true });
+        } else {
+          // Email confirmation is required — there's no session yet, so there's
+          // nothing to redirect to. Make that explicit instead of silently doing
+          // nothing, and drop them into sign-in mode with their email pre-filled.
+          toast.success("Account created — check your email to confirm it, then sign in.");
+          setMode("signin");
+          setPassword("");
         }
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({

@@ -4,7 +4,7 @@
 // at signup (see auth.tsx) and homePathForUser() sends every login straight there.
 
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bus, LogOut } from "lucide-react";
+import { Bus, LogOut, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +22,9 @@ function detectContext(pathname: string): AssistantContext {
   }
   if (pathname.startsWith("/fleet")) {
     return { page: "sacco_admin" };
+  }
+  if (pathname.startsWith("/account")) {
+    return { page: "general" };
   }
   if (pathname === "/ride/history" || pathname.startsWith("/ride/history")) {
     return { page: "passenger_history" };
@@ -70,6 +73,12 @@ export function AppShell({
             <span className="font-display text-xl font-bold">Matu</span>
           </Link>
           <div className="flex items-center gap-1">
+            <Link
+              to="/account"
+              className="inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
+            >
+              <Settings className="size-4" /> <span className="hidden sm:inline">Account</span>
+            </Link>
             <button
               onClick={signOut}
               className="ml-1 inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
