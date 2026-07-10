@@ -39,11 +39,13 @@ function RouteDetail() {
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const [bookedBookingId, setBookedBookingId] = useState<string | null>(null);
   const [bookedTripId, setBookedTripId] = useState<string | null>(null);
+  const [bookedSeatNumber, setBookedSeatNumber] = useState<number | null>(null);
   const [payPhone, setPayPhone] = useState("");
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
-  const [paymentStatus, setPaymentStatus] = useState<Record<string, "pending" | "held" | "failed">>(
-    {},
-  );
+  const [payChoice, setPayChoice] = useState<"mpesa" | "cash">("mpesa");
+  const [paymentStatus, setPaymentStatus] = useState<
+    Record<string, "pending" | "held" | "failed" | "cash">
+  >({});
   const [myBookings, setMyBookings] = useState<
     { trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]
   >([]);
@@ -51,6 +53,9 @@ function RouteDetail() {
 
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
+  const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
+  const [myPingStageId, setMyPingStageId] = useState<string | null>(null);
+  const [pinging, setPinging] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -163,6 +168,47 @@ function RouteDetail() {
       );
     })();
   }, [trips]);
+
+  // Lightweight demand signal: poll (and subscribe to) how many people are currently
+  // waiting at each stage on this route. No booking required — this is deliberately
+  // separate from the seat-booking flow above, for routes where matatus fill up
+  // organically rather than against a timetable.
+  async function loadPingCounts() {
+    const { data } = await supabase.rpc("get_stage_ping_counts", { _route_id: routeId });
+    const counts: Record<string, number> = {};
+    (data ?? []).forEach((r: { stage_id: string; waiting_count: number }) => {
+      counts[r.stage_id] = Number(r.waiting_count);
+    });
+    setPingCounts(counts);
+  }
+
+  useEffect(() => {
+    loadPingCounts();
+    const ch = supabase
+      .channel(`stage-pings-${routeId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "stage_pings", filter: `route_id=eq.${routeId}` },
+        () => loadPingCounts(),
+      )
+      .subscribe();
+    const iv = setInterval(loadPingCounts, 20_000);
+    return () => {
+      supabase.removeChannel(ch);
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId]);
+
+  async function pingStage(stageId: string) {
+    setPinging(true);
+    const { error } = await supabase.rpc("ping_stage", { _stage_id: stageId });
+    setPinging(false);
+    if (error) return toast.error(error.message);
+    setMyPingStageId(stageId);
+    toast.success("Marked you as waiting here — drivers can see demand building.");
+    loadPingCounts();
+  }
 
   // Watch for M-Pesa confirming the payment (updated by the mpesa-callback edge function)
   useEffect(() => {
@@ -281,7 +327,22 @@ function RouteDetail() {
     toast.success(`Seat ${selectedSeat} reserved — pay to confirm it.`);
     setBookedBookingId(newBooking.id);
     setBookedTripId(tripId);
+    setBookedSeatNumber(selectedSeat);
+    setPayChoice("mpesa");
     setSelectedSeat(null);
+  }
+
+  // Cash coexists with M-Pesa instead of forcing cashless — matatus run on cash today,
+  // and past cashless mandates in Kenya stalled when they cut crews out of daily cash
+  // flow. This just confirms the seat and tells the passenger to pay the conductor.
+  async function payWithCash(bookingId: string) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "confirmed", payment_method: "cash" })
+      .eq("id", bookingId);
+    if (error) return toast.error(error.message);
+    setPaymentStatus((prev) => ({ ...prev, [bookingId]: "cash" }));
+    toast.success("Seat confirmed — pay the conductor in cash when you board.");
   }
 
   async function payForBooking(tripId: string) {
@@ -441,40 +502,87 @@ function RouteDetail() {
 
                       {bookedTripId === t.id &&
                         bookedBookingId &&
-                        paymentStatus[bookedBookingId] !== "held" && (
+                        paymentStatus[bookedBookingId] !== "held" &&
+                        paymentStatus[bookedBookingId] !== "cash" && (
                           <div className="mt-3 grid gap-2 border-t border-border pt-3">
-                            <p className="text-xs font-medium">Pay KSh {t.fare} with M-Pesa</p>
-                            {paymentStatus[bookedBookingId] === "failed" &&
-                              payingBookingId !== bookedBookingId && (
-                                <p className="text-xs font-medium text-destructive">
-                                  Payment failed — you weren't charged. Try again below.
-                                </p>
-                              )}
-                            <input
-                              type="tel"
-                              placeholder="07XX XXX XXX"
-                              value={payPhone}
-                              onChange={(e) => setPayPhone(e.target.value)}
-                              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                            />
-                            <button
-                              onClick={() => payForBooking(t.id)}
-                              disabled={payingBookingId === bookedBookingId}
-                              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
-                            >
-                              {payingBookingId === bookedBookingId
-                                ? "Check your phone…"
-                                : paymentStatus[bookedBookingId] === "failed"
-                                  ? "Try payment again"
-                                  : "Pay Now"}
-                            </button>
+                            <p className="text-xs font-medium">
+                              Pay KSh {t.fare} to confirm seat {bookedSeatNumber ?? ""}
+                            </p>
+
+                            <div className="flex gap-1 rounded-md border border-border p-1">
+                              <button
+                                type="button"
+                                onClick={() => setPayChoice("mpesa")}
+                                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition ${
+                                  payChoice === "mpesa"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                M-Pesa
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPayChoice("cash")}
+                                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition ${
+                                  payChoice === "cash"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                Cash to conductor
+                              </button>
+                            </div>
+
+                            {payChoice === "mpesa" ? (
+                              <>
+                                {paymentStatus[bookedBookingId] === "failed" &&
+                                  payingBookingId !== bookedBookingId && (
+                                    <p className="text-xs font-medium text-destructive">
+                                      Payment failed — you weren't charged. Try again below.
+                                    </p>
+                                  )}
+                                <input
+                                  type="tel"
+                                  placeholder="07XX XXX XXX"
+                                  value={payPhone}
+                                  onChange={(e) => setPayPhone(e.target.value)}
+                                  className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                                />
+                                <button
+                                  onClick={() => payForBooking(t.id)}
+                                  disabled={payingBookingId === bookedBookingId}
+                                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                                >
+                                  {payingBookingId === bookedBookingId
+                                    ? "Check your phone…"
+                                    : paymentStatus[bookedBookingId] === "failed"
+                                      ? "Try payment again"
+                                      : "Pay Now"}
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => payWithCash(bookedBookingId)}
+                                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                              >
+                                Confirm — I'll pay cash on board
+                              </button>
+                            )}
                           </div>
                         )}
 
                       {bookedTripId === t.id &&
                         bookedBookingId &&
-                        paymentStatus[bookedBookingId] === "held" && (
-                          <div className="mt-3 border-t border-border pt-3">
+                        (paymentStatus[bookedBookingId] === "held" ||
+                          paymentStatus[bookedBookingId] === "cash") && (
+                          <div className="mt-3 grid gap-2 border-t border-border pt-3">
+                            {paymentStatus[bookedBookingId] === "cash" && (
+                              <p className="rounded-md bg-accent/30 px-3 py-2 text-xs font-medium">
+                                Seat {bookedSeatNumber ?? ""} confirmed. Pay KSh {t.fare} cash to
+                                the conductor when you board.
+                              </p>
+                            )}
                             <LeaveNowBanner
                               busPos={
                                 tripLocs[t.id]
@@ -497,12 +605,41 @@ function RouteDetail() {
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Stages ({stages.length})</h2>
-            <ol className="mt-3 grid gap-1 text-sm">
-              {stages.map((s) => (
-                <li key={s.id} className="flex items-center gap-2">
-                  <MapPin className="size-3 text-primary" /> {s.name}
-                </li>
-              ))}
+            <p className="mt-1 text-xs text-muted-foreground">
+              Waiting at a stage right now? Ping it so nearby drivers know demand is building — no
+              booking needed.
+            </p>
+            <ol className="mt-3 grid gap-1.5 text-sm">
+              {stages.map((s) => {
+                const count = pingCounts[s.id] ?? 0;
+                const isMine = myPingStageId === s.id;
+                return (
+                  <li
+                    key={s.id}
+                    className="flex items-center justify-between gap-2 rounded-md px-1 py-0.5"
+                  >
+                    <span className="flex items-center gap-2">
+                      <MapPin className="size-3 text-primary" /> {s.name}
+                      {count > 0 && (
+                        <span className="rounded-full bg-accent/40 px-1.5 py-0.5 text-[10px] font-semibold">
+                          {count} waiting
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      onClick={() => pingStage(s.id)}
+                      disabled={pinging || isMine}
+                      className={`rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:opacity-60 ${
+                        isMine
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:bg-secondary"
+                      }`}
+                    >
+                      {isMine ? "You're here" : "I'm waiting here"}
+                    </button>
+                  </li>
+                );
+              })}
             </ol>
           </section>
         </div>

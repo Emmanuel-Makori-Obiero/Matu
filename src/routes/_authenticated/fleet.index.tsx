@@ -14,6 +14,9 @@ type DashboardRow = {
   live_trip_count: number;
   today_trip_count: number;
   revenue_today: number;
+  revenue_mpesa_today: number;
+  revenue_cash_today: number;
+  cash_uncollected_today: number;
 };
 
 export const Route = createFileRoute("/_authenticated/fleet/")({
@@ -33,6 +36,9 @@ function SaccoHome() {
     live: 0,
     trips: 0,
     revenue: 0,
+    revenueMpesa: 0,
+    revenueCash: 0,
+    cashUncollected: 0,
   });
 
   async function load() {
@@ -56,6 +62,9 @@ function SaccoHome() {
       live: rows.reduce((n, r) => n + Number(r.live_trip_count ?? 0), 0),
       trips: rows.reduce((n, r) => n + Number(r.today_trip_count ?? 0), 0),
       revenue: rows.reduce((n, r) => n + Number(r.revenue_today ?? 0), 0),
+      revenueMpesa: rows.reduce((n, r) => n + Number(r.revenue_mpesa_today ?? 0), 0),
+      revenueCash: rows.reduce((n, r) => n + Number(r.revenue_cash_today ?? 0), 0),
+      cashUncollected: rows.reduce((n, r) => n + Number(r.cash_uncollected_today ?? 0), 0),
     });
   }
   useEffect(() => {
@@ -201,7 +210,21 @@ function SaccoHome() {
           <Card icon={<Radio />} title="Live trips" value={String(totals.live)} />
           <Card icon={<Bus />} title="Trips today" value={String(totals.trips)} />
           <Card icon={<Wallet />} title="Revenue today" value={`KSh ${totals.revenue}`} />
+          <Card icon={<Wallet />} title="M-Pesa today" value={`KSh ${totals.revenueMpesa}`} />
+          <Card icon={<Wallet />} title="Cash today" value={`KSh ${totals.revenueCash}`} />
+          <Card
+            icon={<Wallet />}
+            title="Cash not yet collected"
+            value={`KSh ${totals.cashUncollected}`}
+            warn={totals.cashUncollected > 0}
+          />
         </div>
+        {totals.cashUncollected > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Cash bookings a conductor hasn't marked "received" yet aren't counted as collected —
+            check with drivers if this stays high through the day.
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           Tip: open a SACCO above to add vehicles and assign drivers (by their sign-up phone
           number).
@@ -211,16 +234,32 @@ function SaccoHome() {
   );
 }
 
-function Card({ icon, title, value }: { icon: React.ReactNode; title: string; value: string }) {
+function Card({
+  icon,
+  title,
+  value,
+  warn,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string;
+  warn?: boolean;
+}) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-5">
+    <div
+      className={`rounded-xl border p-5 ${warn ? "border-destructive/40 bg-destructive/5" : "border-border bg-surface"}`}
+    >
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span className="grid size-7 place-items-center rounded-md bg-accent/30 text-accent-foreground">
+        <span
+          className={`grid size-7 place-items-center rounded-md text-accent-foreground ${warn ? "bg-destructive/15" : "bg-accent/30"}`}
+        >
           {icon}
         </span>
         {title}
       </div>
-      <div className="mt-3 font-display text-3xl font-bold">{value}</div>
+      <div className={`mt-3 font-display text-3xl font-bold ${warn ? "text-destructive" : ""}`}>
+        {value}
+      </div>
     </div>
   );
 }

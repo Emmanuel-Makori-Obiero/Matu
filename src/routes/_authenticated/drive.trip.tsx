@@ -23,6 +23,8 @@ type BookingWithProfile = {
   seat_number: number | null;
   status: string;
   passenger_id: string;
+  payment_method: string | null;
+  cash_collected: boolean | null;
 };
 type AlertRow = {
   id: string;
@@ -50,6 +52,7 @@ function DriverTrip() {
   const [newStageName, setNewStageName] = useState("");
   const [addStageMode, setAddStageMode] = useState(false);
   const [currentStageId, setCurrentStageId] = useState<string | null>(null);
+  const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
 
   // Load driver's vehicles + routes on mount
   useEffect(() => {
@@ -84,7 +87,7 @@ function DriverTrip() {
           .order("order_index"),
         supabase
           .from("bookings")
-          .select("id,seat_number,status,passenger_id")
+          .select("id,seat_number,status,passenger_id,payment_method,cash_collected")
           .eq("trip_id", trip.id),
         supabase
           .from("alerts")
@@ -105,7 +108,7 @@ function DriverTrip() {
         async () => {
           const { data } = await supabase
             .from("bookings")
-            .select("id,seat_number,status,passenger_id")
+            .select("id,seat_number,status,passenger_id,payment_method,cash_collected")
             .eq("trip_id", trip.id);
           setBookings((data ?? []) as BookingWithProfile[]);
         },
@@ -203,13 +206,62 @@ function DriverTrip() {
 
   // Realtime subscription will also catch this, but we refresh immediately so the
   // driver sees the boarded status update right after closing the scanner.
+  // Demand signal: show where passengers are pinging "waiting here" along this route,
+  // so the driver can see build-up ahead without anyone having booked a seat.
+  useEffect(() => {
+    if (!trip) return;
+    async function loadPingCounts() {
+      if (!trip) return;
+      const { data } = await supabase.rpc("get_stage_ping_counts", { _route_id: trip.route_id });
+      const counts: Record<string, number> = {};
+      (data ?? []).forEach((r: { stage_id: string; waiting_count: number }) => {
+        counts[r.stage_id] = Number(r.waiting_count);
+      });
+      setPingCounts(counts);
+    }
+    loadPingCounts();
+    const ch = supabase
+      .channel(`driver-stage-pings-${trip.route_id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "stage_pings",
+          filter: `route_id=eq.${trip.route_id}`,
+        },
+        () => loadPingCounts(),
+      )
+      .subscribe();
+    const iv = setInterval(loadPingCounts, 20_000);
+    return () => {
+      supabase.removeChannel(ch);
+      clearInterval(iv);
+    };
+  }, [trip]);
+
   async function refreshBookings() {
     if (!trip) return;
     const { data } = await supabase
       .from("bookings")
-      .select("id,seat_number,status,passenger_id")
+      .select("id,seat_number,status,passenger_id,payment_method,cash_collected")
       .eq("trip_id", trip.id);
     setBookings((data ?? []) as BookingWithProfile[]);
+  }
+
+  // Cash bookings aren't run through M-Pesa, so there's nothing for the backend to
+  // confirm automatically — the conductor marks it collected themselves. This is
+  // informational only: it never blocks boarding or the seat being counted as taken.
+  async function markCashCollected(bookingId: string) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ cash_collected: true })
+      .eq("id", bookingId);
+    if (error) return toast.error(error.message);
+    setBookings((prev) =>
+      prev.map((b) => (b.id === bookingId ? { ...b, cash_collected: true } : b)),
+    );
+    toast.success("Marked as collected");
   }
 
   async function addStage(lat: number, lng: number) {
@@ -414,7 +466,22 @@ function DriverTrip() {
                     className="flex items-center justify-between rounded-md bg-background px-3 py-1.5"
                   >
                     <span>Passenger · seat {b.seat_number ?? "—"}</span>
-                    <span className="text-xs text-muted-foreground">{b.status}</span>
+                    {b.payment_method === "cash" ? (
+                      b.cash_collected ? (
+                        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          Cash collected
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => markCashCollected(b.id)}
+                          className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
+                        >
+                          Mark cash received
+                        </button>
+                      )
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{b.status}</span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -463,11 +530,21 @@ function DriverTrip() {
               ))}
             </select>
             <ol className="mt-3 grid gap-1 text-sm">
-              {stages.map((s) => (
-                <li key={s.id} className="flex items-center gap-2">
-                  <MapPin className="size-3 text-primary" /> {s.name}
-                </li>
-              ))}
+              {[...stages]
+                .sort((a, b) => (pingCounts[b.id] ?? 0) - (pingCounts[a.id] ?? 0))
+                .map((s) => {
+                  const count = pingCounts[s.id] ?? 0;
+                  return (
+                    <li key={s.id} className="flex items-center gap-2">
+                      <MapPin className="size-3 text-primary" /> {s.name}
+                      {count > 0 && (
+                        <span className="rounded-full bg-accent/40 px-1.5 py-0.5 text-[10px] font-semibold">
+                          {count} waiting
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
             </ol>
           </section>
         </div>

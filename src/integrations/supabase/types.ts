@@ -48,33 +48,39 @@ export type Database = {
       };
       bookings: {
         Row: {
+          cash_collected: boolean;
           created_at: string;
           dropoff_stage_id: string | null;
           fare_paid: number | null;
           id: string;
           passenger_id: string;
+          payment_method: string;
           pickup_stage_id: string | null;
           seat_number: number | null;
           status: Database["public"]["Enums"]["booking_status"];
           trip_id: string;
         };
         Insert: {
+          cash_collected?: boolean;
           created_at?: string;
           dropoff_stage_id?: string | null;
           fare_paid?: number | null;
           id?: string;
           passenger_id: string;
+          payment_method?: string;
           pickup_stage_id?: string | null;
           seat_number?: number | null;
           status?: Database["public"]["Enums"]["booking_status"];
           trip_id: string;
         };
         Update: {
+          cash_collected?: boolean;
           created_at?: string;
           dropoff_stage_id?: string | null;
           fare_paid?: number | null;
           id?: string;
           passenger_id?: string;
+          payment_method?: string;
           pickup_stage_id?: string | null;
           seat_number?: number | null;
           status?: Database["public"]["Enums"]["booking_status"];
@@ -307,6 +313,45 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [];
+      };
+      stage_pings: {
+        Row: {
+          created_at: string;
+          id: string;
+          passenger_id: string;
+          route_id: string;
+          stage_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          passenger_id: string;
+          route_id: string;
+          stage_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          passenger_id?: string;
+          route_id?: string;
+          stage_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "stage_pings_route_id_fkey";
+            columns: ["route_id"];
+            isOneToOne: false;
+            referencedRelation: "routes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "stage_pings_stage_id_fkey";
+            columns: ["stage_id"];
+            isOneToOne: false;
+            referencedRelation: "stages";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       routes: {
         Row: {
@@ -677,14 +722,25 @@ export type Database = {
       get_my_sacco_dashboard: {
         Args: never;
         Returns: {
+          cash_uncollected_today: number;
           driver_count: number;
           live_trip_count: number;
+          revenue_cash_today: number;
+          revenue_mpesa_today: number;
           revenue_today: number;
           route_count: number;
           sacco_id: string;
           today_trip_count: number;
           vehicle_count: number;
         }[];
+      };
+      get_stage_ping_counts: {
+        Args: { _route_id: string };
+        Returns: { stage_id: string; waiting_count: number }[];
+      };
+      ping_stage: {
+        Args: { _stage_id: string };
+        Returns: undefined;
       };
       get_my_sacco_drivers: {
         Args: { _sacco_id: string };
