@@ -139,49 +139,88 @@ function ComplaintsPage() {
 
   const selectedTrip = tripOptions.find((t) => t.bookingId === selectedTripId);
 
-  function sendAppComplaint() {
+  async function sendAppComplaint() {
     if (!appMessage.trim()) return toast.error("Tell us what went wrong first.");
-    const subject = encodeURIComponent("Matu app complaint");
-    const body = encodeURIComponent(appMessage.trim());
-    window.location.href = `mailto:${DEV_EMAIL}?subject=${subject}&body=${body}`;
+    setSubmitting(true);
+    const { data: u } = await supabase.auth.getUser();
+    const { data: complaint, error } = await supabase
+      .from("complaints")
+      .insert({
+        passenger_id: u.user?.id,
+        category: "app",
+        recipient: "developer",
+        message: appMessage.trim(),
+      })
+      .select("id")
+      .single();
+    setSubmitting(false);
+    if (error || !complaint) return toast.error(error?.message || "Could not save complaint");
+
+    // Fire-and-forget the real email — the complaint is already saved either way, so a
+    // slow or failed send doesn't block the passenger.
+    supabase.functions.invoke("send-complaint-email", { body: { complaintId: complaint.id } });
+    toast.success("Sent to the developer.");
+    setAppMessage("");
   }
 
   async function submitTravelComplaint() {
     if (!selectedTrip) return toast.error("Pick which trip this is about.");
     if (!travelMessage.trim()) return toast.error("Describe what happened first.");
-    if (recipient !== "sacco" && !selectedTrip.driverPhone) {
-      // No driver phone on file — fall back silently to sacco-only routing if possible.
+
+    // If "sacco" was picked but this sacco has no phone/email on file, fall back to the
+    // driver instead of silently going nowhere. "Both" is left as-is — the driver side
+    // still gets contacted even if the sacco side has nothing on file.
+    let effectiveRecipient = recipient;
+    const saccoHasContact = !!selectedTrip.saccoPhone || !!selectedTrip.saccoName;
+    if (recipient === "sacco" && !saccoHasContact) {
+      effectiveRecipient = "driver";
+      toast.info("No sacco contact on file for this trip — routing to the driver instead.");
     }
 
     setSubmitting(true);
     const { data: u } = await supabase.auth.getUser();
-    const { error } = await supabase.from("complaints").insert({
-      passenger_id: u.user?.id,
-      category: "travel",
-      recipient,
-      trip_id: selectedTrip.tripId,
-      sacco_id: selectedTrip.saccoId,
-      driver_id: selectedTrip.driverId,
-      message: travelMessage.trim(),
-    });
+    const { data: complaint, error } = await supabase
+      .from("complaints")
+      .insert({
+        passenger_id: u.user?.id,
+        category: "travel",
+        recipient: effectiveRecipient,
+        trip_id: selectedTrip.tripId,
+        sacco_id: selectedTrip.saccoId,
+        driver_id: selectedTrip.driverId,
+        message: travelMessage.trim(),
+      })
+      .select("id")
+      .single();
     setSubmitting(false);
-    if (error) return toast.error(error.message || "Could not save complaint");
+    if (error || !complaint) return toast.error(error?.message || "Could not save complaint");
 
-    // Best-effort direct contact alongside the saved record, since there's no driver/sacco
-    // inbox UI yet — this makes sure someone actually sees it today.
-    const contacts: string[] = [];
-    if ((recipient === "driver" || recipient === "both") && selectedTrip.driverPhone) {
-      contacts.push(selectedTrip.driverPhone);
+    // Real email, sent server-side (looks up the driver's account email and the sacco's
+    // contact_email itself — falls back to the developer if neither is on file).
+    supabase.functions.invoke("send-complaint-email", { body: { complaintId: complaint.id } });
+
+    // Also offer an immediate phone call as a backup — same fallback: if the sacco has no
+    // number, use the driver's instead of no one.
+    const phoneContacts: string[] = [];
+    if (
+      (effectiveRecipient === "driver" || effectiveRecipient === "both") &&
+      selectedTrip.driverPhone
+    ) {
+      phoneContacts.push(selectedTrip.driverPhone);
     }
-    if ((recipient === "sacco" || recipient === "both") && selectedTrip.saccoPhone) {
-      contacts.push(selectedTrip.saccoPhone);
+    if (
+      (effectiveRecipient === "sacco" || effectiveRecipient === "both") &&
+      selectedTrip.saccoPhone
+    ) {
+      phoneContacts.push(selectedTrip.saccoPhone);
+    } else if (effectiveRecipient !== "driver" && selectedTrip.driverPhone) {
+      // Sacco wanted but no sacco phone — try the driver's number as a last resort.
+      phoneContacts.push(selectedTrip.driverPhone);
     }
 
-    toast.success("Complaint recorded.");
-    if (contacts.length) {
-      window.location.href = `tel:${contacts[0]}`;
-    } else {
-      toast.info("No phone number on file for that recipient — but your complaint was saved.");
+    toast.success("Complaint sent.");
+    if (phoneContacts.length) {
+      window.location.href = `tel:${phoneContacts[0]}`;
     }
     setTravelMessage("");
   }
@@ -226,7 +265,7 @@ function ComplaintsPage() {
           </button>
           <h2 className="mt-2 font-display text-lg font-semibold">App or account issue</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            This opens your email app addressed to {DEV_EMAIL}, with your message pre-filled.
+            This is sent straight to {DEV_EMAIL}, no need to open your own email app.
           </p>
           <textarea
             value={appMessage}
@@ -237,9 +276,10 @@ function ComplaintsPage() {
           />
           <button
             onClick={sendAppComplaint}
-            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"
+            disabled={submitting}
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
           >
-            <Mail className="size-4" /> Email the developer
+            <Mail className="size-4" /> {submitting ? "Sending…" : "Email the developer"}
           </button>
         </div>
       ) : (
