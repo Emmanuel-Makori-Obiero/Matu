@@ -58,10 +58,42 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (!subscription) {
-          await admin
+          const { data: joinRequest } = await admin
             .from("driver_join_requests")
             .update({ join_fee_status: "held" })
-            .eq("mpesa_checkout_request_id", checkoutRequestId);
+            .eq("mpesa_checkout_request_id", checkoutRequestId)
+            .select("id")
+            .maybeSingle();
+
+          if (!joinRequest) {
+            // Last remaining possibility: a passenger wallet top-up. mpesa-stk-push
+            // already inserted a 'pending' wallet_transactions row for this checkout ID
+            // (with no balance change yet) — credit the wallet now and flip that row to
+            // 'completed', using increment_wallet_balance() so the update and the
+            // balance_after snapshot happen atomically instead of a read-then-write
+            // from this function that could race with a concurrent transaction.
+            const { data: topup } = await admin
+              .from("wallet_transactions")
+              .select("id, wallet_id, amount, status")
+              .eq("mpesa_checkout_request_id", checkoutRequestId)
+              .eq("type", "topup")
+              .maybeSingle();
+
+            if (topup && topup.status === "pending") {
+              const { data: newBalance } = await admin.rpc("increment_wallet_balance", {
+                _wallet_id: topup.wallet_id,
+                _amount: topup.amount,
+              });
+              await admin
+                .from("wallet_transactions")
+                .update({
+                  status: "completed",
+                  balance_after: newBalance,
+                  mpesa_receipt: receipt ? String(receipt) : null,
+                })
+                .eq("id", topup.id);
+            }
+          }
         }
       }
     } else {
@@ -84,13 +116,26 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (!subscription) {
-          await admin
+          const { data: joinRequest } = await admin
             .from("driver_join_requests")
             .update({
               join_fee_status: "failed",
               join_fee_failure_reason: callback.ResultDesc ?? "Payment was not completed",
             })
-            .eq("mpesa_checkout_request_id", checkoutRequestId);
+            .eq("mpesa_checkout_request_id", checkoutRequestId)
+            .select("id")
+            .maybeSingle();
+
+          if (!joinRequest) {
+            await admin
+              .from("wallet_transactions")
+              .update({
+                status: "failed",
+                failure_reason: callback.ResultDesc ?? "Payment was not completed",
+              })
+              .eq("mpesa_checkout_request_id", checkoutRequestId)
+              .eq("type", "topup");
+          }
         }
       }
     }

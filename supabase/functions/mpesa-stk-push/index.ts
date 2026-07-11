@@ -68,9 +68,15 @@ Deno.serve(async (req) => {
     const { bookingId, phone, amount, purpose, reference_id } = await req.json();
     const isSubscription = purpose === "sacco_subscription";
     const isJoinFee = purpose === "sacco_join_fee";
+    const isWalletTopup = purpose === "wallet_topup";
     const needsReferenceId = isSubscription || isJoinFee;
 
-    if (!phone || !amount || (!needsReferenceId && !bookingId) || (needsReferenceId && !reference_id)) {
+    if (
+      !phone ||
+      !amount ||
+      (!needsReferenceId && !isWalletTopup && !bookingId) ||
+      (needsReferenceId && !reference_id)
+    ) {
       return new Response(
         JSON.stringify({ error: "Missing required payment details" }),
         { status: 400, headers: cors() },
@@ -123,6 +129,8 @@ Deno.serve(async (req) => {
         });
       }
       accountRef = `MatuSub-${String(reference_id).slice(0, 8)}`;
+    } else if (isWalletTopup) {
+      accountRef = `MatuTopup-${String(userData.user.id).slice(0, 8)}`;
     } else {
       const { data: booking, error: bookingError } = await admin
         .from("bookings")
@@ -175,7 +183,9 @@ Deno.serve(async (req) => {
           ? "Matu SACCO join fee"
           : isSubscription
             ? "Matu sacco subscription"
-            : "Matu fare",
+            : isWalletTopup
+              ? "Matu wallet top-up"
+              : "Matu fare",
       }),
     });
     const stkJson = await stkRes.json();
@@ -200,6 +210,19 @@ Deno.serve(async (req) => {
         .update({ mpesa_checkout_request_id: stkJson.CheckoutRequestID })
         .eq("id", reference_id);
       if (updateError) console.error("Failed to stamp subscription checkout id", updateError);
+    } else if (isWalletTopup) {
+      const walletId = await admin.rpc("get_or_create_wallet", {
+        _owner_type: "passenger",
+        _owner_id: userData.user.id,
+      });
+      const { error: insertError } = await admin.from("wallet_transactions").insert({
+        wallet_id: walletId.data,
+        type: "topup",
+        status: "pending",
+        amount,
+        mpesa_checkout_request_id: stkJson.CheckoutRequestID,
+      });
+      if (insertError) console.error("Failed to record wallet top-up", insertError);
     } else {
       const { error: insertError } = await admin.from("payments").insert({
         booking_id: bookingId,
