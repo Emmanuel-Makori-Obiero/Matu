@@ -75,18 +75,23 @@ export function useLiveTrafficEta(busPos: LatLng | null, destination: LatLng | n
     async function tick() {
       const pos = busPosRef.current;
       if (!pos) return;
-      const [trafficSeconds, freeFlowSeconds] = await Promise.all([
-        mapboxTrafficDurationSeconds(pos, destination!),
-        osrmDurationSeconds("driving", pos, destination!),
-      ]);
-      if (cancelled) return;
-      if (trafficSeconds == null) {
-        setError(true);
-        return;
-      }
-      setError(false);
-      setMinutes(Math.round(trafficSeconds / 60));
-      setDelayed(freeFlowSeconds != null && trafficSeconds - freeFlowSeconds > 120);
+      // Fire both requests, but don't make the passenger wait on the free-flow
+      // baseline (only used for the "delayed by traffic" flag) — show the real
+      // ETA the moment Mapbox responds, and let the delayed-flag update a beat
+      // later whenever OSRM gets back to us.
+      mapboxTrafficDurationSeconds(pos, destination!).then((trafficSeconds) => {
+        if (cancelled) return;
+        if (trafficSeconds == null) {
+          setError(true);
+          return;
+        }
+        setError(false);
+        setMinutes(Math.round(trafficSeconds / 60));
+        osrmDurationSeconds("driving", pos, destination!).then((freeFlowSeconds) => {
+          if (cancelled) return;
+          setDelayed(freeFlowSeconds != null && trafficSeconds - freeFlowSeconds > 120);
+        });
+      });
     }
 
     tick();

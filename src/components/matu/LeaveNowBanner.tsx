@@ -87,7 +87,7 @@ export function LeaveNowBanner({ busPos, stage }: { busPos: LatLng | null; stage
     );
   }
 
-  if ((busError || walkError) && walkMinutes == null && busMinutes == null) {
+  if (busError && walkError && walkMinutes == null && busMinutes == null) {
     return (
       <div className="flex items-center gap-1.5 rounded-xl border border-border bg-surface p-3 text-xs text-muted-foreground">
         <AlertTriangle className="size-3.5 shrink-0" /> Couldn't calculate timing right now.
@@ -95,10 +95,27 @@ export function LeaveNowBanner({ busPos, stage }: { busPos: LatLng | null; stage
     );
   }
 
-  if (walkMinutes == null || busMinutes == null) {
+  // Show what we already have rather than waiting on both legs — the bus ETA
+  // (from Mapbox) usually resolves well before the walking time does, since
+  // walking depends on getting a GPS fix and a browser permission prompt first.
+  if (busMinutes == null) {
     return (
       <div className="rounded-xl border border-border bg-surface p-3 text-xs text-muted-foreground">
         Calculating when you should leave…
+      </div>
+    );
+  }
+
+  if (walkMinutes == null) {
+    return (
+      <div className="rounded-xl border border-primary/40 bg-primary/10 p-3">
+        <div className="text-sm font-semibold text-primary">Bus arrives in {busMinutes} min</div>
+        <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+          {trafficDelayed && (
+            <span className="font-medium text-amber-600">Delayed by traffic · </span>
+          )}
+          Working out your walking time to {stage.name}…
+        </div>
       </div>
     );
   }
