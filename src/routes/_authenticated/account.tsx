@@ -1,6 +1,14 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Bus, Building2, LogOut, User, Check, AlertTriangle } from "lucide-react";
+import {
+  Bus,
+  Building2,
+  LogOut,
+  User,
+  Check,
+  AlertTriangle,
+  MessageSquareWarning,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ROLE_HOME, type AppRole } from "@/lib/matu-auth";
@@ -263,6 +271,20 @@ function AccountSettings() {
               {savingPassword ? "Saving…" : "Update password"}
             </button>
           </form>
+        </section>
+
+        {/* Support */}
+        <section className="rounded-2xl border border-border bg-surface p-6">
+          <h2 className="font-display text-lg font-semibold">Support</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Report an app problem or something that happened on a trip.
+          </p>
+          <Link
+            to="/complaints"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-secondary"
+          >
+            <MessageSquareWarning className="size-4" /> Support & complaints
+          </Link>
         </section>
 
         {/* Sign out */}
