@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
+import { useLiveTrafficEta } from "@/lib/traffic-eta";
 
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type Trip = {
@@ -425,6 +426,29 @@ function RouteDetail() {
     toast.success("Driver notified");
   }
 
+  // Once a booking is confirmed, this is the vehicle + stage the passenger cares
+  // about. Computed once here (not inline in JSX) since it feeds a hook, and reused
+  // for both the map's live route line and its "Arriving in X min" label — same
+  // numbers everywhere, no risk of the line and the label disagreeing.
+  const trackedConfirmed =
+    !!bookedTripId &&
+    !!bookedBookingId &&
+    (paymentStatus[bookedBookingId] === "held" || paymentStatus[bookedBookingId] === "cash");
+  const trackedVehiclePos =
+    trackedConfirmed && bookedTripId && tripLocs[bookedTripId]
+      ? { lat: tripLocs[bookedTripId].lat, lng: tripLocs[bookedTripId].lng }
+      : null;
+  const trackedStage = trackedConfirmed ? stages.find((st) => st.id === pickup) : undefined;
+  const trackedDestination = trackedStage ? { lat: trackedStage.lat, lng: trackedStage.lng } : null;
+  const { minutes: trackedEtaMinutes } = useLiveTrafficEta(trackedVehiclePos, trackedDestination);
+  const etaLabelByVehicleId =
+    bookedTripId && trackedEtaMinutes != null
+      ? {
+          [bookedTripId]:
+            trackedEtaMinutes <= 0 ? "Arriving now" : `Arriving in ${trackedEtaMinutes} min`,
+        }
+      : undefined;
+
   return (
     <AppShell
       title={routeInfo?.name ?? "Route"}
@@ -445,7 +469,16 @@ function RouteDetail() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-        <RouteMap stages={mapStages} vehicles={mapVehicles} />
+        <RouteMap
+          stages={mapStages}
+          vehicles={mapVehicles}
+          liveRoute={
+            trackedVehiclePos && trackedDestination
+              ? { origin: trackedVehiclePos, destination: trackedDestination }
+              : null
+          }
+          etaLabelByVehicleId={etaLabelByVehicleId}
+        />
 
         <div className="grid gap-4">
           <section className="rounded-2xl border border-border bg-surface p-5">

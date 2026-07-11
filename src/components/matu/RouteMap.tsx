@@ -10,6 +10,39 @@ export type MapVehicle = {
   label?: string;
 };
 
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
+
+// Refresh the road-snapped route on an interval rather than on every GPS tick
+// (the vehicle broadcasts its position every ~5s) — the route shape barely
+// changes between ticks, and this keeps Mapbox API usage sane. The route line
+// is still visually "live": the origin end reads from a ref that's updated on
+// every tick, so once redrawn it always starts from the vehicle's latest spot.
+const LIVE_ROUTE_REFRESH_MS = 10_000;
+
+// Fetches the actual road path (not a straight line) between two points, the
+// same way Google Directions / Uber draw the "remaining route" line that
+// shrinks and reshapes as the vehicle drives. Returns Leaflet-ordered
+// [lat, lng] pairs, or null if the token is missing or the request fails.
+async function fetchRoadRoute(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): Promise<[number, number][] | null> {
+  if (!MAPBOX_TOKEN) return null;
+  try {
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      routes?: Array<{ geometry?: { coordinates?: [number, number][] } }>;
+    };
+    const coords = data.routes?.[0]?.geometry?.coordinates;
+    if (!coords) return null;
+    return coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+  } catch {
+    return null;
+  }
+}
+
 // Directional wedge icon (rotates to face travel direction) — mirrors the old
 // Google FORWARD_CLOSED_ARROW look using a rotated div + CSS triangle.
 function vehicleDivIcon(hasHeading: boolean, heading: number | null | undefined) {
@@ -53,12 +86,24 @@ export function RouteMap({
   stages,
   vehicles = [],
   pin = null,
+  liveRoute = null,
+  etaLabelByVehicleId,
   onMapClick,
   className,
 }: {
   stages: MapStage[];
   vehicles?: MapVehicle[];
   pin?: { lat: number; lng: number } | null;
+  // The road-snapped "remaining route" line from a live vehicle to a stage —
+  // pass the passenger's booked trip + their pickup/dropoff stage to get the
+  // Google-Directions/Uber style blue route line that follows actual roads.
+  liveRoute?: {
+    origin: { lat: number; lng: number };
+    destination: { lat: number; lng: number };
+  } | null;
+  // Optional "Arriving in X min" text shown as a floating label above a
+  // vehicle's marker, keyed by vehicle id — same idea as Uber's live trip map.
+  etaLabelByVehicleId?: Record<string, string>;
   onMapClick?: (lat: number, lng: number) => void;
   className?: string;
 }) {
@@ -68,6 +113,9 @@ export function RouteMap({
   const polylineRef = useRef<L.Polyline | null>(null);
   const vehicleMarkers = useRef<Record<string, L.Marker>>({});
   const pinMarker = useRef<L.Marker | null>(null);
+  const liveRoutePolylineRef = useRef<L.Polyline | null>(null);
+  const liveRouteOriginRef = useRef(liveRoute?.origin);
+  liveRouteOriginRef.current = liveRoute?.origin;
   const [ready, setReady] = useState(false);
 
   // Init map once.
@@ -121,6 +169,7 @@ export function RouteMap({
       seen.add(v.id);
       const hasHeading = v.heading != null && !Number.isNaN(v.heading);
       const icon = vehicleDivIcon(hasHeading, v.heading);
+      const label = etaLabelByVehicleId?.[v.id];
       const existing = vehicleMarkers.current[v.id];
       if (existing) {
         existing.setLatLng([v.lat, v.lng]);
@@ -131,6 +180,23 @@ export function RouteMap({
           title: v.label ?? "Matatu",
         }).addTo(map);
       }
+      const marker = vehicleMarkers.current[v.id];
+      if (label) {
+        // updateContent works whether or not a tooltip is already bound, so this
+        // stays cheap even though the label text changes every few seconds.
+        if (marker.getTooltip()) {
+          marker.setTooltipContent(label);
+        } else {
+          marker.bindTooltip(label, {
+            permanent: true,
+            direction: "top",
+            offset: [0, -10],
+            className: "matu-eta-tooltip",
+          });
+        }
+      } else if (marker.getTooltip()) {
+        marker.unbindTooltip();
+      }
     });
     Object.keys(vehicleMarkers.current).forEach((id) => {
       if (!seen.has(id)) {
@@ -138,7 +204,7 @@ export function RouteMap({
         delete vehicleMarkers.current[id];
       }
     });
-  }, [vehicles, ready]);
+  }, [vehicles, ready, etaLabelByVehicleId]);
 
   // Dropped pin — where the passenger tapped to set pickup/destination.
   useEffect(() => {
@@ -162,6 +228,54 @@ export function RouteMap({
     }
     map.panTo([pin.lat, pin.lng]);
   }, [pin, ready]);
+
+  // Live remaining-route line: the road-snapped path from the vehicle's current
+  // position to the passenger's stage, redrawn periodically so it visually
+  // shortens/reshapes as the vehicle drives — same idea as Google Directions or
+  // Uber's live trip map, minus per-second updates (we don't need that granularity
+  // and it would burn through the Mapbox free tier fast).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    if (!liveRoute) {
+      liveRoutePolylineRef.current?.remove();
+      liveRoutePolylineRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+    const destination = liveRoute.destination;
+    const mapInstance = map;
+
+    async function draw() {
+      const origin = liveRouteOriginRef.current;
+      if (!origin) return;
+      const coords = await fetchRoadRoute(origin, destination);
+      if (cancelled || !coords) return;
+      liveRoutePolylineRef.current?.remove();
+      liveRoutePolylineRef.current = L.polyline(coords, {
+        color: "#1a73e8",
+        weight: 5,
+        opacity: 0.85,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(mapInstance);
+    }
+
+    draw();
+    const iv = setInterval(draw, LIVE_ROUTE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+      liveRoutePolylineRef.current?.remove();
+      liveRoutePolylineRef.current = null;
+    };
+    // Only the destination (a fixed stage) and readiness restart the fetch loop —
+    // the origin moves every GPS tick and is read live from a ref inside draw()
+    // instead, so this doesn't refetch on every single position update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveRoute?.destination.lat, liveRoute?.destination.lng, ready]);
 
   return (
     <div ref={ref} className={className ?? "h-[420px] w-full rounded-2xl border border-border"} />
