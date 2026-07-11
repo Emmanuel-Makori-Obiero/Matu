@@ -35,11 +35,10 @@ function RouteDetail() {
   const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
   const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
-  const [takenSeats, setTakenSeats] = useState<Record<string, number[]>>({});
-  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
+  const [bookedCounts, setBookedCounts] = useState<Record<string, number>>({});
+  const [bookingTripId, setBookingTripId] = useState<string | null>(null);
   const [bookedBookingId, setBookedBookingId] = useState<string | null>(null);
   const [bookedTripId, setBookedTripId] = useState<string | null>(null);
-  const [bookedSeatNumber, setBookedSeatNumber] = useState<number | null>(null);
   const [payPhone, setPayPhone] = useState("");
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
   const [payChoice, setPayChoice] = useState<"mpesa" | "cash">("mpesa");
@@ -210,25 +209,22 @@ function RouteDetail() {
     loadPingCounts();
   }
 
-  // Load taken-seat counts for every visible trip so "seats left" shows on
-  // the collapsed card, not just after opening the seat picker.
+  // Load booked-seat counts for every visible trip so "seats left" shows on
+  // the collapsed card without needing to open the booking panel first.
   useEffect(() => {
     if (trips.length === 0) return;
     let cancelled = false;
     (async () => {
       const entries = await Promise.all(
         trips.map(async (t) => {
-          const { data } = await supabase.rpc("get_trip_taken_seats", { _trip_id: t.id });
-          const seats = (data ?? [])
-            .map((r: { seat_number: number | null }) => r.seat_number)
-            .filter((n: number | null): n is number => n != null);
-          return [t.id, seats] as const;
+          const { data } = await supabase.rpc("get_trip_booked_count", { _trip_id: t.id });
+          return [t.id, data ?? 0] as const;
         }),
       );
       if (cancelled) return;
-      setTakenSeats((prev) => {
+      setBookedCounts((prev) => {
         const next = { ...prev };
-        entries.forEach(([id, seats]) => (next[id] = seats));
+        entries.forEach(([id, count]) => (next[id] = count));
         return next;
       });
     })();
@@ -320,14 +316,8 @@ function RouteDetail() {
     [trips, vehicles, tripLocs],
   );
 
-  async function openSeatPicker(tripId: string) {
+  function openBookingPanel(tripId: string) {
     setSelectedTrip(tripId);
-    setSelectedSeat(null);
-    const { data } = await supabase.rpc("get_trip_taken_seats", { _trip_id: tripId });
-    const seats = (data ?? [])
-      .map((r: { seat_number: number | null }) => r.seat_number)
-      .filter((n: number | null): n is number => n != null);
-    setTakenSeats((prev) => ({ ...prev, [tripId]: seats }));
   }
 
   async function bookSeat(tripId: string) {
@@ -335,14 +325,30 @@ function RouteDetail() {
     if (!u.user) return;
     const trip = trips.find((t) => t.id === tripId);
     if (!trip) return;
-    if (!selectedSeat) return toast.error("Pick a seat");
     if (!pickup || !dropoff) return toast.error("Pick your pickup and drop-off stages");
+
+    setBookingTripId(tripId);
+    // Re-check capacity right before booking rather than trusting the last-loaded
+    // count — someone else may have booked the last spot in the meantime.
+    const { data: currentCount } = await supabase.rpc("get_trip_booked_count", {
+      _trip_id: tripId,
+    });
+    const takenCount = currentCount ?? 0;
+    const capacity = vehicles[trip.vehicle_id]?.capacity ?? 14;
+    if (takenCount >= capacity) {
+      setBookingTripId(null);
+      setBookedCounts((prev) => ({ ...prev, [tripId]: takenCount }));
+      return toast.error("This trip just filled up — try another matatu.");
+    }
+
+    // No seat_number: passengers sit wherever's free on board, so booking just
+    // reserves a spot rather than a specific seat. Capacity is enforced above
+    // (best-effort check) and again by the driver seeing seatsBooked vs capacity.
     const { data: newBooking, error } = await supabase
       .from("bookings")
       .insert({
         trip_id: tripId,
         passenger_id: u.user.id,
-        seat_number: selectedSeat,
         pickup_stage_id: pickup,
         dropoff_stage_id: dropoff,
         fare_paid: trip.fare,
@@ -350,13 +356,13 @@ function RouteDetail() {
       })
       .select("id")
       .single();
-    if (error || !newBooking) return toast.error(error?.message ?? "Could not reserve seat");
-    toast.success(`Seat ${selectedSeat} reserved — pay to confirm it.`);
+    setBookingTripId(null);
+    if (error || !newBooking) return toast.error(error?.message ?? "Could not reserve your spot");
+    toast.success("Spot reserved — pay to confirm it.");
     setBookedBookingId(newBooking.id);
     setBookedTripId(tripId);
-    setBookedSeatNumber(selectedSeat);
     setPayChoice("mpesa");
-    setSelectedSeat(null);
+    setBookedCounts((prev) => ({ ...prev, [tripId]: (prev[tripId] ?? takenCount) + 1 }));
   }
 
   // Cash coexists with M-Pesa instead of forcing cashless — matatus run on cash today,
@@ -467,7 +473,7 @@ function RouteDetail() {
                           </div>
                           {(() => {
                             const capacity = v?.capacity ?? 14;
-                            const takenCount = takenSeats[t.id]?.length ?? 0;
+                            const takenCount = bookedCounts[t.id] ?? 0;
                             const left = Math.max(capacity - takenCount, 0);
                             const isLow = left <= 3 && left > 0;
                             const isFull = left === 0;
@@ -489,7 +495,7 @@ function RouteDetail() {
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
-                          onClick={() => openSeatPicker(t.id)}
+                          onClick={() => openBookingPanel(t.id)}
                           className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
                         >
                           <Users className="mr-1 inline size-3" /> Book seat
@@ -522,24 +528,17 @@ function RouteDetail() {
                             onChange={setDropoff}
                             label="Drop-off"
                           />
-                          <SeatPicker
-                            capacity={v?.capacity ?? 14}
-                            taken={takenSeats[t.id] ?? []}
-                            selected={selectedSeat}
-                            onSelect={setSelectedSeat}
-                          />
                           <div className="flex gap-2">
                             <button
                               onClick={() => bookSeat(t.id)}
                               className="flex-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
-                              disabled={!selectedSeat || !pickup || !dropoff}
+                              disabled={!pickup || !dropoff || bookingTripId === t.id}
                             >
-                              Confirm seat {selectedSeat ?? ""}
+                              {bookingTripId === t.id ? "Booking…" : "Confirm booking"}
                             </button>
                             <button
                               onClick={() => {
                                 setSelectedTrip(null);
-                                setSelectedSeat(null);
                               }}
                               className="rounded-md border border-border px-3 py-1.5 text-xs"
                             >
@@ -555,7 +554,7 @@ function RouteDetail() {
                         paymentStatus[bookedBookingId] !== "cash" && (
                           <div className="mt-3 grid gap-2 border-t border-border pt-3">
                             <p className="text-xs font-medium">
-                              Pay KSh {t.fare} to confirm seat {bookedSeatNumber ?? ""}
+                              Pay KSh {t.fare} to confirm your spot
                             </p>
 
                             <div className="flex gap-1 rounded-md border border-border p-1">
@@ -628,8 +627,8 @@ function RouteDetail() {
                           <div className="mt-3 grid gap-2 border-t border-border pt-3">
                             {paymentStatus[bookedBookingId] === "cash" && (
                               <p className="rounded-md bg-accent/30 px-3 py-2 text-xs font-medium">
-                                Seat {bookedSeatNumber ?? ""} confirmed. Pay KSh {t.fare} cash to
-                                the conductor when you board.
+                                Booking confirmed. Pay KSh {t.fare} cash to the conductor when you
+                                board.
                               </p>
                             )}
                             <LeaveNowBanner
@@ -724,65 +723,5 @@ function StageSelect({
         ))}
       </select>
     </label>
-  );
-}
-
-function SeatPicker({
-  capacity,
-  taken,
-  selected,
-  onSelect,
-}: {
-  capacity: number;
-  taken: number[];
-  selected: number | null;
-  onSelect: (n: number) => void;
-}) {
-  const seats = Array.from({ length: capacity }, (_, i) => i + 1);
-  const takenSet = new Set(taken);
-  return (
-    <div className="grid gap-2">
-      <div className="flex items-center justify-between text-xs">
-        <span className="font-medium">Pick a seat</span>
-        <span className="text-muted-foreground">
-          {capacity - taken.length} of {capacity} free
-        </span>
-      </div>
-      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
-        {seats.map((n) => {
-          const isTaken = takenSet.has(n);
-          const isSel = selected === n;
-          return (
-            <button
-              key={n}
-              type="button"
-              disabled={isTaken}
-              onClick={() => onSelect(n)}
-              className={`aspect-square rounded-md border text-xs font-medium transition ${
-                isTaken
-                  ? "cursor-not-allowed border-border bg-muted text-muted-foreground line-through"
-                  : isSel
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-background hover:border-primary"
-              }`}
-              aria-label={`Seat ${n}${isTaken ? " (taken)" : ""}`}
-            >
-              {n}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1">
-          <span className="size-2 rounded-sm border border-border bg-background" /> Free
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="size-2 rounded-sm bg-primary" /> You
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="size-2 rounded-sm bg-muted" /> Taken
-        </span>
-      </div>
-    </div>
   );
 }

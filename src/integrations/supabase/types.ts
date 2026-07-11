@@ -757,6 +757,10 @@ export type Database = {
         Args: { _user_id: string };
         Returns: Database["public"]["Enums"]["app_role"];
       };
+      get_trip_booked_count: {
+        Args: { _trip_id: string };
+        Returns: number;
+      };
       get_trip_location: {
         Args: { _trip_id: string };
         Returns: {
