@@ -50,6 +50,29 @@ export async function mapboxTrafficDurationSeconds(
   }
 }
 
+// Same as above but also returns distance (meters) in one call — used by
+// useLiveTrafficEta so "distance remaining" and "ETA" come from the exact
+// same Mapbox response and can never drift apart from each other.
+async function mapboxTrafficDurationAndDistance(
+  origin: LatLng,
+  destination: LatLng,
+): Promise<{ seconds: number; meters: number } | null> {
+  if (!MAPBOX_TOKEN) return null;
+  try {
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false&access_token=${MAPBOX_TOKEN}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      routes?: Array<{ duration: number; distance: number }>;
+    };
+    const route = data.routes?.[0];
+    if (!route) return null;
+    return { seconds: route.duration, meters: route.distance };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Live, traffic-aware "minutes until the bus arrives" at a fixed stage.
  * Reads the vehicle's position from a ref internally so a fast-moving GPS
@@ -60,6 +83,7 @@ export function useLiveTrafficEta(busPos: LatLng | null, destination: LatLng | n
   const [minutes, setMinutes] = useState<number | null>(null);
   const [delayed, setDelayed] = useState(false);
   const [error, setError] = useState(false);
+  const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
   const busPosRef = useRef(busPos);
   busPosRef.current = busPos;
 
@@ -67,6 +91,7 @@ export function useLiveTrafficEta(busPos: LatLng | null, destination: LatLng | n
     if (!destination) {
       setMinutes(null);
       setDelayed(false);
+      setDistanceMeters(null);
       return;
     }
 
@@ -75,23 +100,19 @@ export function useLiveTrafficEta(busPos: LatLng | null, destination: LatLng | n
     async function tick() {
       const pos = busPosRef.current;
       if (!pos) return;
-      // Fire both requests, but don't make the passenger wait on the free-flow
-      // baseline (only used for the "delayed by traffic" flag) — show the real
-      // ETA the moment Mapbox responds, and let the delayed-flag update a beat
-      // later whenever OSRM gets back to us.
-      mapboxTrafficDurationSeconds(pos, destination!).then((trafficSeconds) => {
-        if (cancelled) return;
-        if (trafficSeconds == null) {
-          setError(true);
-          return;
-        }
-        setError(false);
-        setMinutes(Math.round(trafficSeconds / 60));
-        osrmDurationSeconds("driving", pos, destination!).then((freeFlowSeconds) => {
-          if (cancelled) return;
-          setDelayed(freeFlowSeconds != null && trafficSeconds - freeFlowSeconds > 120);
-        });
-      });
+      const [trafficResult, freeFlowSeconds] = await Promise.all([
+        mapboxTrafficDurationAndDistance(pos, destination!),
+        osrmDurationSeconds("driving", pos, destination!),
+      ]);
+      if (cancelled) return;
+      if (trafficResult == null) {
+        setError(true);
+        return;
+      }
+      setError(false);
+      setMinutes(Math.round(trafficResult.seconds / 60));
+      setDistanceMeters(trafficResult.meters);
+      setDelayed(freeFlowSeconds != null && trafficResult.seconds - freeFlowSeconds > 120);
     }
 
     tick();
@@ -105,5 +126,5 @@ export function useLiveTrafficEta(busPos: LatLng | null, destination: LatLng | n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destination?.lat, destination?.lng]);
 
-  return { minutes, delayed, error };
+  return { minutes, delayed, error, distanceMeters };
 }
