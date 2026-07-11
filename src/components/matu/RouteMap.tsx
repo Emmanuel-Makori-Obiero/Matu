@@ -72,14 +72,13 @@ function pinDivIcon() {
   return L.divIcon({ html, className: "", iconSize: [16, 16], iconAnchor: [8, 8] });
 }
 
-function stageDivIcon(index: number) {
+function stageDivIcon() {
   const html = `<div style="
-    width:22px;height:22px;border-radius:50%;
-    background:#0a5f3d;color:#fff;font-size:11px;font-weight:600;
-    display:flex;align-items:center;justify-content:center;
+    width:14px;height:14px;border-radius:50%;
+    background:#0a5f3d;
     border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.15);
-  ">${index + 1}</div>`;
-  return L.divIcon({ html, className: "", iconSize: [22, 22], iconAnchor: [11, 11] });
+  "></div>`;
+  return L.divIcon({ html, className: "", iconSize: [14, 14], iconAnchor: [7, 7] });
 }
 
 export function RouteMap({
@@ -146,8 +145,8 @@ export function RouteMap({
     const map = mapRef.current;
     if (!map || !ready) return;
     stageMarkers.current.forEach((m) => m.remove());
-    stageMarkers.current = stages.map((s, i) =>
-      L.marker([s.lat, s.lng], { icon: stageDivIcon(i), title: s.name }).addTo(map),
+    stageMarkers.current = stages.map((s) =>
+      L.marker([s.lat, s.lng], { icon: stageDivIcon(), title: s.name }).addTo(map),
     );
     polylineRef.current?.remove();
     polylineRef.current = null;

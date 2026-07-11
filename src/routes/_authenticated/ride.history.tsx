@@ -1,11 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Ban, CheckCircle2, Clock, MapPin, Navigation2, QrCode, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
-import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
-import { useLiveTrafficEta } from "@/lib/traffic-eta";
 import {
   Dialog,
   DialogContent,
@@ -28,7 +26,6 @@ type TripRow = { id: string; fare: number; status: string; route_id: string; veh
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type VehicleRow = { id: string; plate_number: string; nickname: string | null };
 type StageRow = { id: string; name: string; lat: number; lng: number };
-type TripLoc = { lat: number; lng: number; heading: number | null };
 type PaymentRow = {
   id: string;
   booking_id: string | null;
@@ -52,6 +49,7 @@ const UPCOMING_STATUSES = new Set(["reserved", "confirmed", "boarded"]);
 const PAID_PAYMENT_STATUSES = new Set(["held", "released"]);
 
 function BookingHistory() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [trips, setTrips] = useState<Record<string, TripRow>>({});
@@ -62,8 +60,6 @@ function BookingHistory() {
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
   const [ticketBooking, setTicketBooking] = useState<BookingRow | null>(null);
-  const [trackingBooking, setTrackingBooking] = useState<BookingRow | null>(null);
-  const [trackingLoc, setTrackingLoc] = useState<TripLoc | null>(null);
 
   async function load() {
     setLoading(true);
@@ -146,37 +142,6 @@ function BookingHistory() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // While the tracking dialog is open, poll the booked trip's live position so the
-  // map marker, remaining route line, ETA, and distance all stay current.
-  useEffect(() => {
-    if (!trackingBooking) {
-      setTrackingLoc(null);
-      return;
-    }
-    let cancelled = false;
-    const tripId = trackingBooking.trip_id;
-    const fetchLoc = async () => {
-      const { data } = await supabase.rpc("get_trip_location", { _trip_id: tripId });
-      const row = Array.isArray(data) ? data[0] : null;
-      if (cancelled) return;
-      if (row?.current_lat != null && row?.current_lng != null) {
-        setTrackingLoc({
-          lat: row.current_lat,
-          lng: row.current_lng,
-          heading: row.current_heading ?? null,
-        });
-      } else {
-        setTrackingLoc(null);
-      }
-    };
-    fetchLoc();
-    const iv = setInterval(fetchLoc, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-    };
-  }, [trackingBooking]);
-
   async function cancelBooking(bookingId: string) {
     setCancelling(bookingId);
     const { error } = await supabase
@@ -212,42 +177,6 @@ function BookingHistory() {
         `MATU-TICKET:${ticketBooking.id}`,
       )}`
     : "";
-
-  const trackingTrip = trackingBooking ? trips[trackingBooking.trip_id] : undefined;
-  const trackingRoute = trackingTrip ? routes[trackingTrip.route_id] : undefined;
-  const trackingVehicle = trackingTrip ? vehicles[trackingTrip.vehicle_id] : undefined;
-  const trackingDropoff = trackingBooking?.dropoff_stage_id
-    ? stages[trackingBooking.dropoff_stage_id]
-    : undefined;
-  const trackingDestination = trackingDropoff
-    ? { lat: trackingDropoff.lat, lng: trackingDropoff.lng }
-    : null;
-  const {
-    minutes: trackingMinutes,
-    delayed: trackingDelayed,
-    distanceMeters: trackingDistanceMeters,
-  } = useLiveTrafficEta(trackingLoc, trackingDestination);
-  const trackingMapStages: MapStage[] = trackingDropoff
-    ? [
-        {
-          id: trackingDropoff.id,
-          name: trackingDropoff.name,
-          lat: trackingDropoff.lat,
-          lng: trackingDropoff.lng,
-        },
-      ]
-    : [];
-  const trackingMapVehicles: MapVehicle[] = trackingLoc
-    ? [
-        {
-          id: "tracked-vehicle",
-          lat: trackingLoc.lat,
-          lng: trackingLoc.lng,
-          heading: trackingLoc.heading,
-          label: trackingVehicle?.plate_number ?? "Matatu",
-        },
-      ]
-    : [];
 
   return (
     <AppShell
@@ -334,7 +263,10 @@ function BookingHistory() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setTrackingBooking(b);
+                              navigate({
+                                to: "/ride/track/$bookingId",
+                                params: { bookingId: b.id },
+                              });
                             }}
                             className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
                           >
@@ -461,55 +393,6 @@ function BookingHistory() {
                   Ticket ID: {ticketBooking.id.slice(0, 8).toUpperCase()}
                 </div>
               </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!trackingBooking} onOpenChange={(open) => !open && setTrackingBooking(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{trackingRoute?.name ?? "Your trip"}</DialogTitle>
-            <DialogDescription>
-              {trackingVehicle?.plate_number ?? "—"}
-              {trackingVehicle?.nickname ? ` · ${trackingVehicle.nickname}` : ""} — heading to{" "}
-              {trackingDropoff?.name ?? "your drop-off"}.
-            </DialogDescription>
-          </DialogHeader>
-          {trackingBooking && (
-            <div className="grid gap-3">
-              {trackingLoc ? (
-                <RouteMap
-                  stages={trackingMapStages}
-                  vehicles={trackingMapVehicles}
-                  liveRoute={
-                    trackingDestination
-                      ? { origin: trackingLoc, destination: trackingDestination }
-                      : null
-                  }
-                  className="h-[320px] w-full rounded-xl border border-border"
-                />
-              ) : (
-                <div className="flex h-[200px] items-center justify-center rounded-xl border border-border bg-surface text-sm text-muted-foreground">
-                  Waiting for the driver's live location…
-                </div>
-              )}
-              {trackingLoc && (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border bg-surface p-3 text-xs">
-                  <span className="inline-flex items-center gap-1 font-medium">
-                    <Navigation2 className="size-3.5" />
-                    {trackingMinutes != null ? `${trackingMinutes} min remaining` : "Calculating…"}
-                    {trackingDelayed && (
-                      <span className="font-medium text-amber-600"> · delayed by traffic</span>
-                    )}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {trackingDistanceMeters != null
-                      ? `${(trackingDistanceMeters / 1000).toFixed(1)} km left`
-                      : ""}
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </DialogContent>
