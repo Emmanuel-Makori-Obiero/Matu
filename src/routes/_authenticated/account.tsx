@@ -8,6 +8,7 @@ import {
   Check,
   AlertTriangle,
   MessageSquareWarning,
+  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -271,6 +272,20 @@ function AccountSettings() {
               {savingPassword ? "Saving…" : "Update password"}
             </button>
           </form>
+        </section>
+
+        {/* Wallet */}
+        <section className="rounded-2xl border border-border bg-surface p-6">
+          <h2 className="font-display text-lg font-semibold">Wallet</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Top up your balance, or withdraw earnings to M-Pesa.
+          </p>
+          <Link
+            to="/wallet"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-secondary"
+          >
+            <Wallet className="size-4" /> Open wallet
+          </Link>
         </section>
 
         {/* Support */}
