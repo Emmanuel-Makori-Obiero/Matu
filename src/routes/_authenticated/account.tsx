@@ -9,11 +9,19 @@ import {
   AlertTriangle,
   MessageSquareWarning,
   Wallet,
+  Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ROLE_HOME, type AppRole } from "@/lib/matu-auth";
 import { AppShell } from "@/components/matu/AppShell";
+import {
+  SOUND_PROFILES,
+  getSelectedSoundId,
+  setSelectedSoundId,
+  testSound,
+  type SoundProfileId,
+} from "@/lib/noisy-alert";
 
 export const Route = createFileRoute("/_authenticated/account")({
   head: () => ({ meta: [{ title: "Account settings · Matu" }] }),
@@ -50,6 +58,7 @@ function AccountSettings() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [selectedSound, setSelectedSound] = useState<SoundProfileId>(getSelectedSoundId());
 
   const heldSaccoRole = myRoles.includes("sacco_admin");
   const heldDriverRole = myRoles.includes("driver") || myRoles.includes("conductor");
@@ -155,6 +164,13 @@ function AccountSettings() {
     await supabase.auth.signOut();
     toast.success("Signed out");
     navigate({ to: "/auth", replace: true });
+  }
+
+  function chooseSound(id: SoundProfileId) {
+    setSelectedSound(id);
+    setSelectedSoundId(id);
+    testSound(id);
+    toast.success("Alert sound saved — that's what you'll hear for new passenger alerts.");
   }
 
   if (loading) {
@@ -273,6 +289,50 @@ function AccountSettings() {
             </button>
           </form>
         </section>
+
+        {/* Alert sound — drivers only, since this is what plays for passenger alerts
+            (seat reserved, boarding request, approaching stage) on the trip screen. */}
+        {heldDriverRole && (
+          <section className="rounded-2xl border border-border bg-surface p-6">
+            <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
+              <Volume2 className="size-5" /> Alert sound
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              This plays on your trip screen for new passenger alerts. Tap a sound to preview and
+              save it — that tap also makes sure your device is ready to actually play it later,
+              which browsers otherwise sometimes block.
+            </p>
+            <div className="mt-4 grid gap-2">
+              {SOUND_PROFILES.map((profile) => {
+                const selected = selectedSound === profile.id;
+                return (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    onClick={() => chooseSound(profile.id)}
+                    className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition ${
+                      selected ? "border-primary bg-primary/10" : "border-border hover:bg-secondary"
+                    }`}
+                  >
+                    <div>
+                      <div className="text-sm font-medium">{profile.label}</div>
+                      <div className="text-xs text-muted-foreground">{profile.description}</div>
+                    </div>
+                    {selected ? (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                        <Check className="size-3.5" /> Selected
+                      </span>
+                    ) : (
+                      <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                        Tap to test
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Wallet */}
         <section className="rounded-2xl border border-border bg-surface p-6">
