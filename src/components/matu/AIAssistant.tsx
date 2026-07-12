@@ -17,6 +17,10 @@ type ChatMessage = {
     destination: string;
     base_fare: number | null;
   }[];
+  // Suggested in-app destination the assistant wants to offer as a shortcut, e.g.
+  // { to: "/account", label: "Open account settings" }. Rendered as a tappable chip
+  // instead of auto-navigating — the person still chooses whether to go there.
+  navigateTo?: { to: string; label: string };
 };
 
 // Which page the assistant is mounted on, and any extra detail the page already knows
@@ -63,8 +67,25 @@ const PLACEHOLDERS: Record<AssistantContext["page"], string> = {
   account: "Ask a question…",
 };
 
-export function AIAssistant({ context }: { context: AssistantContext }) {
-  const [open, setOpen] = useState(false);
+// Common things people ask about, shown as tappable chips on the full Help page so
+// people don't have to think of a question — tapping one just sends it as-is.
+const QUICK_TOPICS = [
+  "How do I book a ride?",
+  "What's in account settings?",
+  "How do wallet top-ups work?",
+  "How do I file a complaint?",
+  "How do I become a driver?",
+  "How do I register a SACCO?",
+];
+
+export function AIAssistant({
+  context,
+  fullPage = false,
+}: {
+  context: AssistantContext;
+  fullPage?: boolean;
+}) {
+  const [open, setOpen] = useState(fullPage);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: GREETINGS[context.page] },
   ]);
@@ -76,8 +97,8 @@ export function AIAssistant({ context }: { context: AssistantContext }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, open]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(override?: string) {
+    const text = (override ?? input).trim();
     if (!text || loading) return;
     setInput("");
     const nextMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
@@ -97,7 +118,12 @@ export function AIAssistant({ context }: { context: AssistantContext }) {
       if (error) throw error;
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply, matchedRoutes: data.matchedRoutes },
+        {
+          role: "assistant",
+          content: data.reply,
+          matchedRoutes: data.matchedRoutes,
+          navigateTo: data.navigateTo,
+        },
       ]);
     } catch {
       setMessages((prev) => [
@@ -112,18 +138,24 @@ export function AIAssistant({ context }: { context: AssistantContext }) {
     }
   }
 
+  const containerClass = fullPage
+    ? "flex h-[70vh] min-h-[420px] w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-sm"
+    : "fixed bottom-20 right-5 z-40 flex h-[480px] w-[340px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl";
+
   return (
     <>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Close assistant" : "Open assistant"}
-        className="fixed bottom-5 right-5 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition hover:scale-105"
-      >
-        {open ? <X className="size-5" /> : <MessageCircle className="size-5" />}
-      </button>
+      {!fullPage && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? "Close assistant" : "Open assistant"}
+          className="fixed bottom-5 right-5 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition hover:scale-105"
+        >
+          {open ? <X className="size-5" /> : <MessageCircle className="size-5" />}
+        </button>
+      )}
 
       {open && (
-        <div className="fixed bottom-20 right-5 z-40 flex h-[480px] w-[340px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl">
+        <div className={containerClass}>
           <div className="flex items-center gap-2 border-b border-border bg-primary/10 px-4 py-3">
             <Bot className="size-4 text-primary" />
             <span className="text-sm font-semibold">Matu Assistant</span>
@@ -164,6 +196,15 @@ export function AIAssistant({ context }: { context: AssistantContext }) {
                         ))}
                       </div>
                     )}
+                    {m.navigateTo && (
+                      <Link
+                        to={m.navigateTo.to}
+                        onClick={() => setOpen(false)}
+                        className="mt-2 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/20"
+                      >
+                        {m.navigateTo.label} →
+                      </Link>
+                    )}
                   </div>
                 </div>
               ))}
@@ -172,6 +213,19 @@ export function AIAssistant({ context }: { context: AssistantContext }) {
                   <div className="flex items-center gap-1.5 rounded-xl bg-background px-3 py-2 text-xs text-muted-foreground">
                     <Loader2 className="size-3 animate-spin" /> Checking routes…
                   </div>
+                </div>
+              )}
+              {fullPage && messages.length === 1 && !loading && (
+                <div className="flex flex-wrap gap-1.5">
+                  {QUICK_TOPICS.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => send(q)}
+                      className="rounded-full border border-border bg-background px-3 py-1.5 text-xs hover:border-primary hover:text-primary"
+                    >
+                      {q}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -187,7 +241,7 @@ export function AIAssistant({ context }: { context: AssistantContext }) {
               className="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
             />
             <button
-              onClick={send}
+              onClick={() => send()}
               disabled={loading || !input.trim()}
               aria-label="Send"
               className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-50"

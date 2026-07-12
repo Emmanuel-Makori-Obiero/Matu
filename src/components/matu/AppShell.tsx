@@ -4,7 +4,7 @@
 // at signup (see auth.tsx) and homePathForUser() sends every login straight there.
 
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bus, LogOut, Settings } from "lucide-react";
+import { Bus, LogOut, Settings, HelpCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -74,6 +74,12 @@ export function AppShell({
           </Link>
           <div className="flex items-center gap-1">
             <Link
+              to="/help"
+              className="inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
+            >
+              <HelpCircle className="size-4" /> <span className="hidden sm:inline">Help</span>
+            </Link>
+            <Link
               to="/account"
               className="inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
             >
@@ -109,7 +115,9 @@ export function AppShell({
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-5 py-8">{children}</main>
-      <AIAssistant context={assistantContext ?? detectContext(pathname)} />
+      {pathname !== "/help" && (
+        <AIAssistant context={assistantContext ?? detectContext(pathname)} />
+      )}
     </div>
   );
 }

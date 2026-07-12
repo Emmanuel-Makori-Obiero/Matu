@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
 import { Route as AuthenticatedPlatformAdminRouteImport } from './routes/_authenticated/platform-admin'
+import { Route as AuthenticatedHelpRouteImport } from './routes/_authenticated/help'
 import { Route as AuthenticatedComplaintsRouteImport } from './routes/_authenticated/complaints'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedRideIndexRouteImport } from './routes/_authenticated/ride.index'
@@ -51,6 +52,11 @@ const AuthenticatedPlatformAdminRoute =
     path: '/platform-admin',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedHelpRoute = AuthenticatedHelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedComplaintsRoute = AuthenticatedComplaintsRouteImport.update({
   id: '/complaints',
   path: '/complaints',
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/account': typeof AuthenticatedAccountRoute
   '/complaints': typeof AuthenticatedComplaintsRoute
+  '/help': typeof AuthenticatedHelpRoute
   '/platform-admin': typeof AuthenticatedPlatformAdminRoute
   '/wallet': typeof AuthenticatedWalletRoute
   '/drive/trip': typeof AuthenticatedDriveTripRoute
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/account': typeof AuthenticatedAccountRoute
   '/complaints': typeof AuthenticatedComplaintsRoute
+  '/help': typeof AuthenticatedHelpRoute
   '/platform-admin': typeof AuthenticatedPlatformAdminRoute
   '/wallet': typeof AuthenticatedWalletRoute
   '/drive/trip': typeof AuthenticatedDriveTripRoute
@@ -152,6 +160,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/complaints': typeof AuthenticatedComplaintsRoute
+  '/_authenticated/help': typeof AuthenticatedHelpRoute
   '/_authenticated/platform-admin': typeof AuthenticatedPlatformAdminRoute
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
   '/_authenticated/drive/trip': typeof AuthenticatedDriveTripRoute
@@ -171,6 +180,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/account'
     | '/complaints'
+    | '/help'
     | '/platform-admin'
     | '/wallet'
     | '/drive/trip'
@@ -188,6 +198,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/account'
     | '/complaints'
+    | '/help'
     | '/platform-admin'
     | '/wallet'
     | '/drive/trip'
@@ -206,6 +217,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/account'
     | '/_authenticated/complaints'
+    | '/_authenticated/help'
     | '/_authenticated/platform-admin'
     | '/_authenticated/wallet'
     | '/_authenticated/drive/trip'
@@ -260,6 +272,13 @@ declare module '@tanstack/react-router' {
       path: '/platform-admin'
       fullPath: '/platform-admin'
       preLoaderRoute: typeof AuthenticatedPlatformAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/help': {
+      id: '/_authenticated/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof AuthenticatedHelpRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/complaints': {
@@ -359,6 +378,7 @@ const AuthenticatedRideTrackRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedComplaintsRoute: typeof AuthenticatedComplaintsRoute
+  AuthenticatedHelpRoute: typeof AuthenticatedHelpRoute
   AuthenticatedPlatformAdminRoute: typeof AuthenticatedPlatformAdminRoute
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
   AuthenticatedDriveTripRoute: typeof AuthenticatedDriveTripRoute
@@ -374,6 +394,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedComplaintsRoute: AuthenticatedComplaintsRoute,
+  AuthenticatedHelpRoute: AuthenticatedHelpRoute,
   AuthenticatedPlatformAdminRoute: AuthenticatedPlatformAdminRoute,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,
   AuthenticatedDriveTripRoute: AuthenticatedDriveTripRoute,
