@@ -31,3 +31,19 @@ export function stopNoisyAlert() {
   if (loopTimer) clearInterval(loopTimer);
   loopTimer = null;
 }
+
+// Browsers block audio from starting on its own — it can only start from a direct
+// user gesture (a tap/click), not from a background event like a realtime alert
+// coming in. Call this once when the driver's trip screen mounts: it listens for
+// their very first tap anywhere on the page and uses it to create/unlock the
+// AudioContext silently (no sound played), so that by the time a real alert fires
+// later, the context is already unlocked and startNoisyAlert() can actually be heard.
+export function primeAudioOnFirstInteraction() {
+  if (audioCtx) return; // already primed
+  const unlock = () => {
+    audioCtx ??= new AudioContext();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    document.removeEventListener("pointerdown", unlock);
+  };
+  document.addEventListener("pointerdown", unlock, { once: true });
+}

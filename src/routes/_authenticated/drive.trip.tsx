@@ -5,7 +5,7 @@ import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus } from "lucide-
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
-import { startNoisyAlert, stopNoisyAlert } from "@/lib/noisy-alert";
+import { startNoisyAlert, stopNoisyAlert, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 import { TicketScanner } from "@/components/matu/TicketScanner";
 
 type Vehicle = { id: string; plate_number: string; capacity: number };
@@ -99,6 +99,8 @@ function DriverTrip() {
       setBookings((b ?? []) as BookingWithProfile[]);
       setAlerts((a ?? []) as AlertRow[]);
     })();
+
+    primeAudioOnFirstInteraction();
 
     const ch = supabase
       .channel(`trip-${trip.id}`)
