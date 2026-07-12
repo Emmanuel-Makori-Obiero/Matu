@@ -23,15 +23,17 @@ export const assignSaccoDriver = createServerFn({ method: "POST" })
       throw new Error("You can only assign drivers to your own SACCO vehicles");
     }
 
-    const digits = data.phone.replace(/\D/g, "");
+    // Normalize to the last 9 digits so 07xxxxxxxx, 7xxxxxxxx, 2547xxxxxxxx,
+    // and +2547xxxxxxxx all compare equal regardless of how each side typed it.
+    const normalizePhone = (value: string) => value.replace(/\D/g, "").slice(-9);
+    const target = normalizePhone(data.phone);
+
     const { data: profiles, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("id,full_name,phone")
-      .limit(50);
+      .not("phone", "is", null);
     if (profileError) throw new Error(profileError.message);
-    const driver = (profiles ?? []).find(
-      (p) => p.phone?.trim() === data.phone.trim() || p.phone?.replace(/\D/g, "") === digits,
-    );
+    const driver = (profiles ?? []).find((p) => p.phone && normalizePhone(p.phone) === target);
     if (!driver) throw new Error("No registered user found with that phone number");
 
     const { error: roleError } = await supabaseAdmin
