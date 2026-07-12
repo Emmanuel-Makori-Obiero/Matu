@@ -22,11 +22,16 @@ type TripLoc = { lat: number; lng: number; heading: number | null };
 type Vehicle = { id: string; plate_number: string; capacity: number; nickname: string | null };
 
 export const Route = createFileRoute("/_authenticated/ride/$routeId")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    from: typeof search.from === "string" ? search.from : undefined,
+    to: typeof search.to === "string" ? search.to : undefined,
+  }),
   component: RouteDetail,
 });
 
 function RouteDetail() {
   const { routeId } = Route.useParams();
+  const { from: fromParam, to: toParam } = Route.useSearch();
   const [routeInfo, setRouteInfo] = useState<{
     name: string;
     origin: string;
@@ -65,6 +70,23 @@ function RouteDetail() {
   useEffect(() => {
     primeAudioOnFirstInteraction();
   }, []);
+
+  // Passenger already picked pickup/drop-off by name on the "Find a ride" page —
+  // once this route's own stages have loaded, match those names to this route's
+  // actual stage ids so the per-trip booking panel opens pre-filled instead of
+  // asking the passenger to pick pickup/drop-off a second time.
+  useEffect(() => {
+    if (stages.length === 0) return;
+    if (fromParam && !pickup) {
+      const match = stages.find((s) => s.name.toLowerCase() === fromParam.trim().toLowerCase());
+      if (match) setPickup(match.id);
+    }
+    if (toParam && !dropoff) {
+      const match = stages.find((s) => s.name.toLowerCase() === toParam.trim().toLowerCase());
+      if (match) setDropoff(match.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stages, fromParam, toParam]);
 
   useEffect(() => {
     (async () => {

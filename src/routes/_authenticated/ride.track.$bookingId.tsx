@@ -23,7 +23,7 @@ type BookingRow = {
 type TripRow = { id: string; fare: number; status: string; route_id: string; vehicle_id: string };
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type VehicleRow = { id: string; plate_number: string; nickname: string | null; capacity: number };
-type StageRow = { id: string; name: string; lat: number; lng: number };
+type StageRow = { id: string; name: string; lat: number; lng: number; order_index?: number };
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
 export const Route = createFileRoute("/_authenticated/ride/track/$bookingId")({
@@ -55,6 +55,7 @@ function TrackBooking() {
   const [vehicle, setVehicle] = useState<VehicleRow | null>(null);
   const [pickup, setPickup] = useState<StageRow | null>(null);
   const [dropoff, setDropoff] = useState<StageRow | null>(null);
+  const [routeStages, setRouteStages] = useState<StageRow[]>([]);
   const [vehicleLoc, setVehicleLoc] = useState<TripLoc | null>(null);
   const [totalMeters, setTotalMeters] = useState<number | null>(null);
 
@@ -109,6 +110,18 @@ function TrackBooking() {
         (s ?? []).forEach((x: StageRow) => (map[x.id] = x));
         if (b.pickup_stage_id) setPickup(map[b.pickup_stage_id] ?? null);
         if (b.dropoff_stage_id) setDropoff(map[b.dropoff_stage_id] ?? null);
+      }
+
+      // Full ordered stage list for the route the trip runs on — this is what
+      // lets the map draw the actual matatu route (all stops), not just a
+      // straight line between the passenger's own pickup and drop-off.
+      if (t) {
+        const { data: rs } = await supabase
+          .from("stages")
+          .select("id,name,lat,lng,order_index")
+          .eq("route_id", t.route_id)
+          .order("order_index");
+        setRouteStages((rs ?? []) as StageRow[]);
       }
       setLoading(false);
     })();
@@ -174,9 +187,12 @@ function TrackBooking() {
       ? Math.min(100, Math.round((coveredMeters / totalMeters) * 100))
       : null;
 
-  const mapStages: MapStage[] = [pickup, dropoff]
-    .filter((s): s is StageRow => !!s)
-    .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
+  const mapStages: MapStage[] =
+    routeStages.length > 0
+      ? routeStages.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))
+      : [pickup, dropoff]
+          .filter((s): s is StageRow => !!s)
+          .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
   const mapVehicles: MapVehicle[] = vehicleLoc
     ? [
         {
@@ -256,18 +272,19 @@ function TrackBooking() {
           />
         )}
 
-        {/* Map */}
-        {vehicleLoc ? (
-          <RouteMap
-            stages={mapStages}
-            vehicles={mapVehicles}
-            liveRoute={destination ? { origin: vehicleLoc, destination } : null}
-            className="h-[380px] w-full rounded-2xl border border-border"
-          />
-        ) : (
-          <div className="flex h-[220px] items-center justify-center rounded-2xl border border-border bg-surface text-sm text-muted-foreground">
+        {/* Map — always shown so the route (all stages on this trip) is visible even
+            before the driver's live GPS arrives; the vehicle marker/live route line
+            just won't appear yet in that case. */}
+        <RouteMap
+          stages={mapStages}
+          vehicles={mapVehicles}
+          liveRoute={vehicleLoc && destination ? { origin: vehicleLoc, destination } : null}
+          className="h-[380px] w-full rounded-2xl border border-border"
+        />
+        {!vehicleLoc && (
+          <p className="-mt-2 text-center text-xs text-muted-foreground">
             Waiting for the driver's live location…
-          </div>
+          </p>
         )}
 
         {/* Distance covered / remaining */}

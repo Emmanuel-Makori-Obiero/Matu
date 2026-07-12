@@ -151,6 +151,7 @@ export function AIAssistant({ context }: { context: AssistantContext }) {
                             key={r.id}
                             to="/ride/$routeId"
                             params={{ routeId: r.id }}
+                            search={{ from: undefined, to: undefined }}
                             onClick={() => setOpen(false)}
                             className="block rounded-lg border border-border bg-surface px-2.5 py-2 hover:border-primary"
                           >

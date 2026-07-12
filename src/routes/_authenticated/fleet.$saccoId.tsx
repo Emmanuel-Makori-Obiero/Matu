@@ -1,10 +1,20 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Bus, Map, Plus, Radio, UserPlus, Wallet } from "lucide-react";
+import {
+  ArrowLeft,
+  Bus,
+  Map,
+  MapPinned,
+  Plus,
+  Radio,
+  Trash2,
+  UserPlus,
+  Wallet,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
-import { RouteMap, type MapVehicle } from "@/components/matu/RouteMap";
+import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { assignSaccoDriver } from "@/lib/fleet.functions";
 
 type Vehicle = {
@@ -22,6 +32,14 @@ type SaccoRoute = {
   origin: string;
   destination: string;
   base_fare: number | null;
+};
+type StageRow = {
+  id: string;
+  route_id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  order_index: number;
 };
 type DriverRow = {
   driver_id: string | null;
@@ -81,6 +99,12 @@ function FleetDetail() {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [routeFare, setRouteFare] = useState("");
+  const [managingRouteId, setManagingRouteId] = useState<string | null>(null);
+  const [routeStages, setRouteStages] = useState<Record<string, StageRow[]>>({});
+  const [pickingStage, setPickingStage] = useState(false);
+  const [pendingStagePin, setPendingStagePin] = useState<{ lat: number; lng: number } | null>(null);
+  const [newStageName, setNewStageName] = useState("");
+  const [savingStage, setSavingStage] = useState(false);
 
   async function loadLive(vehicleIds: string[]) {
     if (vehicleIds.length === 0) return setLiveTrips([]);
@@ -196,6 +220,60 @@ function FleetDetail() {
     setRouteFare("");
     setAddingRoute(false);
     load();
+  }
+
+  async function loadStages(routeId: string) {
+    const { data, error } = await supabase
+      .from("stages")
+      .select("id,route_id,name,lat,lng,order_index")
+      .eq("route_id", routeId)
+      .order("order_index");
+    if (error) return toast.error("Could not load stages for that route");
+    setRouteStages((prev) => ({ ...prev, [routeId]: (data ?? []) as StageRow[] }));
+  }
+
+  function openStageManager(routeId: string) {
+    setManagingRouteId((prev) => (prev === routeId ? null : routeId));
+    setPickingStage(false);
+    setPendingStagePin(null);
+    setNewStageName("");
+    if (!routeStages[routeId]) loadStages(routeId);
+  }
+
+  function handleStageMapClick(lat: number, lng: number) {
+    if (!pickingStage) return;
+    setPendingStagePin({ lat, lng });
+  }
+
+  async function addStage(routeId: string) {
+    if (!pendingStagePin) return toast.error("Tap the map to place the stage first");
+    if (!newStageName.trim()) return toast.error("Give this stage a name");
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    setSavingStage(true);
+    const nextOrder = (routeStages[routeId]?.length ?? 0) * 10;
+    const { error } = await supabase.from("stages").insert({
+      route_id: routeId,
+      name: newStageName.trim(),
+      lat: pendingStagePin.lat,
+      lng: pendingStagePin.lng,
+      order_index: nextOrder,
+      added_by: u.user.id,
+    });
+    setSavingStage(false);
+    if (error) return toast.error(error.message);
+    toast.success(`Added stage "${newStageName.trim()}"`);
+    setNewStageName("");
+    setPendingStagePin(null);
+    setPickingStage(false);
+    loadStages(routeId);
+  }
+
+  async function deleteStage(routeId: string, stageId: string) {
+    const { error } = await supabase.from("stages").delete().eq("id", stageId);
+    if (error) return toast.error(error.message);
+    toast.success("Stage removed");
+    loadStages(routeId);
   }
 
   async function updateRouteFare(routeId: string, next: number) {
@@ -516,34 +594,144 @@ function FleetDetail() {
           </form>
         )}
         <ul className="mt-4 grid gap-2">
-          {routes.map((r) => (
-            <li
-              key={r.id}
-              className="flex items-center justify-between rounded-xl border border-border bg-background p-3 text-sm"
-            >
-              <span>
-                <Map className="mr-1 inline size-3" />
-                {r.origin} → {r.destination}
-              </span>
-              <span className="flex items-center gap-2">
+          {routes.map((r) => {
+            const stagesForRoute = routeStages[r.id] ?? [];
+            const isManaging = managingRouteId === r.id;
+            return (
+              <li key={r.id} className="rounded-xl border border-border bg-background p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span>
+                    <Map className="mr-1 inline size-3" />
+                    {r.origin} → {r.destination}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <button
+                      onClick={() =>
+                        updateRouteFare(r.id, Math.max(10, Number(r.base_fare ?? 10) - 10))
+                      }
+                      className="rounded-md border border-border px-2 py-1 text-xs"
+                    >
+                      −
+                    </button>
+                    <strong>KSh {r.base_fare ?? "—"}</strong>
+                    <button
+                      onClick={() => updateRouteFare(r.id, Number(r.base_fare ?? 0) + 10)}
+                      className="rounded-md border border-border px-2 py-1 text-xs"
+                    >
+                      +
+                    </button>
+                  </span>
+                </div>
+
                 <button
-                  onClick={() =>
-                    updateRouteFare(r.id, Math.max(10, Number(r.base_fare ?? 10) - 10))
-                  }
-                  className="rounded-md border border-border px-2 py-1 text-xs"
+                  type="button"
+                  onClick={() => openStageManager(r.id)}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
                 >
-                  −
+                  <MapPinned className="size-3.5" />
+                  {isManaging ? "Hide stages" : `Manage stages (${stagesForRoute.length})`}
                 </button>
-                <strong>KSh {r.base_fare ?? "—"}</strong>
-                <button
-                  onClick={() => updateRouteFare(r.id, Number(r.base_fare ?? 0) + 10)}
-                  className="rounded-md border border-border px-2 py-1 text-xs"
-                >
-                  +
-                </button>
-              </span>
-            </li>
-          ))}
+
+                {isManaging && (
+                  <div className="mt-3 grid gap-3 border-t border-border pt-3">
+                    <p className="text-xs text-muted-foreground">
+                      A route with no stages can't be matched to bookings, shown on a passenger's
+                      map, or tracked live — add at least a pickup and a drop-off stage below by
+                      tapping their real location on the map.
+                    </p>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPickingStage((v) => !v);
+                          setPendingStagePin(null);
+                        }}
+                        className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+                          pickingStage
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:bg-secondary"
+                        }`}
+                      >
+                        <MapPinned className="size-3.5" />
+                        {pickingStage ? "Tap the map to place a stage" : "Add a stage on the map"}
+                      </button>
+                    </div>
+
+                    <RouteMap
+                      stages={stagesForRoute.map((s): MapStage => ({
+                        id: s.id,
+                        name: s.name,
+                        lat: s.lat,
+                        lng: s.lng,
+                      }))}
+                      pin={pendingStagePin}
+                      onMapClick={handleStageMapClick}
+                      className={`h-[320px] w-full rounded-2xl border ${pickingStage ? "border-primary" : "border-border"}`}
+                    />
+
+                    {pendingStagePin && (
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-secondary p-3">
+                        <input
+                          autoFocus
+                          value={newStageName}
+                          onChange={(e) => setNewStageName(e.target.value)}
+                          placeholder="Stage name (e.g. Roasters)"
+                          className="min-w-0 flex-1 rounded-md border border-input bg-surface px-3 py-1.5 text-sm"
+                        />
+                        <button
+                          onClick={() => addStage(r.id)}
+                          disabled={savingStage}
+                          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                        >
+                          {savingStage ? "Saving…" : "Save stage"}
+                        </button>
+                        <button
+                          onClick={() => setPendingStagePin(null)}
+                          className="rounded-md border border-border px-3 py-1.5 text-xs"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+
+                    {stagesForRoute.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No stages added yet.</p>
+                    ) : (
+                      <ol className="grid gap-1.5 text-xs">
+                        {stagesForRoute.map((s, i) => (
+                          <li
+                            key={s.id}
+                            className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5"
+                          >
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`size-1.5 shrink-0 rounded-full ${
+                                  i === 0
+                                    ? "bg-accent"
+                                    : i === stagesForRoute.length - 1
+                                      ? "bg-primary"
+                                      : "bg-muted-foreground/50"
+                                }`}
+                              />
+                              {s.name}
+                            </span>
+                            <button
+                              onClick={() => deleteStage(r.id, s.id)}
+                              aria-label={`Remove ${s.name}`}
+                              className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </section>
 

@@ -202,18 +202,50 @@ function PassengerHome() {
         // Find nearest stage name to prefill From
         let bestName: string | null = null;
         let bestD = Infinity;
+        let bestDistanceMeters = Infinity;
         stages.forEach((s) => {
           const d = (s.lat - p.lat) ** 2 + (s.lng - p.lng) ** 2;
           if (d < bestD) {
             bestD = d;
             bestName = s.name;
+            // Rough meters, just for the "that's far" sanity check below —
+            // 1 degree of lat/lng is ~111km near the equator.
+            bestDistanceMeters = Math.sqrt(d) * 111_000;
           }
         });
-        if (bestName) setFrom(bestName);
-        toast.success(`Pickup set to ${bestName ?? "your location"}`, { id: "geo" });
+        if (bestName) {
+          setFrom(bestName);
+          // If GPS accuracy is poor (common indoors, or on desktop browsers that
+          // fall back to coarse IP-based location) the "nearest stage" can be
+          // wildly wrong and the same for every location. Flag it instead of
+          // silently presenting a confident-looking wrong answer.
+          const accuracy = pos.coords.accuracy ?? 0;
+          if (accuracy > 500 || bestDistanceMeters > 3000) {
+            toast.warning(
+              `Pickup set to ${bestName}, but your location looks imprecise (±${Math.round(accuracy)}m). Double-check it, or type your stage manually.`,
+              { id: "geo" },
+            );
+          } else {
+            toast.success(`Pickup set to ${bestName}`, { id: "geo" });
+          }
+        } else {
+          toast.error("Couldn't match your location to a stage — type it in manually.", {
+            id: "geo",
+          });
+        }
       },
-      () => toast.error("Could not get location", { id: "geo" }),
-      { enableHighAccuracy: true, timeout: 10000 },
+      (err) => {
+        // err.code 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT.
+        const message =
+          err.code === 1
+            ? "Location permission denied — enable it in your browser/phone settings."
+            : "Could not get your location. Try again, or type your stage manually.";
+        toast.error(message, { id: "geo" });
+      },
+      // maximumAge: 0 forces a fresh GPS read instead of possibly reusing a stale
+      // cached position (which is how "use my location" can end up stuck reporting
+      // the same stage no matter where you actually are).
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
   }
 
@@ -411,7 +443,11 @@ function PassengerHome() {
                     <li key={r.id} className="relative">
                       <button
                         onClick={() =>
-                          navigate({ to: "/ride/$routeId", params: { routeId: r.id } })
+                          navigate({
+                            to: "/ride/$routeId",
+                            params: { routeId: r.id },
+                            search: { from: from.trim() || undefined, to: to.trim() || undefined },
+                          })
                         }
                         className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
                       >

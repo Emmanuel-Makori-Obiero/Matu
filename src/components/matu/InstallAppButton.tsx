@@ -2,10 +2,16 @@
 //
 // "Install app" / "Add to Home Screen" button. Browsers differ a lot here:
 //  - Chrome/Edge on Android & desktop: fire a `beforeinstallprompt` event we can
-//    capture and trigger programmatically via `.prompt()`.
+//    capture and trigger programmatically via `.prompt()` — but only once per
+//    page load, and only if Chrome's own engagement heuristics are satisfied.
+//    If that event fires before this component mounts (e.g. on a fast page
+//    load) or doesn't fire at all yet, there's no programmatic prompt to show
+//    — so we fall back to manual "how to add to home screen" instructions
+//    instead of just hiding the button.
 //  - iOS Safari: does NOT support `beforeinstallprompt` at all — there is no
 //    programmatic install. The only way is Share sheet -> "Add to Home Screen",
-//    so on iOS we show instructions instead of a fake button that does nothing.
+//    so on iOS we always show instructions instead of a fake button that does
+//    nothing.
 //  - Already installed (running in standalone/display-mode): hide the button
 //    entirely, there's nothing to install.
 import { useEffect, useState } from "react";
@@ -22,6 +28,11 @@ function isIos() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
+function isAndroid() {
+  if (typeof navigator === "undefined") return false;
+  return /android/i.test(navigator.userAgent);
+}
+
 function isStandalone() {
   if (typeof window === "undefined") return false;
   return (
@@ -35,7 +46,9 @@ export function InstallAppButton({ className }: { className?: string }) {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [showIosHelp, setShowIosHelp] = useState(false);
+  const [showAndroidHelp, setShowAndroidHelp] = useState(false);
   const ios = isIos();
+  const android = isAndroid();
 
   useEffect(() => {
     setInstalled(isStandalone());
@@ -60,21 +73,22 @@ export function InstallAppButton({ className }: { className?: string }) {
   // Already running as an installed app — nothing to offer.
   if (installed) return null;
 
-  // Neither a captured Chrome/Edge prompt nor iOS (which always supports the
-  // manual Share-sheet path) — most likely an unsupported browser. Don't show a
-  // button that can't do anything.
-  if (!deferredPrompt && !ios) return null;
-
   async function handleClick() {
     if (ios) {
       setShowIosHelp(true);
       return;
     }
-    if (!deferredPrompt) return;
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === "accepted") setInstalled(true);
-    setDeferredPrompt(null);
+    if (deferredPrompt) {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") setInstalled(true);
+      setDeferredPrompt(null);
+      return;
+    }
+    // No captured prompt (Android but the event hasn't fired, or any other
+    // mobile/desktop browser) — show manual browser-menu instructions instead
+    // of silently doing nothing or disappearing.
+    setShowAndroidHelp(true);
   }
 
   return (
@@ -128,6 +142,51 @@ export function InstallAppButton({ className }: { className?: string }) {
                   3
                 </span>
                 <span>Tap "Add" — Matu will appear as an app icon on your Home Screen.</span>
+              </li>
+            </ol>
+          </div>
+        </div>
+      )}
+
+      {showAndroidHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          onClick={() => setShowAndroidHelp(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <h3 className="font-display text-lg font-semibold">Add Matu to your Home Screen</h3>
+              <button
+                onClick={() => setShowAndroidHelp(false)}
+                className="rounded-md p-1 text-muted-foreground hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <ol className="mt-4 space-y-3 text-sm text-muted-foreground">
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  1
+                </span>
+                <span>
+                  Tap the <strong>⋮</strong> menu button in{" "}
+                  {android ? "Chrome's" : "your browser's"} toolbar.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  2
+                </span>
+                <span>Tap "Add to Home screen" or "Install app".</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  3
+                </span>
+                <span>Confirm — Matu will appear as an app icon on your Home Screen.</span>
               </li>
             </ol>
           </div>
