@@ -78,24 +78,15 @@ function WalletPage() {
     // everyone would end up with a driver wallet just from visiting this page.
     const ids: (string | null)[] = [];
     if (isPassenger) {
-      const r = await supabase.rpc("get_or_create_wallet", {
-        _owner_type: "passenger",
-        _owner_id: user.id,
-      });
+      const r = await supabase.rpc("get_or_create_my_wallet", { _owner_type: "passenger" });
       ids.push(r.data);
     }
     if (isDriver) {
-      const r = await supabase.rpc("get_or_create_wallet", {
-        _owner_type: "driver",
-        _owner_id: user.id,
-      });
+      const r = await supabase.rpc("get_or_create_my_wallet", { _owner_type: "driver" });
       ids.push(r.data);
     }
     if (sacco?.id) {
-      const r = await supabase.rpc("get_or_create_wallet", {
-        _owner_type: "sacco",
-        _owner_id: sacco.id,
-      });
+      const r = await supabase.rpc("get_or_create_my_wallet", { _owner_type: "sacco" });
       ids.push(r.data);
     }
 
