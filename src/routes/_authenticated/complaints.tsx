@@ -143,10 +143,14 @@ function ComplaintsPage() {
     if (!appMessage.trim()) return toast.error("Tell us what went wrong first.");
     setSubmitting(true);
     const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
+      setSubmitting(false);
+      return toast.error("You need to be signed in to send this.");
+    }
     const { data: complaint, error } = await supabase
       .from("complaints")
       .insert({
-        passenger_id: u.user?.id,
+        passenger_id: u.user.id,
         category: "app",
         recipient: "developer",
         message: appMessage.trim(),
@@ -179,10 +183,14 @@ function ComplaintsPage() {
 
     setSubmitting(true);
     const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
+      setSubmitting(false);
+      return toast.error("You need to be signed in to send this.");
+    }
     const { data: complaint, error } = await supabase
       .from("complaints")
       .insert({
-        passenger_id: u.user?.id,
+        passenger_id: u.user.id,
         category: "travel",
         recipient: effectiveRecipient,
         trip_id: selectedTrip.tripId,

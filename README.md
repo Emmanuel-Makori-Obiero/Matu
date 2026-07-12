@@ -17,6 +17,7 @@ src/
     auth.tsx                        sign in / sign up
     index.tsx                       landing page
     _authenticated/
+      route.tsx                     auth guard — redirects signed-out users to /auth
       ride.index.tsx                passenger: browse routes, book a seat
       ride.$routeId.tsx             passenger: pick stage, pay, confirm booking
       ride.track.tsx                passenger: list of live trips to track
@@ -25,9 +26,12 @@ src/
       drive.index.tsx               driver: start/manage a trip
       drive.trip.tsx                driver: active trip screen (location, bookings)
       fleet.index.tsx               sacco admin: list of saccos/fleets
-      fleet.$saccoId.tsx            sacco admin: vehicles, drivers, join requests
-      account.tsx                   profile + role management
-      complaints.tsx                submit/view complaints
+      fleet.$saccoId.tsx            sacco admin: vehicles, drivers, join requests, stages
+      wallet.tsx                    wallet balance, top-up, withdrawal (passenger/driver/sacco)
+      complaints.tsx                submit a complaint (app issue or trip issue)
+      platform-admin.tsx            platform_admin only: cross-sacco vehicle suspension,
+                                     complaint resolution queue
+      account.tsx                   profile + role management, alert sound picker
   components/matu/                  app-specific UI (maps, AI assistant, etc.)
   integrations/supabase/            Supabase client + generated types
   lib/                              ETA/traffic helpers, utilities
@@ -38,15 +42,19 @@ supabase/
   config.toml                       local Supabase CLI config
 ```
 
-Roles (`public.app_role`): `passenger`, `driver`, `conductor`, `sacco_admin`. A user's
-role(s) live in `user_roles`, checked via the `has_role()` Postgres function used
-throughout RLS policies.
+Roles (`public.app_role`): `passenger`, `driver`, `conductor`, `sacco_admin`,
+`platform_admin`. A user's role(s) live in `user_roles`, checked via the `has_role()`
+Postgres function used throughout RLS policies. `platform_admin` is **not**
+self-service — nobody can claim it through the app; it's granted manually with a
+one-off SQL insert (see section 5) and is intentionally excluded from the app's
+`AppRole` picker/type in `src/lib/matu-auth.ts`.
 
 ---
 
 ## 2. Running it locally
 
 ### Prerequisites
+
 - Node 20+
 - A Supabase project (or the Supabase CLI for local development)
 - A Mapbox token (for `RouteMap`) — Leaflet is used as a fallback/alternative in some views
@@ -74,6 +82,7 @@ npm run dev
 ```
 
 Other scripts:
+
 ```bash
 npm run build       # production build
 npm run preview     # preview the production build
@@ -101,6 +110,7 @@ project, or you in six months) can reproduce it.
 ### Edge Functions
 
 Deploy with the Supabase CLI:
+
 ```bash
 supabase functions deploy mpesa-stk-push
 supabase functions deploy mpesa-callback
@@ -108,12 +118,18 @@ supabase functions deploy mpesa-b2c-payout
 supabase functions deploy mpesa-b2c-result
 supabase functions deploy voice-agent
 supabase functions deploy voice-webhook
+supabase functions deploy send-complaint-email
 ```
 
 Set their secrets (Project Settings → Edge Functions → Secrets, or via CLI):
+
 ```bash
 supabase secrets set MPESA_CONSUMER_KEY=xxx MPESA_CONSUMER_SECRET=xxx MPESA_CALLBACK_SECRET=xxx
+supabase secrets set RESEND_API_KEY=xxx
 ```
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are auto-injected
+into every Edge Function by Supabase — you don't set those yourself.
 See section 4 for the full list of required secrets.
 
 ---
@@ -124,13 +140,13 @@ There are two separate M-Pesa flows in this app, and it's important to keep them
 mentally separate because they use different Daraja APIs, different credentials, and
 different go-live processes:
 
-| Flow | Direction | API | Function(s) |
-|---|---|---|---|
-| Collecting money | passenger → app | STK Push (Lipa na M-Pesa Online) | `mpesa-stk-push`, `mpesa-callback` |
-| Paying money out | app → driver/sacco | B2C (Business to Customer) | `mpesa-b2c-payout`, `mpesa-b2c-result` |
+| Flow             | Direction          | API                              | Function(s)                            |
+| ---------------- | ------------------ | -------------------------------- | -------------------------------------- |
+| Collecting money | passenger → app    | STK Push (Lipa na M-Pesa Online) | `mpesa-stk-push`, `mpesa-callback`     |
+| Paying money out | app → driver/sacco | B2C (Business to Customer)       | `mpesa-b2c-payout`, `mpesa-b2c-result` |
 
 **M-Pesa has no concept of "send this specific payment straight to driver X's phone."**
-STK Push always deposits into *your* registered Paybill/Till. There is no way around
+STK Push always deposits into _your_ registered Paybill/Till. There is no way around
 this — it's a constraint of the M-Pesa platform, not something Matu's code chooses.
 So the flow is:
 
@@ -162,6 +178,7 @@ the current balance can always be explained by replaying the ledger, and any dis
 ("why is my balance X?") has an audit trail.
 
 **Paying a fare from wallet, step by step:**
+
 1. Frontend calls `supabase.rpc('pay_fare_from_wallet', { _booking_id, _passenger_id })`.
 2. That function reads the booking's fare and the trip's driver/sacco, looks up the
    sacco's commission rate, and in one transaction: debits the passenger wallet, credits
@@ -171,6 +188,7 @@ the current balance can always be explained by replaying the ledger, and any dis
    failed payment can never leave wallets in a half-updated state.
 
 **Withdrawing (driver or sacco), step by step:**
+
 1. Driver/sacco admin requests a withdrawal (amount + phone) via `mpesa-b2c-payout`.
 2. That function verifies they own the wallet, confirms sufficient balance, **debits the
    wallet immediately** and records a `pending` ledger row, then calls Safaricom's B2C API.
@@ -182,12 +200,14 @@ the current balance can always be explained by replaying the ledger, and any dis
 ### 3.2 Environment variables / secrets needed
 
 **STK Push (collecting money):**
+
 - `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET` — from your Daraja app
 - `MPESA_CALLBACK_SECRET` — any random string you generate yourself; verifies callbacks
   actually came from a payment Matu initiated
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` — from your Supabase project
 
 **B2C (paying out to drivers/saccos)** — separate Daraja application from STK Push:
+
 - `MPESA_INITIATOR_NAME` — the API operator username you set up in Daraja for B2C
 - `MPESA_INITIATOR_PASSWORD_ENCRYPTED` — your initiator password, encrypted with
   Safaricom's public certificate (see Daraja docs: "Encrypting the Security Credential")
@@ -202,6 +222,7 @@ happening, so testing in sandbox will make bookings/top-ups/withdrawals look lik
 work even though no money moves.
 
 **STK Push go-live:**
+
 1. Complete Safaricom Daraja's "Go Live" process for Lipa na M-Pesa Online — requires a
    registered Paybill or Till.
 2. Get production `Consumer Key`/`Consumer Secret`, shortcode, and passkey.
@@ -209,6 +230,7 @@ work even though no money moves.
    `sandbox.safaricom.co.ke` → `api.safaricom.co.ke`. Update the two secrets.
 
 **B2C go-live** (separate approval, do this after STK Push works in production):
+
 1. Apply for B2C API access on Daraja — requires its own shortcode (can be the same
    business, different product) and an initiator account.
 2. Generate the encrypted security credential using Safaricom's production public
@@ -227,28 +249,113 @@ Core tables (see `supabase/migrations/` for the authoritative, timestamped defin
 
 - `profiles`, `user_roles` — identity and role assignment
 - `saccos`, `vehicles`, `routes`, `stages`, `trips` — fleet and route data
-- `bookings`, `alerts` — passenger booking + in-trip notifications
+  (`vehicles.suspended` / `suspended_reason` — platform-admin kill switch, see below)
+- `bookings`, `alerts`, `favorite_routes` — passenger booking + in-trip notifications
 - `payments`, `escrow_transactions` — legacy per-fare M-Pesa payment records (pre-wallet)
 - `driver_join_requests`, `sacco_join_requests`, `sacco_subscriptions` — driver/sacco
   onboarding and paid subscriptions
 - `wallets`, `wallet_transactions`, `sacco_commission_rates` — the wallet system
   described above
+- `complaints` — passenger-submitted app/trip complaints, with a resolution workflow
+  (see below)
+- `rate_limit_hits` — generic sliding-window counter backing `check_rate_limit()`
 
 Row-Level Security is enabled on every table. As a rule: passengers can only see their
 own bookings/payments/wallet; drivers can see bookings/wallets tied to trips they
-drive; sacco admins can see data for saccos they own. Service-role (used only inside
-Edge Functions) bypasses RLS — this is intentional and required for the payment
-functions, but it's also why those functions must do their own ownership checks in code
-rather than relying on RLS to protect them.
+drive; sacco admins can see data for saccos they own; `platform_admin` sees everything
+via additive policies layered on top (they don't narrow anyone else's access).
+Service-role (used only inside Edge Functions) bypasses RLS — this is intentional and
+required for the payment functions, but it's also why those functions must do their
+own ownership checks in code rather than relying on RLS to protect them.
+
+**Heads up — some database objects only exist in the Supabase dashboard, not in a
+migration file.** `ping_stage`, for example, was created via Studio's SQL editor and
+was never captured in `supabase/migrations/`. This means a fresh clone of this repo,
+run through `supabase db reset`, will **not** fully reproduce the live schema. If
+you're not sure whether something is in a migration, check with a query like:
+
+```sql
+select routine_name from information_schema.routines
+where routine_schema = 'public' and routine_name = 'the_function_name';
+```
+
+before assuming a migration needs to create it — see the "Important habit" note in
+section 2 for the fix going forward.
+
+### 4.1 Platform admin
+
+`platform_admin` is a fourth role, separate from `sacco_admin`, for cross-SACCO
+oversight — the person running Matu itself, not any one fleet operator. Granted with:
+
+```sql
+insert into user_roles (user_id, role) values ('<uuid>', 'platform_admin');
+```
+
+(or by email: `select id, 'platform_admin' from auth.users where email = '...'` as
+the source of an `insert ... select`). Once granted, an "Open admin panel" link
+appears on the Account page, leading to `/platform-admin`, which currently supports:
+
+- Suspending/reinstating any vehicle platform-wide (`set_vehicle_suspension()`),
+  regardless of which SACCO owns it — for use after a safety complaint or incident.
+- Viewing and resolving every complaint in the system, not just ones tied to a SACCO
+  the admin happens to own.
+
+### 4.2 Rate limiting
+
+`check_rate_limit(action, max_count, window_seconds)` is a generic, reusable sliding
+window counter (backed by `rate_limit_hits`) that any RPC or trigger can call. It's
+currently wired into one place: an `alerts` insert trigger capping passengers at 10
+"I'm near pickup" / "let me off" alerts per 5 minutes. Other high-frequency actions
+(`ping_stage`, booking creation) aren't rate-limited yet — see section 5.
+
+### 4.3 Complaints
+
+Two kinds, both stored in `complaints`:
+
+- **App issues** (bugs, payments, account problems) — always routed to the developer
+  by email, since only the dev can fix those.
+- **Travel issues** (driver conduct, vehicle condition) — routed to the driver, the
+  SACCO, or both, based on passenger choice, with a fallback if the chosen recipient
+  has no contact info on file.
+
+Real emails are sent by the `send-complaint-email` Edge Function via
+[Resend](https://resend.com) (needs `RESEND_API_KEY` — see section 2). It looks up
+recipient emails server-side under the service role (so nothing can be spoofed from
+the browser), escapes all user-typed content before dropping it into HTML, isolates
+failures per-recipient so one bad address doesn't block the others, and requires the
+caller to be either the complaint's own passenger or a `platform_admin`.
+
+Resolution workflow: `status` moves `open` → `acknowledged` → `resolved` via the
+`resolve_complaint(complaint_id, status, note)` RPC, callable only by the driver named
+in the complaint, the owning SACCO admin, or a platform admin. The platform admin
+panel (`/platform-admin`) is currently the only UI surfacing this queue — SACCO admins
+and drivers can see complaints about them via RLS but don't yet have a dedicated
+in-app view to act on them (see section 5).
 
 ---
 
 ## 5. Known gaps / next steps
 
-- **Frontend wallet UI is not built yet.** The database and edge functions support
-  wallets fully, but there's no top-up screen, wallet balance display, or withdrawal
-  screen in `src/routes/` yet — this is the next piece of work.
-- **No automated tests.** Given real money moves through this system, adding tests
-  around the wallet ledger functions (`pay_fare_from_wallet`, `apply_wallet_transaction`)
-  should be a priority before opening it to real users.
+- **`send-complaint-email` is on Resend's free/test tier**, sending from the shared
+  `onboarding@resend.dev` address. Verify your own domain in Resend and swap
+  `FROM_EMAIL` in the function before this is customer-facing.
+- **Drivers and SACCO admins can't act on complaints from their own dashboards yet** —
+  `resolve_complaint()` already permits them, but `fleet.$saccoId.tsx` and
+  `drive.trip.tsx` don't have a complaints panel wired up. Only `/platform-admin` does.
+- **Rate limiting only covers passenger alerts.** `ping_stage` and booking creation
+  are unthrottled — and since `ping_stage` lives only in the Supabase dashboard (not a
+  migration), it needs its live definition pulled before it can be edited safely.
+- **No driver ID/license verification.** `driver_join_requests` stores typed-in ID and
+  license numbers as plain text — nothing is uploaded, scanned, or checked against
+  NTSA/TLB records. Biggest trust gap before opening this to strangers at scale.
+- **No stale/ghost trip detection.** If a driver's phone dies mid-trip, nothing marks
+  the trip as stalled or notifies waiting passengers.
+- **No automated tests, no CI.** Given real money moves through the wallet system,
+  tests around `pay_fare_from_wallet` / `apply_wallet_transaction` should be a
+  priority before opening this to real users.
+- **No error monitoring** (Sentry or equivalent) — bugs are currently discovered from
+  users describing symptoms, not from a dashboard.
+- **No privacy policy / ToS page**, despite collecting live GPS, ID numbers, phone
+  numbers, and payment info — a real compliance gap under Kenya's Data Protection Act
+  2019, not just a nice-to-have.
 - **Both M-Pesa flows are sandbox-only** — see section 3.3 before launch.

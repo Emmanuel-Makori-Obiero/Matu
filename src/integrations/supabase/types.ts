@@ -8,6 +8,72 @@ export type Database = {
   };
   public: {
     Tables: {
+      complaints: {
+        Row: {
+          category: Database["public"]["Enums"]["complaint_category"];
+          created_at: string;
+          driver_id: string | null;
+          emailed_to: string[] | null;
+          id: string;
+          message: string;
+          passenger_id: string;
+          recipient: Database["public"]["Enums"]["complaint_recipient"];
+          resolution_note: string | null;
+          resolved_at: string | null;
+          resolved_by: string | null;
+          sacco_id: string | null;
+          status: Database["public"]["Enums"]["complaint_status"];
+          trip_id: string | null;
+        };
+        Insert: {
+          category: Database["public"]["Enums"]["complaint_category"];
+          created_at?: string;
+          driver_id?: string | null;
+          emailed_to?: string[] | null;
+          id?: string;
+          message: string;
+          passenger_id: string;
+          recipient: Database["public"]["Enums"]["complaint_recipient"];
+          resolution_note?: string | null;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          sacco_id?: string | null;
+          status?: Database["public"]["Enums"]["complaint_status"];
+          trip_id?: string | null;
+        };
+        Update: {
+          category?: Database["public"]["Enums"]["complaint_category"];
+          created_at?: string;
+          driver_id?: string | null;
+          emailed_to?: string[] | null;
+          id?: string;
+          message?: string;
+          passenger_id?: string;
+          recipient?: Database["public"]["Enums"]["complaint_recipient"];
+          resolution_note?: string | null;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          sacco_id?: string | null;
+          status?: Database["public"]["Enums"]["complaint_status"];
+          trip_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "complaints_sacco_id_fkey";
+            columns: ["sacco_id"];
+            isOneToOne: false;
+            referencedRelation: "saccos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "complaints_trip_id_fkey";
+            columns: ["trip_id"];
+            isOneToOne: false;
+            referencedRelation: "trips";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       alerts: {
         Row: {
           created_at: string;
@@ -734,6 +800,14 @@ export type Database = {
         Returns: boolean;
       };
       is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      resolve_complaint: {
+        Args: {
+          _complaint_id: string;
+          _status: Database["public"]["Enums"]["complaint_status"];
+          _note?: string | null;
+        };
+        Returns: undefined;
+      };
       vehicle_is_suspended: { Args: { _vehicle_id: string }; Returns: boolean };
       set_vehicle_suspension: {
         Args: { _vehicle_id: string; _suspended: boolean; _reason?: string | null };
@@ -849,6 +923,9 @@ export type Database = {
     Enums: {
       alert_type: "near_pickup" | "near_dropoff" | "alight_request";
       app_role: "passenger" | "driver" | "conductor" | "sacco_admin" | "platform_admin";
+      complaint_category: "app" | "travel";
+      complaint_recipient: "developer" | "driver" | "sacco" | "both";
+      complaint_status: "open" | "acknowledged" | "resolved";
       booking_status: "reserved" | "confirmed" | "boarded" | "alighted" | "cancelled";
       driver_type: "sacco_driver" | "independent";
       join_request_status: "pending" | "approved" | "rejected";
@@ -979,6 +1056,9 @@ export const Constants = {
     Enums: {
       alert_type: ["near_pickup", "near_dropoff", "alight_request"],
       app_role: ["passenger", "driver", "conductor", "sacco_admin", "platform_admin"],
+      complaint_category: ["app", "travel"],
+      complaint_recipient: ["developer", "driver", "sacco", "both"],
+      complaint_status: ["open", "acknowledged", "resolved"],
       booking_status: ["reserved", "confirmed", "boarded", "alighted", "cancelled"],
       driver_type: ["sacco_driver", "independent"],
       join_request_status: ["pending", "approved", "rejected"],
