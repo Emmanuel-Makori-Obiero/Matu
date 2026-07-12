@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
+import { Route as AuthenticatedPlatformAdminRouteImport } from './routes/_authenticated/platform-admin'
 import { Route as AuthenticatedComplaintsRouteImport } from './routes/_authenticated/complaints'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedRideIndexRouteImport } from './routes/_authenticated/ride.index'
@@ -44,6 +45,12 @@ const AuthenticatedWalletRoute = AuthenticatedWalletRouteImport.update({
   path: '/wallet',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPlatformAdminRoute =
+  AuthenticatedPlatformAdminRouteImport.update({
+    id: '/platform-admin',
+    path: '/platform-admin',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedComplaintsRoute = AuthenticatedComplaintsRouteImport.update({
   id: '/complaints',
   path: '/complaints',
@@ -109,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/account': typeof AuthenticatedAccountRoute
   '/complaints': typeof AuthenticatedComplaintsRoute
+  '/platform-admin': typeof AuthenticatedPlatformAdminRoute
   '/wallet': typeof AuthenticatedWalletRoute
   '/drive/trip': typeof AuthenticatedDriveTripRoute
   '/fleet/$saccoId': typeof AuthenticatedFleetSaccoIdRoute
@@ -125,6 +133,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/account': typeof AuthenticatedAccountRoute
   '/complaints': typeof AuthenticatedComplaintsRoute
+  '/platform-admin': typeof AuthenticatedPlatformAdminRoute
   '/wallet': typeof AuthenticatedWalletRoute
   '/drive/trip': typeof AuthenticatedDriveTripRoute
   '/fleet/$saccoId': typeof AuthenticatedFleetSaccoIdRoute
@@ -143,6 +152,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/complaints': typeof AuthenticatedComplaintsRoute
+  '/_authenticated/platform-admin': typeof AuthenticatedPlatformAdminRoute
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
   '/_authenticated/drive/trip': typeof AuthenticatedDriveTripRoute
   '/_authenticated/fleet/$saccoId': typeof AuthenticatedFleetSaccoIdRoute
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/account'
     | '/complaints'
+    | '/platform-admin'
     | '/wallet'
     | '/drive/trip'
     | '/fleet/$saccoId'
@@ -177,6 +188,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/account'
     | '/complaints'
+    | '/platform-admin'
     | '/wallet'
     | '/drive/trip'
     | '/fleet/$saccoId'
@@ -194,6 +206,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/account'
     | '/_authenticated/complaints'
+    | '/_authenticated/platform-admin'
     | '/_authenticated/wallet'
     | '/_authenticated/drive/trip'
     | '/_authenticated/fleet/$saccoId'
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/wallet'
       fullPath: '/wallet'
       preLoaderRoute: typeof AuthenticatedWalletRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/platform-admin': {
+      id: '/_authenticated/platform-admin'
+      path: '/platform-admin'
+      fullPath: '/platform-admin'
+      preLoaderRoute: typeof AuthenticatedPlatformAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/complaints': {
@@ -339,6 +359,7 @@ const AuthenticatedRideTrackRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
   AuthenticatedComplaintsRoute: typeof AuthenticatedComplaintsRoute
+  AuthenticatedPlatformAdminRoute: typeof AuthenticatedPlatformAdminRoute
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
   AuthenticatedDriveTripRoute: typeof AuthenticatedDriveTripRoute
   AuthenticatedFleetSaccoIdRoute: typeof AuthenticatedFleetSaccoIdRoute
@@ -353,6 +374,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
   AuthenticatedComplaintsRoute: AuthenticatedComplaintsRoute,
+  AuthenticatedPlatformAdminRoute: AuthenticatedPlatformAdminRoute,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,
   AuthenticatedDriveTripRoute: AuthenticatedDriveTripRoute,
   AuthenticatedFleetSaccoIdRoute: AuthenticatedFleetSaccoIdRoute,

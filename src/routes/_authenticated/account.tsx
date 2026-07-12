@@ -10,6 +10,7 @@ import {
   MessageSquareWarning,
   Wallet,
   Volume2,
+  ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -59,6 +60,7 @@ function AccountSettings() {
   const [confirmDelete, setConfirmDelete] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [selectedSound, setSelectedSound] = useState<SoundProfileId>(getSelectedSoundId());
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   const heldSaccoRole = myRoles.includes("sacco_admin");
   const heldDriverRole = myRoles.includes("driver") || myRoles.includes("conductor");
@@ -71,16 +73,23 @@ function AccountSettings() {
       setUserId(user.id);
       setEmail(user.email ?? "");
 
-      const [{ data: profile }, { data: roles }] = await Promise.all([
+      const [{ data: profile }, { data: roles }, { data: platformAdmin }] = await Promise.all([
         supabase.from("profiles").select("full_name,phone").eq("id", user.id).maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", user.id),
+        supabase.rpc("is_platform_admin"),
       ]);
 
       if (profile) {
         setFullName(profile.full_name ?? "");
         setPhone(profile.phone ?? "");
       }
-      setMyRoles((roles ?? []).map((r) => r.role as AppRole));
+      // platform_admin is excluded from the self-service AppRole type/picker on
+      // purpose (it's granted manually, never claimed), so filter it out here
+      // rather than widening AppRole.
+      setMyRoles(
+        (roles ?? []).map((r) => r.role).filter((r): r is AppRole => r !== "platform_admin"),
+      );
+      setIsPlatformAdmin(Boolean(platformAdmin));
       setLoading(false);
     })();
   }, []);
@@ -366,6 +375,21 @@ function AccountSettings() {
             <MessageSquareWarning className="size-4" /> Support & complaints
           </Link>
         </section>
+
+        {isPlatformAdmin && (
+          <section className="rounded-2xl border border-border bg-surface p-6">
+            <h2 className="font-display text-lg font-semibold">Platform admin</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Cross-SACCO oversight — view and suspend vehicles platform-wide.
+            </p>
+            <Link
+              to="/platform-admin"
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-secondary"
+            >
+              <ShieldAlert className="size-4" /> Open admin panel
+            </Link>
+          </section>
+        )}
 
         {/* Sign out */}
         <section className="rounded-2xl border border-border bg-surface p-6">
