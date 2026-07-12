@@ -665,6 +665,8 @@ export type Database = {
           nickname: string | null;
           plate_number: string;
           sacco_id: string | null;
+          suspended: boolean;
+          suspended_reason: string | null;
           vehicle_type: Database["public"]["Enums"]["vehicle_type"];
         };
         Insert: {
@@ -675,6 +677,8 @@ export type Database = {
           nickname?: string | null;
           plate_number: string;
           sacco_id?: string | null;
+          suspended?: boolean;
+          suspended_reason?: string | null;
           vehicle_type?: Database["public"]["Enums"]["vehicle_type"];
         };
         Update: {
@@ -685,6 +689,8 @@ export type Database = {
           nickname?: string | null;
           plate_number?: string;
           sacco_id?: string | null;
+          suspended?: boolean;
+          suspended_reason?: string | null;
           vehicle_type?: Database["public"]["Enums"]["vehicle_type"];
         };
         Relationships: [
@@ -697,11 +703,42 @@ export type Database = {
           },
         ];
       };
+      rate_limit_hits: {
+        Row: {
+          action: string;
+          created_at: string;
+          id: string;
+          user_id: string;
+        };
+        Insert: {
+          action: string;
+          created_at?: string;
+          id?: string;
+          user_id: string;
+        };
+        Update: {
+          action?: string;
+          created_at?: string;
+          id?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
+      check_rate_limit: {
+        Args: { _action: string; _max_count: number; _window_seconds: number };
+        Returns: boolean;
+      };
+      is_platform_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      vehicle_is_suspended: { Args: { _vehicle_id: string }; Returns: boolean };
+      set_vehicle_suspension: {
+        Args: { _vehicle_id: string; _suspended: boolean; _reason?: string | null };
+        Returns: undefined;
+      };
       approve_driver_request: {
         Args: { _request_id: string };
         Returns: undefined;
@@ -811,7 +848,7 @@ export type Database = {
     };
     Enums: {
       alert_type: "near_pickup" | "near_dropoff" | "alight_request";
-      app_role: "passenger" | "driver" | "conductor" | "sacco_admin";
+      app_role: "passenger" | "driver" | "conductor" | "sacco_admin" | "platform_admin";
       booking_status: "reserved" | "confirmed" | "boarded" | "alighted" | "cancelled";
       driver_type: "sacco_driver" | "independent";
       join_request_status: "pending" | "approved" | "rejected";
@@ -941,7 +978,7 @@ export const Constants = {
   public: {
     Enums: {
       alert_type: ["near_pickup", "near_dropoff", "alight_request"],
-      app_role: ["passenger", "driver", "conductor", "sacco_admin"],
+      app_role: ["passenger", "driver", "conductor", "sacco_admin", "platform_admin"],
       booking_status: ["reserved", "confirmed", "boarded", "alighted", "cancelled"],
       driver_type: ["sacco_driver", "independent"],
       join_request_status: ["pending", "approved", "rejected"],
