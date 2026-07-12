@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { Ban, CheckCircle2, Clock, MapPin, Navigation2, QrCode, Star, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
+import type { LatLng } from "@/lib/traffic-eta";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +66,7 @@ function BookingHistory() {
   const [vehicles, setVehicles] = useState<Record<string, VehicleRow>>({});
   const [stages, setStages] = useState<Record<string, StageRow>>({});
   const [paymentByBooking, setPaymentByBooking] = useState<Record<string, PaymentRow>>({});
+  const [tripLocs, setTripLocs] = useState<Record<string, LatLng>>({});
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
   const [ticketBooking, setTicketBooking] = useState<BookingRow | null>(null);
@@ -160,6 +163,47 @@ function BookingHistory() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Poll live vehicle positions for any upcoming booking whose trip is actually
+  // moving — this powers the walk-time/bus-ETA line on each booking card. Scoped
+  // to in_transit/boarding trips only so we're not polling for trips that haven't
+  // left yet or have already ended.
+  useEffect(() => {
+    const trackableTripIds = Object.values(trips)
+      .filter((t) => t.status === "in_transit" || t.status === "boarding")
+      .map((t) => t.id);
+    if (!trackableTripIds.length) return;
+
+    let cancelled = false;
+    const fetchLocs = async () => {
+      const results = await Promise.all(
+        trackableTripIds.map((id) =>
+          supabase.rpc("get_trip_location", { _trip_id: id }).then(({ data }) => ({
+            id,
+            row: Array.isArray(data) ? data[0] : null,
+          })),
+        ),
+      );
+      if (cancelled) return;
+      setTripLocs((prev) => {
+        const next = { ...prev };
+        results.forEach(({ id, row }) => {
+          if (row?.current_lat != null && row?.current_lng != null) {
+            next[id] = { lat: row.current_lat, lng: row.current_lng };
+          } else {
+            delete next[id];
+          }
+        });
+        return next;
+      });
+    };
+    fetchLocs();
+    const iv = setInterval(fetchLocs, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [trips]);
 
   async function cancelBooking(bookingId: string) {
     setCancelling(bookingId);
@@ -290,6 +334,16 @@ function BookingHistory() {
                           </div>
                         </div>
                       </div>
+
+                      {pickup &&
+                        trip &&
+                        (trip.status === "in_transit" || trip.status === "boarding") &&
+                        b.status !== "boarded" && (
+                          <div className="mt-3">
+                            <LeaveNowBanner busPos={tripLocs[trip.id] ?? null} stage={pickup} />
+                          </div>
+                        )}
+
                       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
                         {canShowTicket && (
                           <button
