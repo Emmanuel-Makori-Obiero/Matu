@@ -211,6 +211,20 @@ function AuthPage() {
           >
             {loading ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
           </button>
+
+          {mode === "signup" && (
+            <p className="text-center text-xs text-muted-foreground">
+              By creating an account you agree to Matu's{" "}
+              <Link to="/terms" className="underline hover:text-foreground">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link to="/privacy" className="underline hover:text-foreground">
+                Privacy Policy
+              </Link>
+              .
+            </p>
+          )}
         </form>
 
         <p className="text-center text-sm text-muted-foreground">

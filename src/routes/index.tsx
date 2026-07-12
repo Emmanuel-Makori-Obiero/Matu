@@ -180,7 +180,15 @@ function Landing() {
             <Logo small /> <span className="font-display font-semibold text-foreground">Matu</span>
             <span>· Built for Kenyan commuters</span>
           </div>
-          <div>© {new Date().getFullYear()} Matu</div>
+          <div className="flex items-center gap-4">
+            <Link to="/privacy" className="hover:text-foreground">
+              Privacy Policy
+            </Link>
+            <Link to="/terms" className="hover:text-foreground">
+              Terms of Service
+            </Link>
+            <span>© {new Date().getFullYear()} Matu</span>
+          </div>
         </div>
       </footer>
       <AIAssistant context={{ page: "landing" }} />

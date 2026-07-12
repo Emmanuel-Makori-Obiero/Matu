@@ -374,6 +374,14 @@ function AccountSettings() {
           >
             <MessageSquareWarning className="size-4" /> Support & complaints
           </Link>
+          <div className="mt-4 flex gap-4 text-xs text-muted-foreground">
+            <Link to="/privacy" className="underline hover:text-foreground">
+              Privacy Policy
+            </Link>
+            <Link to="/terms" className="underline hover:text-foreground">
+              Terms of Service
+            </Link>
+          </div>
         </section>
 
         {isPlatformAdmin && (
