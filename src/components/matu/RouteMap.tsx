@@ -27,18 +27,30 @@ async function fetchRoadRoute(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number },
 ): Promise<[number, number][] | null> {
-  if (!MAPBOX_TOKEN) return null;
+  if (!MAPBOX_TOKEN) {
+    console.error(
+      "[RouteMap] VITE_MAPBOX_TOKEN is missing — set it in your environment/Vercel project settings.",
+    );
+    return null;
+  }
   try {
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[RouteMap] Mapbox request failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
     const data = (await res.json()) as {
       routes?: Array<{ geometry?: { coordinates?: [number, number][] } }>;
     };
     const coords = data.routes?.[0]?.geometry?.coordinates;
-    if (!coords) return null;
+    if (!coords) {
+      console.error("[RouteMap] Mapbox response had no route geometry:", data);
+      return null;
+    }
     return coords.map(([lng, lat]) => [lat, lng] as [number, number]);
-  } catch {
+  } catch (err) {
+    console.error("[RouteMap] Mapbox request threw:", err);
     return null;
   }
 }

@@ -161,6 +161,7 @@ function TrackBooking() {
   const {
     minutes: etaMinutes,
     delayed,
+    error: etaError,
     distanceMeters: remainingMeters,
   } = useLiveTrafficEta(vehicleLoc, destination);
 
@@ -303,6 +304,11 @@ function TrackBooking() {
             <div className="mt-3 flex items-center justify-center gap-1 text-xs font-medium text-primary">
               <Navigation2 className="size-3.5" /> Arriving in {etaMinutes} min
               {delayed && <span className="font-medium text-amber-600"> · delayed by traffic</span>}
+            </div>
+          )}
+          {etaMinutes == null && etaError && vehicleLoc && (
+            <div className="mt-3 flex items-center justify-center gap-1 text-xs font-medium text-muted-foreground">
+              <Navigation2 className="size-3.5" /> Live ETA unavailable
             </div>
           )}
         </div>

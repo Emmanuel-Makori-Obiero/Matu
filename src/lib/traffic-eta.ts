@@ -23,10 +23,14 @@ export async function osrmDurationSeconds(
   try {
     const url = `https://router.project-osrm.org/route/v1/${profile}/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`;
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[traffic-eta] OSRM request failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
     const data = (await res.json()) as { routes?: Array<{ duration: number }> };
     return data.routes?.[0]?.duration ?? null;
-  } catch {
+  } catch (err) {
+    console.error("[traffic-eta] OSRM request threw:", err);
     return null;
   }
 }
@@ -38,14 +42,23 @@ export async function mapboxTrafficDurationSeconds(
   origin: LatLng,
   destination: LatLng,
 ): Promise<number | null> {
-  if (!MAPBOX_TOKEN) return null;
+  if (!MAPBOX_TOKEN) {
+    console.error(
+      "[traffic-eta] VITE_MAPBOX_TOKEN is missing — set it in your environment/Vercel project settings.",
+    );
+    return null;
+  }
   try {
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false&access_token=${MAPBOX_TOKEN}`;
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[traffic-eta] Mapbox request failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
     const data = (await res.json()) as { routes?: Array<{ duration: number }> };
     return data.routes?.[0]?.duration ?? null;
-  } catch {
+  } catch (err) {
+    console.error("[traffic-eta] Mapbox request threw:", err);
     return null;
   }
 }
@@ -57,18 +70,30 @@ async function mapboxTrafficDurationAndDistance(
   origin: LatLng,
   destination: LatLng,
 ): Promise<{ seconds: number; meters: number } | null> {
-  if (!MAPBOX_TOKEN) return null;
+  if (!MAPBOX_TOKEN) {
+    console.error(
+      "[traffic-eta] VITE_MAPBOX_TOKEN is missing — set it in your environment/Vercel project settings.",
+    );
+    return null;
+  }
   try {
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false&access_token=${MAPBOX_TOKEN}`;
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[traffic-eta] Mapbox request failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
     const data = (await res.json()) as {
       routes?: Array<{ duration: number; distance: number }>;
     };
     const route = data.routes?.[0];
-    if (!route) return null;
+    if (!route) {
+      console.error("[traffic-eta] Mapbox response had no route data:", data);
+      return null;
+    }
     return { seconds: route.duration, meters: route.distance };
-  } catch {
+  } catch (err) {
+    console.error("[traffic-eta] Mapbox request threw:", err);
     return null;
   }
 }
