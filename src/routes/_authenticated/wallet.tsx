@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Wallet, ArrowDownToLine, ArrowUpFromLine, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import type { AppRole } from "@/lib/matu-auth";
 import { AppShell } from "@/components/matu/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,7 @@ type TxnRow = {
 function WalletPage() {
   const [phone, setPhone] = useState("");
   const [saccoId, setSaccoId] = useState<string | null>(null);
+  const [roles, setRoles] = useState<AppRole[]>([]);
   const [wallets, setWallets] = useState<Record<OwnerType, WalletRow | null>>({
     passenger: null,
     driver: null,
@@ -57,30 +59,44 @@ function WalletPage() {
       .single();
     if (profile?.phone) setPhone(profile.phone);
 
-    const { data: sacco } = await supabase
-      .from("saccos")
-      .select("id")
-      .eq("owner_id", user.id)
-      .maybeSingle();
+    const { data: roleRows } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id);
+    const myRoles = (roleRows ?? []).map((r) => r.role as AppRole);
+    setRoles(myRoles);
+    const isPassenger = myRoles.length === 0 || myRoles.includes("passenger");
+    const isDriver = myRoles.includes("driver") || myRoles.includes("conductor");
+    const isSaccoAdmin = myRoles.includes("sacco_admin");
+
+    const { data: sacco } = isSaccoAdmin
+      ? await supabase.from("saccos").select("id").eq("owner_id", user.id).maybeSingle()
+      : { data: null };
     if (sacco) setSaccoId(sacco.id);
 
-    // get_or_create_wallet is SECURITY DEFINER so this works even before a wallet row exists yet.
-    const passengerWalletId = await supabase.rpc("get_or_create_wallet", {
-      _owner_type: "passenger",
-      _owner_id: user.id,
-    });
-    const driverWalletId = await supabase.rpc("get_or_create_wallet", {
-      _owner_type: "driver",
-      _owner_id: user.id,
-    });
-
-    const ids = [passengerWalletId.data, driverWalletId.data];
+    // Only create/fetch a wallet for roles this user actually holds — otherwise
+    // everyone would end up with a driver wallet just from visiting this page.
+    const ids: (string | null)[] = [];
+    if (isPassenger) {
+      const r = await supabase.rpc("get_or_create_wallet", {
+        _owner_type: "passenger",
+        _owner_id: user.id,
+      });
+      ids.push(r.data);
+    }
+    if (isDriver) {
+      const r = await supabase.rpc("get_or_create_wallet", {
+        _owner_type: "driver",
+        _owner_id: user.id,
+      });
+      ids.push(r.data);
+    }
     if (sacco?.id) {
-      const saccoWalletId = await supabase.rpc("get_or_create_wallet", {
+      const r = await supabase.rpc("get_or_create_wallet", {
         _owner_type: "sacco",
         _owner_id: sacco.id,
       });
-      ids.push(saccoWalletId.data);
+      ids.push(r.data);
     }
 
     const walletIds = ids.filter(Boolean) as string[];
@@ -180,6 +196,7 @@ function WalletPage() {
     );
   }
 
+  const isPassenger = roles.length === 0 || roles.includes("passenger");
   const hasDriverWallet = wallets.driver !== null;
   const hasSaccoWallet = saccoId !== null;
 
@@ -191,43 +208,45 @@ function WalletPage() {
     >
       <div className="mx-auto max-w-2xl space-y-6 px-5 py-6">
         {/* Passenger wallet: balance + top-up */}
-        <Card>
-          <CardHeader className="flex-row items-center gap-2 space-y-0">
-            <Wallet className="size-5 text-primary" />
-            <CardTitle className="text-base">Passenger wallet</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-3xl font-semibold">
-              KES {(wallets.passenger?.balance ?? 0).toLocaleString()}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Top up here so you can pay fares instantly from your balance instead of an M-Pesa
-              prompt every trip.
-            </p>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <Label htmlFor="topup-amount" className="sr-only">
-                  Amount
-                </Label>
-                <Input
-                  id="topup-amount"
-                  type="number"
-                  placeholder="Amount (KES)"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
+        {isPassenger && (
+          <Card>
+            <CardHeader className="flex-row items-center gap-2 space-y-0">
+              <Wallet className="size-5 text-primary" />
+              <CardTitle className="text-base">Passenger wallet</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-3xl font-semibold">
+                KES {(wallets.passenger?.balance ?? 0).toLocaleString()}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Top up here so you can pay fares instantly from your balance instead of an M-Pesa
+                prompt every trip.
+              </p>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Label htmlFor="topup-amount" className="sr-only">
+                    Amount
+                  </Label>
+                  <Input
+                    id="topup-amount"
+                    type="number"
+                    placeholder="Amount (KES)"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                  />
+                </div>
+                <Button onClick={topUp} disabled={busy === "passenger"}>
+                  {busy === "passenger" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <ArrowDownToLine className="size-4" />
+                  )}
+                  Top up
+                </Button>
               </div>
-              <Button onClick={topUp} disabled={busy === "passenger"}>
-                {busy === "passenger" ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <ArrowDownToLine className="size-4" />
-                )}
-                Top up
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Driver wallet: balance + withdraw */}
         {hasDriverWallet && (

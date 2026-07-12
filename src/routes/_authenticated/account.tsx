@@ -278,7 +278,11 @@ function AccountSettings() {
         <section className="rounded-2xl border border-border bg-surface p-6">
           <h2 className="font-display text-lg font-semibold">Wallet</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Top up your balance, or withdraw earnings to M-Pesa.
+            {heldSaccoRole
+              ? "Top up your passenger balance, or withdraw your SACCO's commission earnings to M-Pesa."
+              : heldDriverRole
+                ? "Top up your passenger balance, or withdraw your driving earnings to M-Pesa."
+                : "Top up your balance so you can pay fares instantly, no M-Pesa prompt needed."}
           </p>
           <Link
             to="/wallet"
