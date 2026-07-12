@@ -8,6 +8,7 @@ import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
 import { useLiveTrafficEta } from "@/lib/traffic-eta";
+import { testSound, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type Trip = {
@@ -56,6 +57,14 @@ function RouteDetail() {
   const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
   const [myPingStageId, setMyPingStageId] = useState<string | null>(null);
   const [pinging, setPinging] = useState(false);
+
+  // Passenger proximity pings below need real audio playback, which browsers only
+  // allow after a genuine user gesture — this listens for the passenger's first tap
+  // anywhere on this page and uses it to silently unlock audio, so that by the time
+  // the "matatu is near" ping actually needs to fire, it's already able to play.
+  useEffect(() => {
+    primeAudioOnFirstInteraction();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -295,6 +304,10 @@ function RouteDetail() {
               : `Get ready to alight at ${stage.name}`;
           toast.info(title, { description: body });
           if (Notification.permission === "granted") new Notification(title, { body });
+          // A silent toast is easy to miss if the passenger isn't looking at their
+          // phone — play their chosen alert sound once, same sound library the
+          // driver side uses, so this is audible even if the screen is in a pocket.
+          testSound();
         }
       };
       check(b.pickup_stage_id, "pickup");

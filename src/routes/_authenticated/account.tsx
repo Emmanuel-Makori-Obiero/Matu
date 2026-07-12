@@ -290,49 +290,50 @@ function AccountSettings() {
           </form>
         </section>
 
-        {/* Alert sound — drivers only, since this is what plays for passenger alerts
-            (seat reserved, boarding request, approaching stage) on the trip screen. */}
-        {heldDriverRole && (
-          <section className="rounded-2xl border border-border bg-surface p-6">
-            <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
-              <Volume2 className="size-5" /> Alert sound
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              This plays on your trip screen for new passenger alerts. Tap a sound to preview and
-              save it — that tap also makes sure your device is ready to actually play it later,
-              which browsers otherwise sometimes block.
-            </p>
-            <div className="mt-4 grid gap-2">
-              {SOUND_PROFILES.map((profile) => {
-                const selected = selectedSound === profile.id;
-                return (
-                  <button
-                    key={profile.id}
-                    type="button"
-                    onClick={() => chooseSound(profile.id)}
-                    className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition ${
-                      selected ? "border-primary bg-primary/10" : "border-border hover:bg-secondary"
-                    }`}
-                  >
-                    <div>
-                      <div className="text-sm font-medium">{profile.label}</div>
-                      <div className="text-xs text-muted-foreground">{profile.description}</div>
-                    </div>
-                    {selected ? (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                        <Check className="size-3.5" /> Selected
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                        Tap to test
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
+        {/* Alert sound — available to everyone. Drivers hear it for new passenger alerts
+            (seat reserved, boarding request, approaching stage) on the trip screen;
+            passengers hear it when their matatu gets close to their pickup or drop-off. */}
+        <section className="rounded-2xl border border-border bg-surface p-6">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
+            <Volume2 className="size-5" /> Alert sound
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {heldDriverRole
+              ? "This plays on your trip screen for new passenger alerts, and for you as a passenger when a matatu you're tracking gets close to your stage."
+              : "This plays when a matatu you're tracking gets close to your pickup or drop-off stage."}{" "}
+            Tap a sound to preview and save it — that tap also makes sure your device is ready to
+            actually play it later, which browsers otherwise sometimes block.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {SOUND_PROFILES.map((profile) => {
+              const selected = selectedSound === profile.id;
+              return (
+                <button
+                  key={profile.id}
+                  type="button"
+                  onClick={() => chooseSound(profile.id)}
+                  className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition ${
+                    selected ? "border-primary bg-primary/10" : "border-border hover:bg-secondary"
+                  }`}
+                >
+                  <div>
+                    <div className="text-sm font-medium">{profile.label}</div>
+                    <div className="text-xs text-muted-foreground">{profile.description}</div>
+                  </div>
+                  {selected ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                      <Check className="size-3.5" /> Selected
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                      Tap to test
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
         {/* Wallet */}
         <section className="rounded-2xl border border-border bg-surface p-6">
