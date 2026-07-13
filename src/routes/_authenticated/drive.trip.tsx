@@ -7,6 +7,7 @@ import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
 import { startNoisyAlert, stopNoisyAlert, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 import { TicketScanner } from "@/components/matu/TicketScanner";
+import { ParcelPanel } from "@/components/matu/ParcelPanel";
 
 type Vehicle = { id: string; plate_number: string; capacity: number };
 type RouteRow = { id: string; name: string; base_fare: number | null };
@@ -511,6 +512,8 @@ function DriverTrip() {
               </ul>
             )}
           </section>
+
+          <ParcelPanel tripId={trip.id} />
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Alerts</h2>
