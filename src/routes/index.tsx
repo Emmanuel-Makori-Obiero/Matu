@@ -1,6 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { MapPin, Bell, Wallet, Bus, ShieldCheck, ArrowRight, Receipt, Clock, Radar, BellRing } from "lucide-react";
+import {
+  MapPin,
+  Bell,
+  Wallet,
+  Bus,
+  ShieldCheck,
+  ArrowRight,
+  Receipt,
+  Clock,
+  Radar,
+  BellRing,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AIAssistant } from "@/components/matu/AIAssistant";
 import { InstallAppButton } from "@/components/matu/InstallAppButton";
@@ -84,7 +95,7 @@ function Landing() {
               >
                 Get started <ArrowRight className="size-4" />
               </Link>
-              
+              <a
                 href="#how"
                 className="inline-flex items-center rounded-lg border border-border bg-surface px-6 py-3 text-base font-medium"
               >
