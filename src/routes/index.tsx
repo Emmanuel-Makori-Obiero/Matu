@@ -5,6 +5,7 @@ import passengerImg from "../assets/matu-passenger.jpg";
 import driversImg from "../assets/matu-drivers.jpg";
 import saccoImg from "../assets/matu-sacco.jpg";
 import { InstallAppButton } from "@/components/matu/InstallAppButton";
+import { AIAssistant } from "@/components/matu/AIAssistant";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -211,6 +212,10 @@ function Index() {
           </div>
         </footer>
       </div>
+      <AIAssistant
+        context={{ page: "landing" }}
+        promptMessage="Any questions about the app? Press here"
+      />
     </div>
   );
 }

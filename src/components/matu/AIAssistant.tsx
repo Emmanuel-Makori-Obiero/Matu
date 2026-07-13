@@ -81,11 +81,18 @@ const QUICK_TOPICS = [
 export function AIAssistant({
   context,
   fullPage = false,
+  promptMessage,
 }: {
   context: AssistantContext;
   fullPage?: boolean;
+  // Optional short nudge bubble shown next to the floating chat button before
+  // anyone's opened it yet, e.g. "Any questions about the app? Press here".
+  // Clicking it opens the assistant just like clicking the button itself;
+  // it also has its own dismiss (X) so it doesn't nag someone who's not interested.
+  promptMessage?: string;
 }) {
   const [open, setOpen] = useState(fullPage);
+  const [showPrompt, setShowPrompt] = useState(Boolean(promptMessage) && !fullPage);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: GREETINGS[context.page] },
   ]);
@@ -144,9 +151,35 @@ export function AIAssistant({
 
   return (
     <>
+      {!fullPage && !open && showPrompt && promptMessage && (
+        <button
+          onClick={() => {
+            setOpen(true);
+            setShowPrompt(false);
+          }}
+          className="fixed bottom-6 right-20 z-40 flex max-w-[220px] items-center gap-2 rounded-2xl border border-border bg-surface px-4 py-2.5 text-left text-sm font-medium text-foreground shadow-lg transition hover:scale-[1.02]"
+        >
+          <span className="flex-1">{promptMessage}</span>
+          <span
+            role="button"
+            aria-label="Dismiss"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPrompt(false);
+            }}
+            className="-mr-1 -mt-1 shrink-0 self-start rounded-full p-0.5 text-muted-foreground hover:bg-secondary"
+          >
+            <X className="size-3.5" />
+          </span>
+        </button>
+      )}
+
       {!fullPage && (
         <button
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            setOpen((v) => !v);
+            setShowPrompt(false);
+          }}
           aria-label={open ? "Close assistant" : "Open assistant"}
           className="fixed bottom-5 right-5 z-40 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition hover:scale-105"
         >
