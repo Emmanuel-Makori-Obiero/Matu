@@ -111,10 +111,6 @@ export function ParcelPanel({ tripId }: { tripId: string }) {
       toast.error("Ask the receiver for their dropoff code first");
       return;
     }
-    if (entered !== p.dropoff_code) {
-      toast.error("That code doesn't match — don't hand over the parcel yet");
-      return;
-    }
     setBusyId(p.id);
     const { data: ok, error } = await supabase.rpc("confirm_parcel_delivery", {
       _parcel_id: p.id,
