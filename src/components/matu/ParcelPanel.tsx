@@ -121,8 +121,27 @@ export function ParcelPanel({ tripId }: { tripId: string }) {
       _code: entered,
     });
     setBusyId(null);
-    if (error || !ok) {
-      toast.error("Code didn't match — delivery not confirmed");
+    if (error) {
+      // Surface the real cause instead of always blaming the code — a missing
+      // migration (function not found) or a network/permissions issue looks very
+      // different from an actual wrong code, and silently merging them into one
+      // message makes this impossible to debug.
+      console.error("confirm_parcel_delivery error:", error);
+      if (
+        error.message?.includes("function") ||
+        error.code === "PGRST202" ||
+        error.code === "42883"
+      ) {
+        toast.error(
+          "Server isn't set up for delivery confirmation yet — the database migration may be missing.",
+        );
+      } else {
+        toast.error(`Couldn't confirm delivery: ${error.message}`);
+      }
+      return;
+    }
+    if (!ok) {
+      toast.error("Code doesn't match — don't hand over the parcel yet");
       return;
     }
     toast.success("Delivery confirmed");
