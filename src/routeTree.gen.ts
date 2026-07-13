@@ -20,6 +20,7 @@ import { Route as AuthenticatedHelpRouteImport } from './routes/_authenticated/h
 import { Route as AuthenticatedComplaintsRouteImport } from './routes/_authenticated/complaints'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedRideIndexRouteImport } from './routes/_authenticated/ride.index'
+import { Route as AuthenticatedParcelIndexRouteImport } from './routes/_authenticated/parcel.index'
 import { Route as AuthenticatedFleetIndexRouteImport } from './routes/_authenticated/fleet.index'
 import { Route as AuthenticatedDriveIndexRouteImport } from './routes/_authenticated/drive.index'
 import { Route as AuthenticatedRideTrackRouteImport } from './routes/_authenticated/ride.track'
@@ -84,6 +85,12 @@ const AuthenticatedRideIndexRoute = AuthenticatedRideIndexRouteImport.update({
   path: '/ride/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedParcelIndexRoute =
+  AuthenticatedParcelIndexRouteImport.update({
+    id: '/parcel/',
+    path: '/parcel/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedFleetIndexRoute = AuthenticatedFleetIndexRouteImport.update({
   id: '/fleet/',
   path: '/fleet/',
@@ -146,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/ride/track': typeof AuthenticatedRideTrackRouteWithChildren
   '/drive/': typeof AuthenticatedDriveIndexRoute
   '/fleet/': typeof AuthenticatedFleetIndexRoute
+  '/parcel/': typeof AuthenticatedParcelIndexRoute
   '/ride/': typeof AuthenticatedRideIndexRoute
   '/ride/track/$bookingId': typeof AuthenticatedRideTrackBookingIdRoute
 }
@@ -166,6 +174,7 @@ export interface FileRoutesByTo {
   '/ride/track': typeof AuthenticatedRideTrackRouteWithChildren
   '/drive': typeof AuthenticatedDriveIndexRoute
   '/fleet': typeof AuthenticatedFleetIndexRoute
+  '/parcel': typeof AuthenticatedParcelIndexRoute
   '/ride': typeof AuthenticatedRideIndexRoute
   '/ride/track/$bookingId': typeof AuthenticatedRideTrackBookingIdRoute
 }
@@ -188,6 +197,7 @@ export interface FileRoutesById {
   '/_authenticated/ride/track': typeof AuthenticatedRideTrackRouteWithChildren
   '/_authenticated/drive/': typeof AuthenticatedDriveIndexRoute
   '/_authenticated/fleet/': typeof AuthenticatedFleetIndexRoute
+  '/_authenticated/parcel/': typeof AuthenticatedParcelIndexRoute
   '/_authenticated/ride/': typeof AuthenticatedRideIndexRoute
   '/_authenticated/ride/track/$bookingId': typeof AuthenticatedRideTrackBookingIdRoute
 }
@@ -210,6 +220,7 @@ export interface FileRouteTypes {
     | '/ride/track'
     | '/drive/'
     | '/fleet/'
+    | '/parcel/'
     | '/ride/'
     | '/ride/track/$bookingId'
   fileRoutesByTo: FileRoutesByTo
@@ -230,6 +241,7 @@ export interface FileRouteTypes {
     | '/ride/track'
     | '/drive'
     | '/fleet'
+    | '/parcel'
     | '/ride'
     | '/ride/track/$bookingId'
   id:
@@ -251,6 +263,7 @@ export interface FileRouteTypes {
     | '/_authenticated/ride/track'
     | '/_authenticated/drive/'
     | '/_authenticated/fleet/'
+    | '/_authenticated/parcel/'
     | '/_authenticated/ride/'
     | '/_authenticated/ride/track/$bookingId'
   fileRoutesById: FileRoutesById
@@ -342,6 +355,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRideIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/parcel/': {
+      id: '/_authenticated/parcel/'
+      path: '/parcel'
+      fullPath: '/parcel/'
+      preLoaderRoute: typeof AuthenticatedParcelIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/fleet/': {
       id: '/_authenticated/fleet/'
       path: '/fleet'
@@ -428,6 +448,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedRideTrackRoute: typeof AuthenticatedRideTrackRouteWithChildren
   AuthenticatedDriveIndexRoute: typeof AuthenticatedDriveIndexRoute
   AuthenticatedFleetIndexRoute: typeof AuthenticatedFleetIndexRoute
+  AuthenticatedParcelIndexRoute: typeof AuthenticatedParcelIndexRoute
   AuthenticatedRideIndexRoute: typeof AuthenticatedRideIndexRoute
 }
 
@@ -444,6 +465,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedRideTrackRoute: AuthenticatedRideTrackRouteWithChildren,
   AuthenticatedDriveIndexRoute: AuthenticatedDriveIndexRoute,
   AuthenticatedFleetIndexRoute: AuthenticatedFleetIndexRoute,
+  AuthenticatedParcelIndexRoute: AuthenticatedParcelIndexRoute,
   AuthenticatedRideIndexRoute: AuthenticatedRideIndexRoute,
 }
 

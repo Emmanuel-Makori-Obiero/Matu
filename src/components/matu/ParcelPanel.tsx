@@ -17,19 +17,23 @@ type ParcelRow = {
   weight_kg: number;
   price: number;
   status: "pending" | "accepted" | "in_transit" | "delivered" | "cancelled";
-  dropoff_code: string;
   trip_id: string | null;
   driver_id: string | null;
 };
 
+// Deliberately excludes dropoff_code — the driver's client should never receive it,
+// or DevTools/network tab would leak it and defeat the whole point of asking the
+// receiver for it. confirmDelivery() below verifies the code purely server-side via
+// an .eq() filter on the update, so a match/no-match is all the client ever learns.
 const SELECT_FIELDS =
-  "id,origin,destination,receiver_name,receiver_phone,size,weight_kg,price,status,dropoff_code,trip_id,driver_id";
+  "id,origin,destination,receiver_name,receiver_phone,size,weight_kg,price,status,trip_id,driver_id";
 
 export function ParcelPanel({ tripId }: { tripId: string }) {
   const [pending, setPending] = useState<ParcelRow[]>([]);
   const [mine, setMine] = useState<ParcelRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [codeEntry, setCodeEntry] = useState<Record<string, string>>({});
 
   async function load() {
     const { data: u } = await supabase.auth.getUser();
@@ -85,17 +89,48 @@ export function ParcelPanel({ tripId }: { tripId: string }) {
   }
 
   async function advance(p: ParcelRow) {
-    const nextStatus = p.status === "accepted" ? "in_transit" : "delivered";
+    // Only the "in transit" step is a plain status bump. Delivery is handled by
+    // confirmDelivery below, which requires the receiver's dropoff code.
     setBusyId(p.id);
-    const patch: Record<string, unknown> = { status: nextStatus };
-    if (nextStatus === "delivered") patch.delivered_at = new Date().toISOString();
-    const { error } = await supabase.from("parcels").update(patch).eq("id", p.id);
+    const { error } = await supabase
+      .from("parcels")
+      .update({ status: "in_transit" })
+      .eq("id", p.id);
     setBusyId(null);
     if (error) {
       toast.error("Couldn't update parcel status");
       return;
     }
-    toast.success(nextStatus === "in_transit" ? "Marked as on the way" : "Marked as delivered");
+    toast.success("Marked as on the way");
+    load();
+  }
+
+  async function confirmDelivery(p: ParcelRow) {
+    const entered = (codeEntry[p.id] ?? "").trim();
+    if (!entered) {
+      toast.error("Ask the receiver for their dropoff code first");
+      return;
+    }
+    if (entered !== p.dropoff_code) {
+      toast.error("That code doesn't match — don't hand over the parcel yet");
+      return;
+    }
+    setBusyId(p.id);
+    const { data: ok, error } = await supabase.rpc("confirm_parcel_delivery", {
+      _parcel_id: p.id,
+      _code: entered,
+    });
+    setBusyId(null);
+    if (error || !ok) {
+      toast.error("Code didn't match — delivery not confirmed");
+      return;
+    }
+    toast.success("Delivery confirmed");
+    setCodeEntry((prev) => {
+      const next = { ...prev };
+      delete next[p.id];
+      return next;
+    });
     load();
   }
 
@@ -118,16 +153,43 @@ export function ParcelPanel({ tripId }: { tripId: string }) {
                 {p.origin} → {p.destination}
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                To {p.receiver_name} · {p.receiver_phone} · code {p.dropoff_code}
+                To {p.receiver_name} · {p.receiver_phone}
               </p>
-              <button
-                onClick={() => advance(p)}
-                disabled={busyId === p.id}
-                className="mt-2 flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-50"
-              >
-                <Check className="size-3.5" />
-                {p.status === "accepted" ? "Mark picked up / on the way" : "Mark delivered"}
-              </button>
+              {p.status === "accepted" ? (
+                <button
+                  onClick={() => advance(p)}
+                  disabled={busyId === p.id}
+                  className="mt-2 flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-50"
+                >
+                  <Check className="size-3.5" />
+                  Mark picked up / on the way
+                </button>
+              ) : (
+                <div className="mt-2 grid gap-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    Ask the receiver for their dropoff code before handing over the parcel:
+                  </span>
+                  <div className="flex gap-1.5">
+                    <input
+                      value={codeEntry[p.id] ?? ""}
+                      onChange={(e) =>
+                        setCodeEntry((prev) => ({ ...prev, [p.id]: e.target.value }))
+                      }
+                      placeholder="6-digit code"
+                      maxLength={6}
+                      className="w-28 rounded-md border border-border bg-background px-2 py-1.5 text-xs tracking-widest"
+                    />
+                    <button
+                      onClick={() => confirmDelivery(p)}
+                      disabled={busyId === p.id}
+                      className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-50"
+                    >
+                      <Check className="size-3.5" />
+                      Confirm delivered
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

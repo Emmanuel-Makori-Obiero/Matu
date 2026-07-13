@@ -154,6 +154,16 @@ function DriverTrip() {
             current_stage_id: currentStageId,
           })
           .eq("id", trip.id);
+        // Also stamp the vehicle's last-known location so it still shows up on the
+        // SACCO's fleet map after this trip ends (not just while actively boarding).
+        await supabase
+          .from("vehicles")
+          .update({
+            last_lat: pos.coords.latitude,
+            last_lng: pos.coords.longitude,
+            last_seen_at: new Date().toISOString(),
+          })
+          .eq("id", trip.vehicle_id);
       },
       (err) => console.warn("geo error", err),
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },

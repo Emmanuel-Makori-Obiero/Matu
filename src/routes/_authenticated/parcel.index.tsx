@@ -21,7 +21,6 @@ type ParcelRow = {
   weight_kg: number;
   price: number;
   status: "pending" | "accepted" | "in_transit" | "delivered" | "cancelled";
-  dropoff_code: string;
   created_at: string;
 };
 
@@ -67,6 +66,8 @@ function ParcelPage() {
   const [parcels, setParcels] = useState<ParcelRow[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [codes, setCodes] = useState<Record<string, string>>({});
+  const [revealingId, setRevealingId] = useState<string | null>(null);
 
   const price = calcPrice(size, weightKg);
 
@@ -76,7 +77,7 @@ function ParcelPage() {
     const { data, error } = await supabase
       .from("parcels")
       .select(
-        "id,origin,destination,receiver_name,receiver_phone,size,weight_kg,price,status,dropoff_code,created_at",
+        "id,origin,destination,receiver_name,receiver_phone,size,weight_kg,price,status,created_at",
       )
       .eq("sender_id", u.user.id)
       .order("created_at", { ascending: false });
@@ -128,8 +129,23 @@ function ParcelPage() {
     }
   }
 
-  function copyCode(p: ParcelRow) {
-    navigator.clipboard.writeText(p.dropoff_code);
+  async function revealAndCopyCode(p: ParcelRow) {
+    setRevealingId(p.id);
+    let code = codes[p.id];
+    if (!code) {
+      const { data, error } = await supabase.rpc("get_parcel_dropoff_code", {
+        _parcel_id: p.id,
+      });
+      if (error || !data) {
+        setRevealingId(null);
+        toast.error("Couldn't fetch the dropoff code");
+        return;
+      }
+      code = data as string;
+      setCodes((prev) => ({ ...prev, [p.id]: code! }));
+    }
+    navigator.clipboard.writeText(code);
+    setRevealingId(null);
     setCopiedId(p.id);
     setTimeout(() => setCopiedId(null), 1500);
   }
@@ -277,15 +293,20 @@ function ParcelPage() {
                 </p>
                 {p.status !== "cancelled" && (
                   <button
-                    onClick={() => copyCode(p)}
-                    className="mt-2 flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"
+                    onClick={() => revealAndCopyCode(p)}
+                    disabled={revealingId === p.id}
+                    className="mt-2 flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-50"
                   >
                     {copiedId === p.id ? (
                       <Check className="size-3.5 text-green-600" />
                     ) : (
                       <Copy className="size-3.5" />
                     )}
-                    Dropoff code: {p.dropoff_code}
+                    {codes[p.id]
+                      ? `Dropoff code: ${codes[p.id]}`
+                      : revealingId === p.id
+                        ? "Loading code…"
+                        : "Show & copy dropoff code"}
                   </button>
                 )}
               </div>

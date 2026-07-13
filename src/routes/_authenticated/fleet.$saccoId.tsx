@@ -24,6 +24,9 @@ type Vehicle = {
   nickname: string | null;
   vehicle_type: string;
   driver_id: string | null;
+  last_lat: number | null;
+  last_lng: number | null;
+  last_seen_at: string | null;
 };
 type Sacco = { id: string; name: string };
 type SaccoRoute = {
@@ -123,7 +126,9 @@ function FleetDetail() {
       supabase.from("saccos").select("id,name").eq("id", saccoId).maybeSingle(),
       supabase
         .from("vehicles")
-        .select("id,plate_number,capacity,nickname,vehicle_type,driver_id")
+        .select(
+          "id,plate_number,capacity,nickname,vehicle_type,driver_id,last_lat,last_lng,last_seen_at",
+        )
         .eq("sacco_id", saccoId)
         .order("plate_number"),
       supabase.rpc("get_my_sacco_drivers", { _sacco_id: saccoId }),
@@ -298,14 +303,38 @@ function FleetDetail() {
     load();
   }
 
-  const mapVehicles: MapVehicle[] = liveTrips
-    .filter((t) => t.current_lat && t.current_lng)
-    .map((t) => ({
-      id: t.id,
-      lat: t.current_lat!,
-      lng: t.current_lng!,
-      label: t.vehicles?.plate_number ?? "Matatu",
-    }));
+  const liveByVehicleId: Record<string, LiveTrip> = {};
+  for (const t of liveTrips) {
+    if (t.current_lat && t.current_lng) liveByVehicleId[t.vehicle_id] = t;
+  }
+  // Every vehicle appears on the map if we have any location for it: a live trip
+  // position takes priority; otherwise fall back to its last-known GPS stamp (from
+  // the last time it was on a trip). Vehicles that have never reported a location
+  // yet are simply not plottable and are skipped here — they're still listed below.
+  const mapVehicles: MapVehicle[] = vehicles
+    .map((v) => {
+      const live = liveByVehicleId[v.id];
+      if (live) {
+        return {
+          id: v.id,
+          lat: live.current_lat!,
+          lng: live.current_lng!,
+          label: `${v.plate_number} · live`,
+        };
+      }
+      if (v.last_lat && v.last_lng) {
+        return {
+          id: v.id,
+          lat: v.last_lat,
+          lng: v.last_lng,
+          label: `${v.plate_number} · last seen ${
+            v.last_seen_at ? new Date(v.last_seen_at).toLocaleDateString() : ""
+          }`,
+        };
+      }
+      return null;
+    })
+    .filter((v): v is NonNullable<typeof v> => v !== null);
   const todayRevenue = liveTrips.reduce((sum, t) => sum + Number(t.fare ?? 0), 0);
 
   return (

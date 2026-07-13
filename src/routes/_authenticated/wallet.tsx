@@ -5,10 +5,11 @@
 // who also books rides as a passenger), so both sections can render at once.
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Wallet, ArrowDownToLine, ArrowUpFromLine, Loader2 } from "lucide-react";
+import { Wallet, ArrowDownToLine, ArrowUpFromLine, Loader2, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { AppRole } from "@/lib/matu-auth";
+import { generateWalletReportPdf } from "@/lib/pdf-report";
 import { AppShell } from "@/components/matu/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +36,9 @@ type TxnRow = {
 
 function WalletPage() {
   const [phone, setPhone] = useState("");
+  const [fullName, setFullName] = useState("");
   const [saccoId, setSaccoId] = useState<string | null>(null);
+  const [saccoName, setSaccoName] = useState<string>("");
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [wallets, setWallets] = useState<Record<OwnerType, WalletRow | null>>({
     passenger: null,
@@ -54,10 +57,11 @@ function WalletPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("phone")
+      .select("phone, full_name")
       .eq("id", user.id)
       .single();
     if (profile?.phone) setPhone(profile.phone);
+    if (profile?.full_name) setFullName(profile.full_name);
 
     const { data: roleRows } = await supabase
       .from("user_roles")
@@ -70,9 +74,12 @@ function WalletPage() {
     const isSaccoAdmin = myRoles.includes("sacco_admin");
 
     const { data: sacco } = isSaccoAdmin
-      ? await supabase.from("saccos").select("id").eq("owner_id", user.id).maybeSingle()
+      ? await supabase.from("saccos").select("id, name").eq("owner_id", user.id).maybeSingle()
       : { data: null };
-    if (sacco) setSaccoId(sacco.id);
+    if (sacco) {
+      setSaccoId(sacco.id);
+      setSaccoName(sacco.name);
+    }
 
     // Only create/fetch a wallet for roles this user actually holds — otherwise
     // everyone would end up with a driver wallet just from visiting this page.
@@ -177,6 +184,41 @@ function WalletPage() {
     toast.success("Withdrawal requested — funds will arrive shortly");
   }
 
+  async function downloadReport(ownerType: OwnerType) {
+    const wallet = wallets[ownerType];
+    if (!wallet) {
+      toast.error("No wallet found to report on");
+      return;
+    }
+    setBusy(ownerType);
+    // Full ledger, not the 20-row preview shown on screen — an audit report has to
+    // be complete or it isn't an audit report.
+    const { data, error } = await supabase
+      .from("wallet_transactions")
+      .select("id, type, status, amount, balance_after, created_at, mpesa_receipt, phone")
+      .eq("wallet_id", wallet.id)
+      .order("created_at", { ascending: true });
+    setBusy(null);
+    if (error) {
+      toast.error("Couldn't load transaction history for the report");
+      return;
+    }
+
+    const ownerLabel =
+      ownerType === "passenger"
+        ? `${fullName || "Passenger"} — Passenger wallet`
+        : ownerType === "driver"
+          ? `${fullName || "Driver"} — Driver earnings`
+          : `${saccoName || "SACCO"} — Commission wallet`;
+
+    generateWalletReportPdf({
+      ownerLabel,
+      currentBalance: wallet.balance,
+      txns: data ?? [],
+      generatedFor: phone ? `Phone: ${phone}` : undefined,
+    });
+  }
+
   if (loading) {
     return (
       <AppShell title="Wallet" assistantContext={{ page: "account" }}>
@@ -235,6 +277,14 @@ function WalletPage() {
                   Top up
                 </Button>
               </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => downloadReport("passenger")}
+                disabled={busy === "passenger"}
+              >
+                <FileDown className="size-4" /> Download financial report (PDF)
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -274,6 +324,14 @@ function WalletPage() {
                   Withdraw
                 </Button>
               </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => downloadReport("driver")}
+                disabled={busy === "driver"}
+              >
+                <FileDown className="size-4" /> Download financial report (PDF)
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -312,6 +370,14 @@ function WalletPage() {
                   Withdraw
                 </Button>
               </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => downloadReport("sacco")}
+                disabled={busy === "sacco"}
+              >
+                <FileDown className="size-4" /> Download financial audit report (PDF)
+              </Button>
             </CardContent>
           </Card>
         )}
