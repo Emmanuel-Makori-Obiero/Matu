@@ -9,6 +9,7 @@ import {
   Navigation,
   Star,
   MapPinned,
+  Package,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -257,9 +258,19 @@ function PassengerHome() {
         { to: "/ride", label: "Find a ride" },
         { to: "/ride/track", label: "Track" },
         { to: "/ride/history", label: "My bookings" },
+        { to: "/parcel", label: "Send Parcel" },
       ]}
     >
       {showOnboarding && <OnboardingGuide onClose={() => setShowOnboarding(false)} />}
+      <Link
+        to="/parcel"
+        className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-green-600 px-4 py-3 text-white shadow-sm transition hover:bg-green-700 active:bg-green-800"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold">
+          <Package className="size-4" /> Sending a package? Get it delivered along a matatu route
+        </span>
+        <span className="rounded-md bg-white/20 px-3 py-1 text-xs font-bold">Send Parcel →</span>
+      </Link>
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         {/* Map (left) */}
         <div className="order-2 lg:order-1">
