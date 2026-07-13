@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { MapPin, Bell, Wallet, Bus, ShieldCheck, ArrowRight } from "lucide-react";
+import { MapPin, Bell, Wallet, Bus, ShieldCheck, ArrowRight, Receipt, Clock, Radar, BellRing } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AIAssistant } from "@/components/matu/AIAssistant";
 import { InstallAppButton } from "@/components/matu/InstallAppButton";
@@ -49,7 +49,7 @@ function Landing() {
           <InstallAppButton />
           <Link
             to={signedIn ? homePath : "/auth"}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+            className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
           >
             {signedIn ? "Open app" : "Sign in"}
           </Link>
@@ -57,26 +57,34 @@ function Landing() {
       </header>
 
       {/* Hero */}
-      <section className="mx-auto max-w-6xl px-5 pb-16 pt-10 md:pb-24 md:pt-16">
+      <section className="mx-auto max-w-6xl px-5 pb-12 pt-6 md:pb-24 md:pt-16">
         <div className="grid items-center gap-12 md:grid-cols-2">
           <div>
-            <h1 className="text-5xl font-display font-bold leading-[1.05] tracking-tight md:text-6xl">
+            <h1 className="text-4xl font-display font-bold leading-[1.05] tracking-tight md:text-6xl">
               Never wait for
               <br />a matatu again
             </h1>
-            <p className="mt-5 max-w-md text-lg text-muted-foreground">
+            <div className="mt-6 flex flex-wrap gap-3 md:hidden">
+              <Link
+                to="/auth"
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-base font-medium text-primary-foreground shadow-soft transition hover:shadow-lift"
+              >
+                Sign up now <ArrowRight className="size-4" />
+              </Link>
+            </div>
+            <p className="mt-5 hidden max-w-md text-lg text-muted-foreground md:block">
               Track matatus in real time, reserve your seat before leaving home, pay securely, and
               receive an alert before your stop. Designed for passengers, drivers and SACCOs across
               Kenya.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-8 hidden flex-wrap gap-3 md:flex">
               <Link
                 to="/auth"
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-base font-medium text-primary-foreground shadow-soft transition hover:shadow-lift"
               >
                 Get started <ArrowRight className="size-4" />
               </Link>
-              <a
+              
                 href="#how"
                 className="inline-flex items-center rounded-lg border border-border bg-surface px-6 py-3 text-base font-medium"
               >
@@ -86,7 +94,7 @@ function Landing() {
           </div>
 
           {/* Matatu card illustration */}
-          <div className="relative">
+          <div className="relative hidden md:block">
             <div className="absolute -inset-6 -z-10 rounded-3xl bg-gradient-to-br from-accent/40 via-primary/10 to-transparent blur-2xl" />
             <div className="overflow-hidden rounded-3xl border border-border bg-surface shadow-lift">
               <div className="relative h-44 bg-primary">
@@ -123,16 +131,43 @@ function Landing() {
         </div>
       </section>
 
+      {/* What Matu gives you */}
+      <section className="mx-auto max-w-6xl px-5 pb-16">
+        <h2 className="font-display text-2xl font-bold md:text-3xl">What Matu Gives You</h2>
+        <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-8 md:grid-cols-4 md:gap-8">
+          <GiveYou
+            icon={<Receipt className="size-8" />}
+            title="Know your fare"
+            desc="See today's price before you board."
+          />
+          <GiveYou
+            icon={<Clock className="size-8" />}
+            title="Know the time to leave"
+            desc="Plan your perfect trip to the stage."
+          />
+          <GiveYou
+            icon={<Radar className="size-8" />}
+            title="Know the nearest matatu"
+            desc="See available vehicles on the live map."
+          />
+          <GiveYou
+            icon={<BellRing className="size-8" />}
+            title="Get alerted"
+            desc="Receive a buzz when your matatu is near."
+          />
+        </div>
+      </section>
+
       {/* How */}
-      <section id="how" className="bg-surface py-20">
+      <section id="how" className="bg-surface py-16 md:py-20">
         <div className="mx-auto max-w-6xl px-5">
-          <h2 className="text-3xl font-display font-bold md:text-4xl">
+          <h2 className="text-2xl font-display font-bold md:text-4xl">
             Built for everyone on the road
           </h2>
           <p className="mt-3 max-w-xl text-muted-foreground">
             Three apps in one — pick how you ride, drive, or run your SACCO.
           </p>
-          <div className="mt-10 grid gap-5 md:grid-cols-3">
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
             <RoleCard
               title="Passengers"
               desc="Find matatus on your route, book a seat ahead, and get notified the moment your bus is near your stage."
@@ -150,11 +185,18 @@ function Landing() {
               points={["Fleet manager", "Driver assignments", "M-Pesa escrow (soon)"]}
             />
           </div>
+
+          <Link
+            to="/auth"
+            className="mt-10 flex w-full items-center justify-center rounded-full bg-primary px-6 py-4 text-base font-semibold text-primary-foreground shadow-soft transition hover:shadow-lift"
+          >
+            Sign up now
+          </Link>
         </div>
       </section>
 
       {/* Features strip */}
-      <section className="mx-auto max-w-6xl px-5 py-20">
+      <section className="mx-auto max-w-6xl px-5 py-16 md:py-20">
         <div className="grid gap-5 md:grid-cols-3">
           <Feature
             icon={<Bell />}
@@ -220,6 +262,18 @@ function Row({ icon, label, value }: { icon: React.ReactNode; label: string; val
   );
 }
 
+function GiveYou({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
+  return (
+    <div>
+      <div className="grid size-14 place-items-center rounded-2xl bg-accent/25 text-primary">
+        {icon}
+      </div>
+      <h3 className="mt-3 font-display text-base font-semibold leading-snug">{title}</h3>
+      <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
+    </div>
+  );
+}
+
 function RoleCard({
   title,
   desc,
@@ -235,7 +289,7 @@ function RoleCard({
     <div
       className={`rounded-2xl border p-6 transition ${highlight ? "border-primary/30 bg-primary text-primary-foreground shadow-lift" : "border-border bg-background"}`}
     >
-      <h3 className={`font-display text-xl font-semibold ${highlight ? "" : ""}`}>{title}</h3>
+      <h3 className="font-display text-xl font-semibold">{title}</h3>
       <p
         className={`mt-2 text-sm ${highlight ? "text-primary-foreground/80" : "text-muted-foreground"}`}
       >
