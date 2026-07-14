@@ -16,6 +16,12 @@ type Trip = {
   fare: number;
   status: string;
   vehicle_id: string;
+  driver_id: string;
+};
+type DriverPayment = {
+  driver_payment_method: "pochi" | "send_money" | "buy_goods" | null;
+  driver_payment_target: string | null;
+  driver_payment_name: string | null;
 };
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
@@ -46,12 +52,12 @@ function RouteDetail() {
   const [bookingTripId, setBookingTripId] = useState<string | null>(null);
   const [bookedBookingId, setBookedBookingId] = useState<string | null>(null);
   const [bookedTripId, setBookedTripId] = useState<string | null>(null);
-  const [payPhone, setPayPhone] = useState("");
+  const [driverPayments, setDriverPayments] = useState<Record<string, DriverPayment>>({});
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
-  const [payChoice, setPayChoice] = useState<"mpesa" | "cash" | "wallet">("mpesa");
-  const [paymentStatus, setPaymentStatus] = useState<
-    Record<string, "pending" | "held" | "failed" | "cash">
-  >({});
+  const [payChoice, setPayChoice] = useState<"manual" | "cash" | "wallet">("manual");
+  const [paymentStatus, setPaymentStatus] = useState<Record<string, "held" | "cash" | "manual">>(
+    {},
+  );
   const [myBookings, setMyBookings] = useState<
     { trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]
   >([]);
@@ -106,20 +112,32 @@ function RouteDetail() {
   async function loadTrips() {
     const { data } = await supabase
       .from("trips")
-      .select("id,fare,status,vehicle_id")
+      .select("id,fare,status,vehicle_id,driver_id")
       .eq("route_id", routeId)
       .in("status", ["boarding", "in_transit"]);
     const t = (data ?? []) as Trip[];
     setTrips(t);
-    const ids = [...new Set(t.map((x) => x.vehicle_id))];
-    if (ids.length) {
+    const vehicleIds = [...new Set(t.map((x) => x.vehicle_id))];
+    if (vehicleIds.length) {
       const { data: v } = await supabase
         .from("vehicles")
         .select("id,plate_number,capacity,nickname")
-        .in("id", ids);
+        .in("id", vehicleIds);
       const map: Record<string, Vehicle> = {};
       (v ?? []).forEach((x: Vehicle) => (map[x.id] = x));
       setVehicles(map);
+    }
+    const driverIds = [...new Set(t.map((x) => x.driver_id))];
+    if (driverIds.length) {
+      const { data: dp } = await supabase
+        .from("profiles")
+        .select("id,driver_payment_method,driver_payment_target,driver_payment_name")
+        .in("id", driverIds);
+      const map: Record<string, DriverPayment> = {};
+      (dp ?? []).forEach((x) => {
+        map[x.id as string] = x as unknown as DriverPayment;
+      });
+      setDriverPayments(map);
     }
   }
 
@@ -265,33 +283,6 @@ function RouteDetail() {
     };
   }, [trips]);
 
-  // Watch for M-Pesa confirming the payment (updated by the mpesa-callback edge function)
-  useEffect(() => {
-    if (!bookedBookingId) return;
-    const ch = supabase
-      .channel(`payment-${bookedBookingId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "payments",
-          filter: `booking_id=eq.${bookedBookingId}`,
-        },
-        (payload) => {
-          const status = payload.new.status as "pending" | "held" | "failed";
-          setPaymentStatus((prev) => ({ ...prev, [bookedBookingId]: status }));
-          setPayingBookingId(null);
-          if (status === "held") toast.success("Payment confirmed! Seat secured.");
-          if (status === "failed") toast.error("Payment failed. Try again.");
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-  }, [bookedBookingId]);
-
   // Auto proximity notifications: fire once per stage when driver GPS < 300m
   useEffect(() => {
     if (myBookings.length === 0) return;
@@ -397,7 +388,7 @@ function RouteDetail() {
     toast.success("Spot reserved. Pay to confirm it.");
     setBookedBookingId(newBooking.id);
     setBookedTripId(tripId);
-    setPayChoice("mpesa");
+    setPayChoice("manual");
     setBookedCounts((prev) => ({ ...prev, [tripId]: (prev[tripId] ?? takenCount) + 1 }));
   }
 
@@ -435,37 +426,22 @@ function RouteDetail() {
     toast.success("Paid from your wallet. Seat confirmed!");
   }
 
-  async function payForBooking(tripId: string) {
-    if (!bookedBookingId) return;
-    if (!payPhone.trim()) return toast.error("Enter your M-Pesa phone number");
-    const trip = trips.find((t) => t.id === tripId);
-    if (!trip) return;
-    setPayingBookingId(bookedBookingId);
-    const { error } = await supabase.functions.invoke("mpesa-stk-push", {
-      body: { bookingId: bookedBookingId, phone: payPhone.trim(), amount: trip.fare },
-    });
-    if (error) {
-      toast.error("Could not start payment. Try again.");
-      setPayingBookingId(null);
-      return;
-    }
-    toast.success("Check your phone and enter your M-Pesa PIN");
-    setPaymentStatus((prev) => ({ ...prev, [bookedBookingId]: "pending" }));
-
-    // Safety net: if M-Pesa/the callback never responds at all (e.g. the passenger
-    // cancels the STK prompt, which the sandbox doesn't always report back as a
-    // callback), stop waiting after 15s instead of leaving the button stuck on
-    // "Check your phone..." forever. The realtime subscription above already handles
-    // the normal case where the callback does arrive — this only fires if nothing
-    // ever comes back at all.
-    setTimeout(() => {
-      setPaymentStatus((prev) => {
-        if (prev[bookedBookingId] !== "pending") return prev; // already resolved by the callback
-        return { ...prev, [bookedBookingId]: "failed" };
-      });
-      setPayingBookingId((prev) => (prev === bookedBookingId ? null : prev));
-      toast.error("Payment not received. If you cancelled or weren't prompted, try again.");
-    }, 15_000);
+  // Passenger pays the driver directly, outside the app, using the driver's own
+  // Pochi la Biashara / Send Money / Buy Goods details shown below — Matu never
+  // touches this money and never initiates an STK prompt. This just self-declares
+  // the payment was sent, the same trust level "cash to conductor" already had; the
+  // conductor is the one who actually verifies it, by checking the M-Pesa SMS on
+  // their own phone before letting the passenger board.
+  async function payWithManualMethod(bookingId: string, method: string) {
+    setPayingBookingId(bookingId);
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "confirmed", payment_method: method })
+      .eq("id", bookingId);
+    setPayingBookingId(null);
+    if (error) return toast.error(error.message);
+    setPaymentStatus((prev) => ({ ...prev, [bookingId]: "manual" }));
+    toast.success("Marked as sent. Show your M-Pesa message to the conductor when you board.");
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {
@@ -640,7 +616,8 @@ function RouteDetail() {
                       {bookedTripId === t.id &&
                         bookedBookingId &&
                         paymentStatus[bookedBookingId] !== "held" &&
-                        paymentStatus[bookedBookingId] !== "cash" && (
+                        paymentStatus[bookedBookingId] !== "cash" &&
+                        paymentStatus[bookedBookingId] !== "manual" && (
                           <div className="mt-3 grid gap-2 border-t border-border pt-3">
                             <p className="text-xs font-medium">
                               Pay KSh {t.fare} to confirm your spot
@@ -649,9 +626,9 @@ function RouteDetail() {
                             <div className="flex gap-1 rounded-md border border-border p-1">
                               <button
                                 type="button"
-                                onClick={() => setPayChoice("mpesa")}
+                                onClick={() => setPayChoice("manual")}
                                 className={`flex-1 rounded px-2 py-1 text-xs font-medium transition ${
-                                  payChoice === "mpesa"
+                                  payChoice === "manual"
                                     ? "bg-primary text-primary-foreground"
                                     : "text-muted-foreground"
                                 }`}
@@ -682,33 +659,63 @@ function RouteDetail() {
                               </button>
                             </div>
 
-                            {payChoice === "mpesa" ? (
-                              <>
-                                {paymentStatus[bookedBookingId] === "failed" &&
-                                  payingBookingId !== bookedBookingId && (
-                                    <p className="text-xs font-medium text-destructive">
-                                      Payment failed. You weren't charged. Try again below.
+                            {payChoice === "manual" ? (
+                              (() => {
+                                const dp = driverPayments[t.driver_id];
+                                if (!dp?.driver_payment_method || !dp.driver_payment_target) {
+                                  return (
+                                    <p className="rounded-md bg-secondary px-3 py-2 text-xs text-muted-foreground">
+                                      This driver hasn't set up M-Pesa details yet. Choose cash
+                                      instead, or ask the conductor.
                                     </p>
-                                  )}
-                                <input
-                                  type="tel"
-                                  placeholder="07XX XXX XXX"
-                                  value={payPhone}
-                                  onChange={(e) => setPayPhone(e.target.value)}
-                                  className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                                />
-                                <button
-                                  onClick={() => payForBooking(t.id)}
-                                  disabled={payingBookingId === bookedBookingId}
-                                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
-                                >
-                                  {payingBookingId === bookedBookingId
-                                    ? "Check your phone…"
-                                    : paymentStatus[bookedBookingId] === "failed"
-                                      ? "Try payment again"
-                                      : "Pay Now"}
-                                </button>
-                              </>
+                                  );
+                                }
+                                const methodLabel =
+                                  dp.driver_payment_method === "buy_goods"
+                                    ? "Buy Goods (Till)"
+                                    : dp.driver_payment_method === "pochi"
+                                      ? "Pochi la Biashara"
+                                      : "Send Money";
+                                return (
+                                  <>
+                                    <div className="rounded-md bg-secondary px-3 py-2 text-xs">
+                                      <p className="font-semibold">{methodLabel}</p>
+                                      <p className="mt-0.5">
+                                        {dp.driver_payment_method === "buy_goods"
+                                          ? "Till number: "
+                                          : "Phone: "}
+                                        <span className="font-semibold">
+                                          {dp.driver_payment_target}
+                                        </span>
+                                      </p>
+                                      <p className="mt-0.5">
+                                        Name:{" "}
+                                        <span className="font-semibold">
+                                          {dp.driver_payment_name}
+                                        </span>
+                                      </p>
+                                      <p className="mt-1.5 text-muted-foreground">
+                                        Open M-Pesa on your phone and pay KSh {t.fare} using these
+                                        details. Then tap below.
+                                      </p>
+                                    </div>
+                                    <button
+                                      onClick={() =>
+                                        payWithManualMethod(
+                                          bookedBookingId,
+                                          dp.driver_payment_method as string,
+                                        )
+                                      }
+                                      disabled={payingBookingId === bookedBookingId}
+                                      className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                                    >
+                                      {payingBookingId === bookedBookingId
+                                        ? "Saving…"
+                                        : "I've sent the payment"}
+                                    </button>
+                                  </>
+                                );
+                              })()
                             ) : payChoice === "wallet" ? (
                               <button
                                 onClick={() => payWithWallet(bookedBookingId)}
@@ -733,12 +740,19 @@ function RouteDetail() {
                       {bookedTripId === t.id &&
                         bookedBookingId &&
                         (paymentStatus[bookedBookingId] === "held" ||
+                          paymentStatus[bookedBookingId] === "manual" ||
                           paymentStatus[bookedBookingId] === "cash") && (
                           <div className="mt-3 grid gap-2 border-t border-border pt-3">
                             {paymentStatus[bookedBookingId] === "cash" && (
                               <p className="rounded-md bg-accent/30 px-3 py-2 text-xs font-medium">
                                 Booking confirmed. Pay KSh {t.fare} cash to the conductor when you
                                 board.
+                              </p>
+                            )}
+                            {paymentStatus[bookedBookingId] === "manual" && (
+                              <p className="rounded-md bg-accent/30 px-3 py-2 text-xs font-medium">
+                                Booking confirmed. Keep your M-Pesa message to show the conductor
+                                when you board.
                               </p>
                             )}
                             <LeaveNowBanner

@@ -133,7 +133,11 @@ function Index() {
 
   function goToRoute(routeId: string) {
     if (signedIn) {
-      navigate({ to: "/ride/$routeId", params: { routeId } });
+      navigate({
+        to: "/ride/$routeId",
+        params: { routeId },
+        search: { from: undefined, to: undefined },
+      });
     } else {
       navigate({ to: "/auth" });
     }

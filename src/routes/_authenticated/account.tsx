@@ -61,6 +61,10 @@ function AccountSettings() {
   const [deleting, setDeleting] = useState(false);
   const [selectedSound, setSelectedSound] = useState<SoundProfileId>(getSelectedSoundId());
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [payMethod, setPayMethod] = useState<"pochi" | "send_money" | "buy_goods" | "">("");
+  const [payTarget, setPayTarget] = useState("");
+  const [payName, setPayName] = useState("");
+  const [savingPayment, setSavingPayment] = useState(false);
 
   const heldSaccoRole = myRoles.includes("sacco_admin");
   const heldDriverRole = myRoles.includes("driver") || myRoles.includes("conductor");
@@ -74,7 +78,11 @@ function AccountSettings() {
       setEmail(user.email ?? "");
 
       const [{ data: profile }, { data: roles }, { data: platformAdmin }] = await Promise.all([
-        supabase.from("profiles").select("full_name,phone").eq("id", user.id).maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("full_name,phone,driver_payment_method,driver_payment_target,driver_payment_name")
+          .eq("id", user.id)
+          .maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", user.id),
         supabase.rpc("is_platform_admin"),
       ]);
@@ -82,6 +90,9 @@ function AccountSettings() {
       if (profile) {
         setFullName(profile.full_name ?? "");
         setPhone(profile.phone ?? "");
+        setPayMethod(profile.driver_payment_method ?? "");
+        setPayTarget(profile.driver_payment_target ?? "");
+        setPayName(profile.driver_payment_name ?? "");
       }
       // platform_admin is excluded from the self-service AppRole type/picker on
       // purpose (it's granted manually, never claimed), so filter it out here
@@ -109,6 +120,40 @@ function AccountSettings() {
       toast.error(err instanceof Error ? err.message : "Couldn't update profile");
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  async function savePaymentMethod(e: React.FormEvent) {
+    e.preventDefault();
+    if (!userId) return;
+    if (!payMethod) {
+      toast.error("Pick a payment method");
+      return;
+    }
+    if (!payTarget.trim()) {
+      toast.error(payMethod === "buy_goods" ? "Enter your till number" : "Enter the phone number");
+      return;
+    }
+    if (!payName.trim()) {
+      toast.error("Enter the name passengers should see");
+      return;
+    }
+    setSavingPayment(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          driver_payment_method: payMethod,
+          driver_payment_target: payTarget.trim(),
+          driver_payment_name: payName.trim(),
+        })
+        .eq("id", userId);
+      if (error) throw error;
+      toast.success("Payment details saved. Passengers booking your trips will see these.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't save payment details");
+    } finally {
+      setSavingPayment(false);
     }
   }
 
@@ -229,7 +274,74 @@ function AccountSettings() {
           </form>
         </section>
 
-        {/* Roles */}
+        {/* How drivers get paid — manual mobile money (no STK Push), shown to
+            passengers booking any trip this driver runs */}
+        {heldDriverRole && (
+          <section className="rounded-2xl border border-border bg-surface p-6">
+            <h2 className="font-display text-lg font-semibold">How you get paid</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Passengers pay you directly from their own M-Pesa app using these details. Matu
+              doesn't move this money.
+            </p>
+            <form onSubmit={savePaymentMethod} className="mt-4 space-y-3">
+              <Field label="Payment method">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {(
+                    [
+                      { id: "pochi", label: "Pochi la Biashara" },
+                      { id: "send_money", label: "Send Money" },
+                      { id: "buy_goods", label: "Buy Goods (Till)" },
+                    ] as const
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setPayMethod(m.id)}
+                      className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                        payMethod === m.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:bg-secondary"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field
+                label={
+                  payMethod === "buy_goods"
+                    ? "Till number"
+                    : payMethod === "pochi"
+                      ? "Pochi phone number"
+                      : "Phone number"
+                }
+              >
+                <input
+                  value={payTarget}
+                  onChange={(e) => setPayTarget(e.target.value)}
+                  placeholder={payMethod === "buy_goods" ? "e.g. 123456" : "07XX XXX XXX"}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
+                />
+              </Field>
+              <Field label="Name passengers will see">
+                <input
+                  value={payName}
+                  onChange={(e) => setPayName(e.target.value)}
+                  placeholder="e.g. John Kamau, or your registered business name"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
+                />
+              </Field>
+              <button
+                type="submit"
+                disabled={savingPayment}
+                className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+              >
+                {savingPayment ? "Saving…" : "Save payment details"}
+              </button>
+            </form>
+          </section>
+        )}
         <section className="rounded-2xl border border-border bg-surface p-6">
           <h2 className="font-display text-lg font-semibold">Roles</h2>
           <p className="mt-1 text-sm text-muted-foreground">
