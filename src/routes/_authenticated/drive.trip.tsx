@@ -485,6 +485,23 @@ function DriverTrip() {
     toast.success(`Stage “${data!.name}” added`);
   }
 
+  // Shows the driver at a glance which upcoming stages actually have people
+  // waiting to board, not just where the route passes through — counts
+  // still-active bookings (not cancelled, not yet alighted) by pickup stage.
+  // NOTE: this hook must run on every render regardless of `trip`, so it's
+  // declared before the early return below — otherwise the hook count
+  // changes between the "no trip" and "trip in progress" renders and React
+  // throws "Rendered more hooks than during the previous render" (#310).
+  const stagesWithPassengerCounts: MapStage[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const b of bookings) {
+      if (b.status === "cancelled" || b.status === "alighted") continue;
+      if (!b.pickup_stage_id) continue;
+      counts[b.pickup_stage_id] = (counts[b.pickup_stage_id] ?? 0) + 1;
+    }
+    return stages.map((s) => ({ ...s, passengerCount: counts[s.id] ?? 0 }));
+  }, [stages, bookings]);
+
   if (!trip) {
     return (
       <AppShell
@@ -585,19 +602,6 @@ function DriverTrip() {
   const seatsBooked = bookings.filter(
     (b) => b.status !== "cancelled" && b.status !== "alighted",
   ).length;
-
-  // Shows the driver at a glance which upcoming stages actually have people
-  // waiting to board, not just where the route passes through — counts
-  // still-active bookings (not cancelled, not yet alighted) by pickup stage.
-  const stagesWithPassengerCounts: MapStage[] = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const b of bookings) {
-      if (b.status === "cancelled" || b.status === "alighted") continue;
-      if (!b.pickup_stage_id) continue;
-      counts[b.pickup_stage_id] = (counts[b.pickup_stage_id] ?? 0) + 1;
-    }
-    return stages.map((s) => ({ ...s, passengerCount: counts[s.id] ?? 0 }));
-  }, [stages, bookings]);
 
   return (
     <AppShell title="Trip in progress" subtitle="Your live location is broadcasting to passengers.">

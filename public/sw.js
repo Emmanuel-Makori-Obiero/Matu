@@ -57,7 +57,14 @@ self.addEventListener("fetch", (event) => {
         (cached) =>
           cached ||
           fetch(req).then((res) => {
-            if (res.ok) caches.open(STATIC_CACHE).then((c) => c.put(req, res.clone()));
+            // Clone immediately, in this same tick — the caller starts
+            // reading the returned `res` body right away, so cloning inside
+            // the caches.open().then() below (after an async hop) can race
+            // against that and throw "Response body is already used".
+            if (res.ok) {
+              const resClone = res.clone();
+              caches.open(STATIC_CACHE).then((c) => c.put(req, resClone));
+            }
             return res;
           }),
       ),
