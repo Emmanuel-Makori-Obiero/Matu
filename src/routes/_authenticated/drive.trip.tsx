@@ -8,6 +8,8 @@ import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
 import { startNoisyAlert, stopNoisyAlert, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 import { TicketScanner } from "@/components/matu/TicketScanner";
 import { ParcelPanel } from "@/components/matu/ParcelPanel";
+import { enqueueAction } from "@/lib/offline-cache";
+import { flushQueue, registerBackgroundSync } from "@/lib/offline-queue";
 
 type Vehicle = { id: string; plate_number: string; capacity: number };
 type RouteRow = { id: string; name: string; base_fare: number | null };
@@ -54,6 +56,7 @@ function DriverTrip() {
   const [addStageMode, setAddStageMode] = useState(false);
   const [currentStageId, setCurrentStageId] = useState<string | null>(null);
   const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
+  const [wakeLockActive, setWakeLockActive] = useState(false);
 
   // Load driver's vehicles + routes on mount
   useEffect(() => {
@@ -171,6 +174,58 @@ function DriverTrip() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [trip, currentStageId]);
 
+  // Keeps the screen from auto-locking while a trip is active, so GPS tracking
+  // (watchPosition above) doesn't get throttled/suspended just because the phone
+  // went to sleep in the driver's pocket. Note this only covers "screen locked,
+  // app still open" — if the app is fully closed/swiped away, the OS kills the JS
+  // process entirely and no web API can prevent that (needs a native wrapper).
+  useEffect(() => {
+    if (!trip) return;
+    if (!("wakeLock" in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+
+    async function acquire() {
+      try {
+        lock = await (
+          navigator as Navigator & {
+            wakeLock: { request: (type: "screen") => Promise<WakeLockSentinel> };
+          }
+        ).wakeLock.request("screen");
+        setWakeLockActive(true);
+        lock.addEventListener("release", () => setWakeLockActive(false));
+      } catch {
+        setWakeLockActive(false);
+      }
+    }
+    acquire();
+
+    // The lock is auto-released by the browser whenever the tab is hidden (e.g.
+    // driver switches apps to check WhatsApp), so re-acquire it the moment the
+    // trip screen becomes visible again.
+    function onVisibility() {
+      if (document.visibilityState === "visible" && trip) acquire();
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      lock?.release().catch(() => {});
+    };
+  }, [trip]);
+
+  // Best-effort warning if the driver navigates away or closes the tab mid-trip —
+  // location broadcasting and the seat count both stop the instant this screen
+  // unmounts, so passengers would silently lose live tracking.
+  useEffect(() => {
+    if (!trip) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [trip]);
+
   async function startTrip() {
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
@@ -265,30 +320,86 @@ function DriverTrip() {
   // Cash bookings aren't run through M-Pesa, so there's nothing for the backend to
   // confirm automatically — the conductor marks it collected themselves. This is
   // informational only: it never blocks boarding or the seat being counted as taken.
+  //
+  // Offline-safe: this is a pure status flip with no capacity/payment logic behind
+  // it, so if there's no connection it's queued locally and replayed the moment
+  // the connection comes back — the driver's UI updates immediately either way.
   async function markCashCollected(bookingId: string) {
+    setBookings((prev) =>
+      prev.map((b) => (b.id === bookingId ? { ...b, cash_collected: true } : b)),
+    );
+    if (!navigator.onLine) {
+      await enqueueAction({
+        id: crypto.randomUUID(),
+        type: "mark_cash_collected",
+        bookingId,
+        createdAt: Date.now(),
+      });
+      registerBackgroundSync();
+      toast.success("Marked as collected — will sync once you're back online");
+      return;
+    }
     const { error } = await supabase
       .from("bookings")
       .update({ cash_collected: true })
       .eq("id", bookingId);
-    if (error) return toast.error(error.message);
-    setBookings((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, cash_collected: true } : b)),
-    );
+    if (error) {
+      // Network dropped mid-request even though navigator.onLine said yes —
+      // queue it rather than silently losing the tap.
+      await enqueueAction({
+        id: crypto.randomUUID(),
+        type: "mark_cash_collected",
+        bookingId,
+        createdAt: Date.now(),
+      });
+      registerBackgroundSync();
+      return toast.info("No connection right now — queued, will sync automatically");
+    }
     toast.success("Marked as collected");
   }
 
   // Driver confirms a passenger has physically left the vehicle. This is what
   // actually frees up the seat — the passenger's own "Alight next stage" tap only
   // sends the driver a heads-up alert, it never changes booking status on its own.
+  //
+  // Same offline-queue treatment as markCashCollected above.
   async function markAlighted(bookingId: string) {
+    setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, status: "alighted" } : b)));
+    if (!navigator.onLine) {
+      await enqueueAction({
+        id: crypto.randomUUID(),
+        type: "mark_alighted",
+        bookingId,
+        createdAt: Date.now(),
+      });
+      registerBackgroundSync();
+      toast.success("Seat freed up — will sync once you're back online");
+      return;
+    }
     const { error } = await supabase
       .from("bookings")
       .update({ status: "alighted" })
       .eq("id", bookingId);
-    if (error) return toast.error(error.message);
-    setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, status: "alighted" } : b)));
+    if (error) {
+      await enqueueAction({
+        id: crypto.randomUUID(),
+        type: "mark_alighted",
+        bookingId,
+        createdAt: Date.now(),
+      });
+      registerBackgroundSync();
+      return toast.info("No connection right now — queued, will sync automatically");
+    }
     toast.success("Seat freed up");
   }
+
+  // Fires once when the trip screen mounts so any actions queued during a
+  // previous dead-zone (e.g. driver marked things offline, then closed the
+  // tab before signal came back) get flushed as soon as this screen is open
+  // and online — not just on the global 'online' event.
+  useEffect(() => {
+    flushQueue();
+  }, []);
 
   async function addStage(lat: number, lng: number) {
     if (!trip || !addStageMode || !newStageName.trim()) {
@@ -420,6 +531,12 @@ function DriverTrip() {
 
   return (
     <AppShell title="Trip in progress" subtitle="Your live location is broadcasting to passengers.">
+      {wakeLockActive && (
+        <div className="mb-3 flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
+          <span className="size-2 rounded-full bg-primary" />
+          Screen will stay awake while this trip is active — keep the app open.
+        </div>
+      )}
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <div className="grid gap-3">
           <RouteMap stages={stages} onMapClick={addStage} />

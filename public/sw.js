@@ -1,14 +1,12 @@
-// Phase 1 of offline support: real caching instead of the old pass-through
-// stub. Strategy split by request type, because a TanStack Start app is
-// server-rendered per-route (auth-aware, dynamic), so it's NOT safe to
-// blanket-cache HTML like a static SPA shell would:
-//
-// - Static, hashed build assets (/assets/, /_build/, fonts, icons):
-//   cache-first, since the filename changes whenever the content does.
-// - Everything else (HTML navigations, Supabase API calls, etc): network
-//   first, always. On failure, navigations fall back to a small static
-//   offline.html instead of a blank tab; non-navigation requests just fail
-//   and the app's own offline-cache (IndexedDB) takes over from there.
+// Phase 1: real caching instead of pass-through.
+// Phase 3: Background Sync — this file now also flushes the offline write
+// queue directly against Supabase's REST API, with no page open at all.
+// That's the whole point of Background Sync vs. the Phase 2 page-side
+// 'online' event listener: this can fire minutes after the tab was closed,
+// as long as the browser process is still running (Chrome/Android only —
+// Safari/iOS and Firefox don't implement the Background Sync API at all,
+// so on those the Phase 2 fallback — flush on load / on 'online' — is what
+// actually does the work).
 
 const STATIC_CACHE = "matu-static-v1";
 const PRECACHE_URLS = [
@@ -54,8 +52,6 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return; // don't touch Supabase/Mapbox calls
 
   if (isStaticAsset(url)) {
-    // Cache-first: instant on repeat visits, and these filenames are
-    // content-hashed by the build so a stale cache hit is never wrong.
     event.respondWith(
       caches.match(req).then(
         (cached) =>
@@ -70,11 +66,109 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (req.mode === "navigate") {
-    // Network-first for page loads — this app is server-rendered and
-    // auth-aware, so we always want the live page when there's a
-    // connection. Only fall back to the static offline page if the network
-    // request fails outright.
     event.respondWith(fetch(req).catch(() => caches.match("/offline.html")));
   }
-  // All other GETs (API calls etc) pass straight through, uncached.
+});
+
+// --- Background Sync: flush the offline write queue -----------------------
+//
+// Duplicated here (rather than imported) because a plain public/sw.js can't
+// import the app's TS modules — this reads the exact same "matu-offline"
+// IndexedDB database that src/lib/offline-cache.ts writes to, using the
+// raw IndexedDB API directly.
+
+const DB_NAME = "matu-offline";
+const DB_VERSION = 1;
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    // No onupgradeneeded here on purpose — the page always opens the DB
+    // first and creates the stores; if this runs before that's ever
+    // happened there's nothing to flush anyway.
+  });
+}
+
+function idbGetAll(db, store) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGet(db, store, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbDelete(db, store, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Same two safe, idempotent action types as offline-queue.ts's replay().
+// Keep these in sync if new queueable action types are ever added.
+async function replayAction(config, action) {
+  const patchBody =
+    action.type === "mark_cash_collected"
+      ? { cash_collected: true }
+      : action.type === "mark_alighted"
+        ? { status: "alighted" }
+        : null;
+  if (!patchBody) return true; // unknown type, don't block the rest of the queue on it
+
+  const res = await fetch(`${config.url}/rest/v1/bookings?id=eq.${action.bookingId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: config.anonKey,
+      ...(config.accessToken ? { Authorization: `Bearer ${config.accessToken}` } : {}),
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(patchBody),
+  });
+  return res.ok;
+}
+
+async function flushQueueInBackground() {
+  const db = await openDb();
+  try {
+    const config = await idbGet(db, "meta", "supabase-config");
+    if (!config || !config.url || !config.anonKey) return; // nothing to auth with
+
+    const queue = await idbGetAll(db, "queue");
+    queue.sort((a, b) => a.createdAt - b.createdAt);
+
+    for (const action of queue) {
+      const ok = await replayAction(config, action);
+      if (ok) {
+        await idbDelete(db, "queue", action.id);
+      } else {
+        // Leave remaining items queued and let Background Sync's built-in
+        // retry-with-backoff handle trying again later, rather than
+        // hammering a possibly-still-down connection right now.
+        throw new Error(`Failed to sync action ${action.id}`);
+      }
+    }
+  } finally {
+    db.close();
+  }
+}
+
+self.addEventListener("sync", (event) => {
+  if (event.tag === "flush-matu-queue") {
+    event.waitUntil(flushQueueInBackground());
+  }
 });

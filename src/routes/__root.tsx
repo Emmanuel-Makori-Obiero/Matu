@@ -20,6 +20,8 @@ import appCss from "../styles.css?url";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
 import { OfflineBanner } from "@/components/matu/OfflineBanner";
+import { initQueueSync } from "@/lib/offline-queue";
+import { cacheSupabaseConfig } from "@/lib/offline-cache";
 
 function NotFoundComponent() {
   return (
@@ -160,6 +162,29 @@ function RootComponent() {
         console.error("Service worker registration failed:", err);
       });
     }
+  }, []);
+
+  useEffect(() => initQueueSync(), []);
+
+  // Keeps the service worker's copy of the auth token fresh, so it can make
+  // its own authenticated Supabase calls during a Background Sync event —
+  // including one that fires after this tab has been closed.
+  useEffect(() => {
+    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+    if (!SUPABASE_URL || !SUPABASE_KEY) return;
+
+    async function syncConfig() {
+      const { data } = await supabase.auth.getSession();
+      cacheSupabaseConfig({
+        url: SUPABASE_URL as string,
+        anonKey: SUPABASE_KEY as string,
+        accessToken: data.session?.access_token ?? null,
+      });
+    }
+    syncConfig();
+    const { data: sub } = supabase.auth.onAuthStateChange(() => syncConfig());
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {

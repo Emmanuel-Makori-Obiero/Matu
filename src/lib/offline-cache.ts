@@ -11,7 +11,7 @@ const DB_NAME = "matu-offline";
 const DB_VERSION = 1;
 
 // One object store per cached "table". Keyed by the row's own id.
-export const STORES = ["routes", "stages", "bookings", "meta"] as const;
+export const STORES = ["routes", "stages", "bookings", "meta", "queue"] as const;
 export type StoreName = (typeof STORES)[number];
 
 function openDb(): Promise<IDBDatabase> {
@@ -103,5 +103,82 @@ export async function getLastSynced(key: string): Promise<number | null> {
     return row?.syncedAt ?? null;
   } catch {
     return null;
+  }
+}
+
+// --- Write queue (Phase 2) -------------------------------------------------
+//
+// Only for actions that are safe to replay later with no server-side
+// arbitration needed: idempotent status flips like "mark cash collected" or
+// "mark alighted". Anything that needs a live capacity check or payment
+// (booking a seat) is deliberately NOT queued here — see drive.trip.tsx /
+// ride.$routeId.tsx comments for why.
+
+export type QueuedAction = {
+  id: string; // uuid, doubles as the IndexedDB key
+  type: "mark_cash_collected" | "mark_alighted";
+  bookingId: string;
+  createdAt: number;
+};
+
+export async function enqueueAction(action: QueuedAction): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("queue", "readwrite");
+      tx.objectStore("queue").put(action);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    // If IndexedDB itself is unavailable, there's nowhere to queue this —
+    // the caller already applied the optimistic UI update, so the action is
+    // just lost on refresh. Rare (private browsing / very old browsers).
+  }
+}
+
+export async function getQueuedActions(): Promise<QueuedAction[]> {
+  return cacheGetAll<QueuedAction>("queue");
+}
+
+export async function removeQueuedAction(id: string): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("queue", "readwrite");
+      tx.objectStore("queue").delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    // no-op
+  }
+}
+
+// --- Supabase config cache (Phase 3) ---------------------------------------
+//
+// The service worker runs in its own context with no access to
+// localStorage (where the Supabase SDK keeps the session) and can't import
+// the app's TS modules. To let the SW make its own authenticated REST calls
+// — the whole point of Background Sync, so queued actions flush even if
+// the tab isn't open — the page stashes the current URL/key/access token
+// here in IndexedDB, which both contexts can read.
+export type SupabaseConfig = { url: string; anonKey: string; accessToken: string | null };
+
+export async function cacheSupabaseConfig(config: SupabaseConfig): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("meta", "readwrite");
+      tx.objectStore("meta").put({ id: "supabase-config", ...config });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    // no-op — worst case the SW-side background sync can't authenticate and
+    // the page-side online-event flush (Phase 2) covers it instead.
   }
 }
