@@ -230,7 +230,7 @@ function PassengerHome() {
             toast.success(`Pickup set to ${bestName}`, { id: "geo" });
           }
         } else {
-          toast.error("Couldn't match your location to a stage — type it in manually.", {
+          toast.error("Couldn't match your location to a stage. Type it in manually.", {
             id: "geo",
           });
         }
@@ -239,7 +239,7 @@ function PassengerHome() {
         // err.code 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT.
         const message =
           err.code === 1
-            ? "Location permission denied — enable it in your browser/phone settings."
+            ? "Location permission denied. Enable it in your browser/phone settings."
             : "Could not get your location. Try again, or type your stage manually.";
         toast.error(message, { id: "geo" });
       },
@@ -253,7 +253,7 @@ function PassengerHome() {
   return (
     <AppShell
       title="Where to?"
-      subtitle="Pick pickup and destination — we'll match you to matatus on your route."
+      subtitle="Pick pickup and destination. We'll match you to matatus on your route."
       tabs={[
         { to: "/ride", label: "Find a ride" },
         { to: "/ride/track", label: "Track" },
@@ -326,7 +326,7 @@ function PassengerHome() {
               <LocateFixed className="size-5" /> Use my location as pickup
             </button>
             <p className="mt-2 text-center text-xs text-muted-foreground">
-              Easiest way to start — we'll find your nearest matatu stop automatically.
+              Easiest way to start. We'll find your nearest matatu stop automatically.
             </p>
 
             <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
@@ -367,7 +367,7 @@ function PassengerHome() {
                 placeholder="Where to? (e.g. CBD)"
               />
               <p className="text-center text-xs text-muted-foreground">
-                Matching matatus appear below as you type — no need to press search.
+                Matching matatus appear below as you type. No need to press search.
               </p>
               {(from || to) && (
                 <button
@@ -408,7 +408,7 @@ function PassengerHome() {
                   <div className="mt-3">
                     {!nearestSuggestions[0].exactNameMatch && (
                       <p className="text-xs">
-                        No stage called "{to || from}" — nearest stop is{" "}
+                        No stage called "{to || from}". Nearest stop is{" "}
                         <strong>{nearestSuggestions[0].stage.name}</strong> (
                         {nearestSuggestions[0].distanceKm.toFixed(1)} km away)
                       </p>

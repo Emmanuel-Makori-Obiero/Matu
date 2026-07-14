@@ -41,18 +41,18 @@ export type AssistantContext = {
 
 const GREETINGS: Record<AssistantContext["page"], string> = {
   landing:
-    "Hi! Ask me anything about Matu — how booking works, what drivers get, or how SACCOs manage their fleet.",
+    "Hi! Ask me anything about Matu: how booking works, what drivers get, or how SACCOs manage their fleet.",
   passenger_search:
-    "Hi! Tell me where you're going — e.g. \"I want to go from Kasarani to Ambassadeur\" — and I'll check what's available.",
+    "Hi! Tell me where you're going, e.g. \"I want to go from Kasarani to Ambassadeur\", and I'll check what's available.",
   passenger_route_details:
-    "Hi! Ask me about this route — seats left, fare, or how long the trip usually takes.",
+    "Hi! Ask me about this route: seats left, fare, or how long the trip usually takes.",
   passenger_history:
     "Hi! Ask me about a past or upcoming booking, or say where you want to go next.",
   driver_home:
-    "Hi! Ask me about routes, fares, or availability — useful if a passenger asks before you head out.",
+    "Hi! Ask me about routes, fares, or availability. Useful if a passenger asks before you head out.",
   driver_trip: "Hi! I can look up route or fare info while you're on this trip.",
   sacco_admin:
-    "Hi! Ask me about any of your SACCO's routes — fares, or how busy a route tends to be.",
+    "Hi! Ask me about any of your SACCO's routes: fares, or how busy a route tends to be.",
   account: "Hi! Ask me about your account, roles, or anything else about how Matu works.",
 };
 

@@ -178,7 +178,7 @@ function ComplaintsPage() {
     const saccoHasContact = !!selectedTrip.saccoPhone || !!selectedTrip.saccoName;
     if (recipient === "sacco" && !saccoHasContact) {
       effectiveRecipient = "driver";
-      toast.info("No sacco contact on file for this trip — routing to the driver instead.");
+      toast.info("No sacco contact on file for this trip. Routing to the driver instead.");
     }
 
     setSubmitting(true);
@@ -236,7 +236,7 @@ function ComplaintsPage() {
   return (
     <AppShell
       title="Support & complaints"
-      subtitle="Tell us what went wrong — app issues and trip issues go to different people."
+      subtitle="Tell us what went wrong. App issues and trip issues go to different people."
     >
       {!category ? (
         <div className="grid gap-4 sm:grid-cols-2">

@@ -61,9 +61,9 @@ function PrivacyPage() {
           </p>
           <p>
             <strong>Location data:</strong> your device's live location while booking a ride or, for
-            drivers, while a trip is active — used to show nearby matatus, calculate ETAs, and match
-            pickup stages. Drivers' location is only shared with passengers while a trip is in
-            progress.
+            drivers, while a trip is active. This is used to show nearby matatus, calculate ETAs,
+            and match pickup stages. Drivers' location is only shared with passengers while a trip
+            is in progress.
           </p>
           <p>
             <strong>Trip and booking data:</strong> routes searched, trips booked, seats reserved,
@@ -71,7 +71,7 @@ function PrivacyPage() {
           </p>
           <p>
             <strong>Payment data:</strong> M-Pesa transaction references, amounts, and status. Matu
-            never receives, stores, or has access to your M-Pesa PIN — that is entered directly on
+            never receives, stores, or has access to your M-Pesa PIN. That is entered directly on
             your phone through Safaricom's own prompt, entirely outside the app.
           </p>
           <p>
@@ -101,24 +101,24 @@ function PrivacyPage() {
           <p>We share data only where necessary to run the service:</p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
-              <strong>Safaricom M-Pesa</strong> — to process payments (transaction reference and
+              <strong>Safaricom M-Pesa</strong>: to process payments (transaction reference and
               amount only; never your PIN).
             </li>
             <li>
-              <strong>Supabase</strong> — our database and backend infrastructure provider, which
+              <strong>Supabase</strong>: our database and backend infrastructure provider, which
               stores account, trip, and booking data securely.
             </li>
             <li>
-              <strong>Mapbox and OpenStreetMap</strong> — for maps, routing, and place lookups. Only
+              <strong>Mapbox and OpenStreetMap</strong>: for maps, routing, and place lookups. Only
               the location needed for that specific request is sent.
             </li>
             <li>
-              <strong>Google (Gemini API)</strong> — powers the in-app AI assistant. Messages you
+              <strong>Google (Gemini API)</strong>: powers the in-app AI assistant. Messages you
               send it are processed to generate a reply; the assistant only acts through verified
               app data, never external data about you.
             </li>
             <li>
-              <strong>SACCOs</strong> — a SACCO admin can see trip, vehicle, and revenue data for
+              <strong>SACCOs</strong>: a SACCO admin can see trip, vehicle, and revenue data for
               vehicles registered under their SACCO, but not a passenger's personal account details
               beyond what's needed for a specific booking dispute.
             </li>
@@ -133,7 +133,7 @@ function PrivacyPage() {
             We retain account and trip data for as long as your account is active, and for a
             reasonable period after account deletion where required for legal, tax, or
             dispute-resolution purposes. When you delete your account, your profile, bookings, and
-            related records are permanently deleted as described in Section 7 — some anonymized
+            related records are permanently deleted as described in Section 7. Some anonymized
             transaction records may be retained for financial recordkeeping as required by Kenyan
             law.
           </p>
@@ -155,8 +155,8 @@ function PrivacyPage() {
 
         <Section title="6. Data security">
           <p>
-            We use industry-standard safeguards — encrypted connections (HTTPS), access-controlled
-            databases, and row-level security on account data — to protect your information. No
+            We use industry-standard safeguards: encrypted connections (HTTPS), access-controlled
+            databases, and row-level security on account data, to protect your information. No
             system is 100% secure, and we encourage you to use a strong, unique password and never
             share your M-Pesa PIN with anyone, including anyone claiming to represent Matu.
           </p>

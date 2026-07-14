@@ -179,7 +179,7 @@ function AccountSettings() {
     setSelectedSound(id);
     setSelectedSoundId(id);
     testSound(id);
-    toast.success("Alert sound saved — that's what you'll hear for new passenger alerts.");
+    toast.success("Alert sound saved. That's what you'll hear for new passenger alerts.");
   }
 
   if (loading) {
@@ -233,7 +233,7 @@ function AccountSettings() {
         <section className="rounded-2xl border border-border bg-surface p-6">
           <h2 className="font-display text-lg font-semibold">Roles</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Register for another role to unlock its dashboard. You can hold more than one — use the
+            Register for another role to unlock its dashboard. You can hold more than one. Use the
             account menu any time to jump between them.
           </p>
           <div className="mt-4 grid gap-2">
@@ -310,7 +310,7 @@ function AccountSettings() {
             {heldDriverRole
               ? "This plays on your trip screen for new passenger alerts, and for you as a passenger when a matatu you're tracking gets close to your stage."
               : "This plays when a matatu you're tracking gets close to your pickup or drop-off stage."}{" "}
-            Tap a sound to preview and save it — that tap also makes sure your device is ready to
+            Tap a sound to preview and save it. That tap also makes sure your device is ready to
             actually play it later, which browsers otherwise sometimes block.
           </p>
           <div className="mt-4 grid gap-2">
@@ -388,7 +388,7 @@ function AccountSettings() {
           <section className="rounded-2xl border border-border bg-surface p-6">
             <h2 className="font-display text-lg font-semibold">Platform admin</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Cross-SACCO oversight — view and suspend vehicles platform-wide.
+              Cross-SACCO oversight: view and suspend vehicles platform-wide.
             </p>
             <Link
               to="/platform-admin"
@@ -426,8 +426,8 @@ function AccountSettings() {
                   .join(" and ")}
                 , this will also delete{" "}
                 {heldSaccoRole ? "your SACCO and its vehicle records" : "trips you've driven"}
-                {heldSaccoRole && heldDriverRole ? " and trips you've driven" : ""} — passengers
-                with bookings on those trips will lose them too.
+                {heldSaccoRole && heldDriverRole ? " and trips you've driven" : ""}. Passengers with
+                bookings on those trips will lose them too.
               </>
             )}
           </p>

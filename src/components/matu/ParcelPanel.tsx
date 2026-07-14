@@ -84,7 +84,7 @@ export function ParcelPanel({ tripId }: { tripId: string }) {
       load();
       return;
     }
-    toast.success("Parcel accepted — pick it up at the origin stage");
+    toast.success("Parcel accepted. Pick it up at the origin stage.");
     load();
   }
 
@@ -129,7 +129,7 @@ export function ParcelPanel({ tripId }: { tripId: string }) {
         error.code === "42883"
       ) {
         toast.error(
-          "Server isn't set up for delivery confirmation yet — the database migration may be missing.",
+          "Server isn't set up for delivery confirmation yet. The database migration may be missing.",
         );
       } else {
         toast.error(`Couldn't confirm delivery: ${error.message}`);
@@ -137,7 +137,7 @@ export function ParcelPanel({ tripId }: { tripId: string }) {
       return;
     }
     if (!ok) {
-      toast.error("Code doesn't match — don't hand over the parcel yet");
+      toast.error("Code doesn't match. Don't hand over the parcel yet.");
       return;
     }
     toast.success("Delivery confirmed");

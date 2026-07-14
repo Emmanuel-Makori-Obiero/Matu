@@ -70,7 +70,7 @@ function AuthPage() {
           // Email confirmation is required — there's no session yet, so there's
           // nothing to redirect to. Make that explicit instead of silently doing
           // nothing, and drop them into sign-in mode with their email pre-filled.
-          toast.success("Account created — check your email to confirm it, then sign in.");
+          toast.success("Account created. Check your email to confirm it, then sign in.");
           setMode("signin");
           setPassword("");
         }

@@ -173,7 +173,7 @@ function TrackPage() {
     setPinging(null);
     if (error) return toast.error(error.message);
     setMyPingStageId(stageId);
-    toast.success("Driver notified — you're marked as waiting here.");
+    toast.success("Driver notified. You're marked as waiting here.");
     loadPingCounts();
   }
 
@@ -201,7 +201,7 @@ function TrackPage() {
   return (
     <AppShell
       title="Track"
-      subtitle="See live matatus on a route and let the driver know you're waiting — no booking needed."
+      subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
       tabs={[
         { to: "/ride", label: "Find a ride" },
         { to: "/ride/track", label: "Track" },

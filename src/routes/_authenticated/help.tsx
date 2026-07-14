@@ -26,7 +26,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "How do I register a SACCO?",
-    a: "From account settings or the Fleet section, register a new SACCO — you'll manage its vehicles, routes, fares, and driver requests from there.",
+    a: "From account settings or the Fleet section, register a new SACCO. You'll manage its vehicles, routes, fares, and driver requests from there.",
   },
   {
     q: "How does the wallet work?",
@@ -34,7 +34,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "How do I file a complaint?",
-    a: "Use the Complaints page to report an issue with a trip, driver, or vehicle — a platform admin can review and act on it.",
+    a: "Use the Complaints page to report an issue with a trip, driver, or vehicle. A platform admin can review and act on it.",
   },
 ];
 

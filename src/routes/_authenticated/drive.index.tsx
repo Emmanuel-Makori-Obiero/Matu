@@ -90,7 +90,7 @@ function DriverHome() {
             <Tile
               icon={<Wallet className="size-5" />}
               title="Today's fare"
-              desc="Agree with the conductor — adaptive pricing."
+              desc="Agree with the conductor. Adaptive pricing."
             />
           </Link>
           <Link to="/drive/trip">

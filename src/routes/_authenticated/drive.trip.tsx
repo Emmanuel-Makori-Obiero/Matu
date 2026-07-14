@@ -189,7 +189,7 @@ function DriverTrip() {
       .single();
     if (error) return toast.error(error.message);
     setTrip(data as ActiveTrip);
-    toast.success("Trip started — passengers can now book");
+    toast.success("Trip started. Passengers can now book.");
   }
 
   async function endTrip() {
@@ -333,7 +333,7 @@ function DriverTrip() {
               required
               className="w-full rounded-md border border-input bg-background px-3 py-2"
             >
-              <option value="">— select —</option>
+              <option value="">Select…</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.plate_number} ({v.capacity} seats)
@@ -369,7 +369,7 @@ function DriverTrip() {
               required
               className="w-full rounded-md border border-input bg-background px-3 py-2"
             >
-              <option value="">— select —</option>
+              <option value="">Select…</option>
               {routes.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -559,7 +559,7 @@ function DriverTrip() {
               onChange={(e) => setCurrentStageId(e.target.value || null)}
               className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
             >
-              <option value="">— none selected —</option>
+              <option value="">None selected</option>
               {stages.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -795,7 +795,7 @@ function JoinSaccoPanel() {
     }
 
     setBusy(false);
-    toast.success("Request sent — the SACCO owner will see your details and approve it");
+    toast.success("Request sent. The SACCO owner will see your details and approve it.");
     setNote("");
     load();
   }
@@ -832,7 +832,7 @@ function JoinSaccoPanel() {
           onChange={(e) => setSaccoId(e.target.value)}
           className="w-full rounded-md border border-input bg-background px-2 py-1.5"
         >
-          <option value="">— pick a SACCO —</option>
+          <option value="">Pick a SACCO…</option>
           {saccos.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}

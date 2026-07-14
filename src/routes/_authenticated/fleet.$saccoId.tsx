@@ -290,7 +290,7 @@ function FleetDetail() {
   async function approveJoin(id: string) {
     const { error } = await supabase.rpc("approve_driver_request", { _request_id: id });
     if (error) return toast.error(error.message);
-    toast.success("Driver approved — assign them a vehicle below");
+    toast.success("Driver approved. Assign them a vehicle below.");
     load();
   }
   async function rejectJoin(id: string) {
@@ -665,7 +665,7 @@ function FleetDetail() {
                   <div className="mt-3 grid gap-3 border-t border-border pt-3">
                     <p className="text-xs text-muted-foreground">
                       A route with no stages can't be matched to bookings, shown on a passenger's
-                      map, or tracked live — add at least a pickup and a drop-off stage below by
+                      map, or tracked live. Add at least a pickup and a drop-off stage below by
                       tapping their real location on the map.
                     </p>
 

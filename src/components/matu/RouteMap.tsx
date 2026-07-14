@@ -29,7 +29,7 @@ async function fetchRoadRoute(
 ): Promise<[number, number][] | null> {
   if (!MAPBOX_TOKEN) {
     console.error(
-      "[RouteMap] VITE_MAPBOX_TOKEN is missing — set it in your environment/Vercel project settings.",
+      "[RouteMap] VITE_MAPBOX_TOKEN is missing. Set it in your environment/Vercel project settings.",
     );
     return null;
   }

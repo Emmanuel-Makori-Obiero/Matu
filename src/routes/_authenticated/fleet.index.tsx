@@ -358,7 +358,7 @@ function SubscriptionCard({ saccoId }: { saccoId: string }) {
         </div>
       </div>
       {status === "active" ? (
-        <p className="mt-3 text-sm text-primary">✓ Active — paid for this period.</p>
+        <p className="mt-3 text-sm text-primary">✓ Active, paid for this period.</p>
       ) : (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input

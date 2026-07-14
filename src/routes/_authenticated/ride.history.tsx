@@ -46,7 +46,7 @@ export const Route = createFileRoute("/_authenticated/ride/history")({
 });
 
 const STATUS_LABEL: Record<BookingRow["status"], string> = {
-  reserved: "Reserved — pending payment",
+  reserved: "Reserved, pending payment",
   confirmed: "Confirmed",
   boarded: "Boarded",
   alighted: "Completed",
@@ -486,8 +486,8 @@ function BookingHistory() {
           <DialogHeader>
             <DialogTitle>Your ticket</DialogTitle>
             <DialogDescription>
-              Show this to the conductor to board. It refreshes automatically — no need to
-              screenshot it.
+              Show this to the conductor to board. It refreshes automatically. No need to screenshot
+              it.
             </DialogDescription>
           </DialogHeader>
           {ticketBooking && (

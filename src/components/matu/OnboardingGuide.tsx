@@ -16,7 +16,7 @@ const STEPS = [
   {
     icon: Search,
     title: "2. Tell us where you're going",
-    body: "Type the name of the place you want to go. Matching matatus appear automatically below — no need to press a search button.",
+    body: "Type the name of the place you want to go. Matching matatus appear automatically below. No need to press a search button.",
   },
   {
     icon: Ticket,

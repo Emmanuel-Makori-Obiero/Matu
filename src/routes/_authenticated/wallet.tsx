@@ -181,7 +181,7 @@ function WalletPage() {
       return;
     }
     setAmount("");
-    toast.success("Withdrawal requested — funds will arrive shortly");
+    toast.success("Withdrawal requested. Funds will arrive shortly.");
   }
 
   async function downloadReport(ownerType: OwnerType) {
@@ -206,10 +206,10 @@ function WalletPage() {
 
     const ownerLabel =
       ownerType === "passenger"
-        ? `${fullName || "Passenger"} — Passenger wallet`
+        ? `${fullName || "Passenger"}: Passenger wallet`
         : ownerType === "driver"
-          ? `${fullName || "Driver"} — Driver earnings`
-          : `${saccoName || "SACCO"} — Commission wallet`;
+          ? `${fullName || "Driver"}: Driver earnings`
+          : `${saccoName || "SACCO"}: Commission wallet`;
 
     generateWalletReportPdf({
       ownerLabel,

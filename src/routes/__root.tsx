@@ -81,13 +81,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#1f4a3a" },
-      { title: "Matu — Smart matatu & bus rides across Kenya" },
+      { title: "Matu: Smart matatu & bus rides across Kenya" },
       {
         name: "description",
         content:
           "Find matatus and buses on your route, see live arrivals, book a seat, and get alerts as your stage approaches.",
       },
-      { property: "og:title", content: "Matu — Smart matatu & bus rides across Kenya" },
+      { property: "og:title", content: "Matu: Smart matatu & bus rides across Kenya" },
       {
         property: "og:description",
         content:
@@ -95,7 +95,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:title", content: "Matu — Smart matatu & bus rides across Kenya" },
+      { name: "twitter:title", content: "Matu: Smart matatu & bus rides across Kenya" },
       {
         name: "twitter:description",
         content:

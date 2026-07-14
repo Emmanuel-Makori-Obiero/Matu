@@ -61,7 +61,7 @@ function TermsPage() {
 
         <Section title="2. Accounts and roles">
           <p>
-            A single account may hold one or more roles — passenger, driver, or SACCO admin. You're
+            A single account may hold one or more roles: passenger, driver, or SACCO admin. You're
             responsible for keeping your password confidential and for all activity under your
             account. Tell us immediately (via Support & complaints) if you suspect unauthorized
             access.
@@ -72,7 +72,7 @@ function TermsPage() {
           <p>
             Matu shows real-time seat availability and fares set by drivers/SACCOs for each trip.
             Fares shown at the time of booking are the fares charged. A reserved seat is held only
-            until payment is completed or the trip departs, whichever comes first — Matu does not
+            until payment is completed or the trip departs, whichever comes first. Matu does not
             guarantee a seat stays reserved indefinitely.
           </p>
           <p>
@@ -85,7 +85,7 @@ function TermsPage() {
           <p>
             Payments are processed via M-Pesa. You authorize the charge shown at checkout by
             completing the Safaricom STK prompt on your own device. Matu never asks for your M-Pesa
-            PIN in the app or in chat, including through the AI assistant — anyone asking you for it
+            PIN in the app or in chat, including through the AI assistant. Anyone asking you for it
             while claiming to represent Matu is not us.
           </p>
           <p>
@@ -116,7 +116,7 @@ function TermsPage() {
           <p>
             Matu's in-app assistant can look up real routes, trips, and account information, and can
             book a seat or trigger a payment prompt on your behalf when you ask it to. It only acts
-            using live data from the app — it does not invent routes, fares, or booking
+            using live data from the app. It does not invent routes, fares, or booking
             confirmations. You're responsible for reviewing what it books before confirming payment.
           </p>
         </Section>

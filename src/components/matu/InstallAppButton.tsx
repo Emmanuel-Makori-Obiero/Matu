@@ -141,7 +141,7 @@ export function InstallAppButton({ className }: { className?: string }) {
                 <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                   3
                 </span>
-                <span>Tap "Add" — Matu will appear as an app icon on your Home Screen.</span>
+                <span>Tap "Add". Matu will appear as an app icon on your Home Screen.</span>
               </li>
             </ol>
           </div>
@@ -186,7 +186,7 @@ export function InstallAppButton({ className }: { className?: string }) {
                 <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                   3
                 </span>
-                <span>Confirm — Matu will appear as an app icon on your Home Screen.</span>
+                <span>Confirm. Matu will appear as an app icon on your Home Screen.</span>
               </li>
             </ol>
           </div>

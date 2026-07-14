@@ -237,7 +237,7 @@ function RouteDetail() {
     setPinging(false);
     if (error) return toast.error(error.message);
     setMyPingStageId(stageId);
-    toast.success("Marked you as waiting here — drivers can see demand building.");
+    toast.success("Marked you as waiting here. Drivers can see demand building.");
     loadPingCounts();
   }
 
@@ -374,7 +374,7 @@ function RouteDetail() {
     if (takenCount >= capacity) {
       setBookingTripId(null);
       setBookedCounts((prev) => ({ ...prev, [tripId]: takenCount }));
-      return toast.error("This trip just filled up — try another matatu.");
+      return toast.error("This trip just filled up. Try another matatu.");
     }
 
     // No seat_number: passengers sit wherever's free on board, so booking just
@@ -394,7 +394,7 @@ function RouteDetail() {
       .single();
     setBookingTripId(null);
     if (error || !newBooking) return toast.error(error?.message ?? "Could not reserve your spot");
-    toast.success("Spot reserved — pay to confirm it.");
+    toast.success("Spot reserved. Pay to confirm it.");
     setBookedBookingId(newBooking.id);
     setBookedTripId(tripId);
     setPayChoice("mpesa");
@@ -411,7 +411,7 @@ function RouteDetail() {
       .eq("id", bookingId);
     if (error) return toast.error(error.message);
     setPaymentStatus((prev) => ({ ...prev, [bookingId]: "cash" }));
-    toast.success("Seat confirmed — pay the conductor in cash when you board.");
+    toast.success("Seat confirmed. Pay the conductor in cash when you board.");
   }
 
   // Pays instantly from the passenger's prepaid wallet balance (see /wallet) instead of
@@ -426,13 +426,13 @@ function RouteDetail() {
       const insufficientFunds = error.message?.toLowerCase().includes("balance");
       toast.error(
         insufficientFunds
-          ? "Not enough wallet balance — top up in Wallet, or choose cash/M-Pesa instead."
+          ? "Not enough wallet balance. Top up in Wallet, or choose cash/M-Pesa instead."
           : "Could not pay from wallet. Try again.",
       );
       return;
     }
     setPaymentStatus((prev) => ({ ...prev, [bookingId]: "held" }));
-    toast.success("Paid from your wallet — seat confirmed!");
+    toast.success("Paid from your wallet. Seat confirmed!");
   }
 
   async function payForBooking(tripId: string) {
@@ -687,7 +687,7 @@ function RouteDetail() {
                                 {paymentStatus[bookedBookingId] === "failed" &&
                                   payingBookingId !== bookedBookingId && (
                                     <p className="text-xs font-medium text-destructive">
-                                      Payment failed — you weren't charged. Try again below.
+                                      Payment failed. You weren't charged. Try again below.
                                     </p>
                                   )}
                                 <input
@@ -724,7 +724,7 @@ function RouteDetail() {
                                 onClick={() => payWithCash(bookedBookingId)}
                                 className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
                               >
-                                Confirm — I'll pay cash on board
+                                Confirm: I'll pay cash on board
                               </button>
                             )}
                           </div>
@@ -764,7 +764,7 @@ function RouteDetail() {
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Stages ({stages.length})</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Waiting at a stage right now? Ping it so nearby drivers know demand is building — no
+              Waiting at a stage right now? Ping it so nearby drivers know demand is building. No
               booking needed.
             </p>
             <ol className="mt-3 grid gap-1.5 text-sm">
@@ -825,7 +825,7 @@ function StageSelect({
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-md border border-input bg-background px-2 py-1.5"
       >
-        <option value="">— select stage —</option>
+        <option value="">Select a stage…</option>
         {stages.map((s) => (
           <option key={s.id} value={s.id}>
             {s.name}

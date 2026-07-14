@@ -35,7 +35,7 @@ function calcPrice(size: ParcelSize, weightKg: number): number {
 
 const STATUS_LABEL: Record<ParcelRow["status"], string> = {
   pending: "Waiting for a driver",
-  accepted: "Accepted — awaiting pickup",
+  accepted: "Accepted, awaiting pickup",
   in_transit: "On the way",
   delivered: "Delivered",
   cancelled: "Cancelled",
@@ -271,7 +271,7 @@ function ParcelPage() {
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : parcels.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No parcels sent yet — fill in the form to send your first one.
+              No parcels sent yet. Fill in the form to send your first one.
             </p>
           ) : (
             parcels.map((p) => (
