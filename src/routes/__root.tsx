@@ -19,6 +19,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
+import { OfflineBanner } from "@/components/matu/OfflineBanner";
 
 function NotFoundComponent() {
   return (
@@ -172,6 +173,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <OfflineBanner />
       <Outlet />
       <Toaster richColors position="top-center" />
     </QueryClientProvider>

@@ -21,6 +21,7 @@ import {
   type NearestStageResult,
 } from "@/lib/stage-match";
 import { OnboardingGuide, useOnboardingSeen } from "@/components/matu/OnboardingGuide";
+import { cacheGetAll, cacheReplaceAll, setLastSynced } from "@/lib/offline-cache";
 
 type RouteRow = {
   id: string;
@@ -78,13 +79,37 @@ function PassengerHome() {
 
   useEffect(() => {
     (async () => {
-      const [{ data: r }, { data: s }] = await Promise.all([
+      const [{ data: r, error: rErr }, { data: s, error: sErr }] = await Promise.all([
         supabase.from("routes").select("id,name,origin,destination,base_fare").order("name"),
         supabase.from("stages").select("id,name,lat,lng,order_index,route_id").order("order_index"),
       ]);
-      setRoutes((r ?? []) as RouteRow[]);
-      setStages((s ?? []) as StageRow[]);
+
+      if (rErr || sErr) {
+        // Network/Supabase call failed (most likely: offline). Fall back to
+        // whatever we last cached instead of leaving the passenger with an
+        // empty route list.
+        const [cachedRoutes, cachedStages] = await Promise.all([
+          cacheGetAll<RouteRow>("routes"),
+          cacheGetAll<StageRow>("stages"),
+        ]);
+        setRoutes(cachedRoutes);
+        setStages(cachedStages);
+        setLoading(false);
+        if (cachedRoutes.length === 0) {
+          toast.error("Couldn't load routes and no offline copy is saved yet.");
+        }
+        return;
+      }
+
+      const freshRoutes = (r ?? []) as RouteRow[];
+      const freshStages = (s ?? []) as StageRow[];
+      setRoutes(freshRoutes);
+      setStages(freshStages);
       setLoading(false);
+      // Save this fetch as the new offline fallback for next time.
+      cacheReplaceAll("routes", freshRoutes);
+      cacheReplaceAll("stages", freshStages);
+      setLastSynced("routes-stages");
 
       const { data: u } = await supabase.auth.getUser();
       if (u.user) {

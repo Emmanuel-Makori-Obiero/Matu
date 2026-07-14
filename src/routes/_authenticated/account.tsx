@@ -8,7 +8,6 @@ import {
   Check,
   AlertTriangle,
   MessageSquareWarning,
-  Wallet,
   Volume2,
   ShieldAlert,
 } from "lucide-react";
@@ -454,24 +453,6 @@ function AccountSettings() {
               );
             })}
           </div>
-        </section>
-
-        {/* Wallet */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
-          <h2 className="font-display text-lg font-semibold">Wallet</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {heldSaccoRole
-              ? "Top up your passenger balance, or withdraw your SACCO's commission earnings to M-Pesa."
-              : heldDriverRole
-                ? "Top up your passenger balance, or withdraw your driving earnings to M-Pesa."
-                : "Top up your balance so you can pay fares instantly, no M-Pesa prompt needed."}
-          </p>
-          <Link
-            to="/wallet"
-            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-secondary"
-          >
-            <Wallet className="size-4" /> Open wallet
-          </Link>
         </section>
 
         {/* Support */}

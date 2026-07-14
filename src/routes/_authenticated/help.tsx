@@ -18,7 +18,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What's in Account settings?",
-    a: "Your profile details, sound/notification preferences, wallet, any roles you hold (driver/SACCO admin), and account deletion.",
+    a: "Your profile details, sound/notification preferences, any roles you hold (driver/SACCO admin), and account deletion.",
   },
   {
     q: "How do I become a driver?",
@@ -29,8 +29,8 @@ const FAQ: { q: string; a: string }[] = [
     a: "From account settings or the Fleet section, register a new SACCO. You'll manage its vehicles, routes, fares, and driver requests from there.",
   },
   {
-    q: "How does the wallet work?",
-    a: "Top up your wallet via M-Pesa, then use the balance to pay fares directly in-app instead of handling cash each trip.",
+    q: "How do I pay for a trip?",
+    a: "Choose cash to the conductor, or pay the driver directly via their Pochi la Biashara, Send Money, or Buy Goods details shown when you book. Matu doesn't hold your money.",
   },
   {
     q: "How do I file a complaint?",

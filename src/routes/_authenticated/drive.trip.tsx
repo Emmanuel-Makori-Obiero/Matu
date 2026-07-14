@@ -277,6 +277,19 @@ function DriverTrip() {
     toast.success("Marked as collected");
   }
 
+  // Driver confirms a passenger has physically left the vehicle. This is what
+  // actually frees up the seat — the passenger's own "Alight next stage" tap only
+  // sends the driver a heads-up alert, it never changes booking status on its own.
+  async function markAlighted(bookingId: string) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "alighted" })
+      .eq("id", bookingId);
+    if (error) return toast.error(error.message);
+    setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, status: "alighted" } : b)));
+    toast.success("Seat freed up");
+  }
+
   async function addStage(lat: number, lng: number) {
     if (!trip || !addStageMode || !newStageName.trim()) {
       if (addStageMode && !newStageName.trim()) toast.error("Type a stage name first");
@@ -399,7 +412,11 @@ function DriverTrip() {
     );
   }
 
-  const seatsBooked = bookings.filter((b) => b.status !== "cancelled").length;
+  // "alighted" bookings are excluded too — otherwise a passenger who's already
+  // gotten off keeps occupying a seat in the count for the rest of the trip.
+  const seatsBooked = bookings.filter(
+    (b) => b.status !== "cancelled" && b.status !== "alighted",
+  ).length;
 
   return (
     <AppShell title="Trip in progress" subtitle="Your live location is broadcasting to passengers.">
@@ -495,30 +512,49 @@ function DriverTrip() {
               <p className="mt-2 text-sm text-muted-foreground">No bookings yet.</p>
             ) : (
               <ul className="mt-3 grid gap-1 text-sm">
-                {bookings.map((b) => (
-                  <li
-                    key={b.id}
-                    className="flex items-center justify-between rounded-md bg-background px-3 py-1.5"
-                  >
-                    <span>Passenger · seat {b.seat_number ?? "—"}</span>
-                    {b.payment_method === "cash" ? (
-                      b.cash_collected ? (
-                        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                          Cash collected
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => markCashCollected(b.id)}
-                          className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
-                        >
-                          Mark cash received
-                        </button>
-                      )
-                    ) : (
-                      <span className="text-xs text-muted-foreground">{b.status}</span>
-                    )}
-                  </li>
-                ))}
+                {bookings
+                  .filter((b) => b.status !== "cancelled")
+                  .map((b) => (
+                    <li
+                      key={b.id}
+                      className="flex items-center justify-between rounded-md bg-background px-3 py-1.5"
+                    >
+                      <span
+                        className={
+                          b.status === "alighted" ? "text-muted-foreground line-through" : ""
+                        }
+                      >
+                        Passenger · seat {b.seat_number ?? "—"}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {b.payment_method === "cash" &&
+                          (b.cash_collected ? (
+                            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                              Cash collected
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => markCashCollected(b.id)}
+                              className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
+                            >
+                              Mark cash received
+                            </button>
+                          ))}
+                        {b.status === "alighted" ? (
+                          <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                            Alighted
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => markAlighted(b.id)}
+                            className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
+                          >
+                            Mark alighted
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
               </ul>
             )}
           </section>

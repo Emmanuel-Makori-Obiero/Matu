@@ -54,7 +54,7 @@ function RouteDetail() {
   const [bookedTripId, setBookedTripId] = useState<string | null>(null);
   const [driverPayments, setDriverPayments] = useState<Record<string, DriverPayment>>({});
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
-  const [payChoice, setPayChoice] = useState<"manual" | "cash" | "wallet">("manual");
+  const [payChoice, setPayChoice] = useState<"manual" | "cash">("manual");
   const [paymentStatus, setPaymentStatus] = useState<Record<string, "held" | "cash" | "manual">>(
     {},
   );
@@ -405,27 +405,6 @@ function RouteDetail() {
     toast.success("Seat confirmed. Pay the conductor in cash when you board.");
   }
 
-  // Pays instantly from the passenger's prepaid wallet balance (see /wallet) instead of
-  // a fresh M-Pesa STK prompt. pay_fare_from_wallet is SECURITY DEFINER and derives the
-  // passenger from auth.uid() itself, and raises if the balance is insufficient — that
-  // raise surfaces here as a Postgres error we show as a friendly message.
-  async function payWithWallet(bookingId: string) {
-    setPayingBookingId(bookingId);
-    const { error } = await supabase.rpc("pay_fare_from_wallet", { _booking_id: bookingId });
-    setPayingBookingId(null);
-    if (error) {
-      const insufficientFunds = error.message?.toLowerCase().includes("balance");
-      toast.error(
-        insufficientFunds
-          ? "Not enough wallet balance. Top up in Wallet, or choose cash/M-Pesa instead."
-          : "Could not pay from wallet. Try again.",
-      );
-      return;
-    }
-    setPaymentStatus((prev) => ({ ...prev, [bookingId]: "held" }));
-    toast.success("Paid from your wallet. Seat confirmed!");
-  }
-
   // Passenger pays the driver directly, outside the app, using the driver's own
   // Pochi la Biashara / Send Money / Buy Goods details shown below — Matu never
   // touches this money and never initiates an STK prompt. This just self-declares
@@ -637,17 +616,6 @@ function RouteDetail() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setPayChoice("wallet")}
-                                className={`flex-1 rounded px-2 py-1 text-xs font-medium transition ${
-                                  payChoice === "wallet"
-                                    ? "bg-primary text-primary-foreground"
-                                    : "text-muted-foreground"
-                                }`}
-                              >
-                                Wallet
-                              </button>
-                              <button
-                                type="button"
                                 onClick={() => setPayChoice("cash")}
                                 className={`flex-1 rounded px-2 py-1 text-xs font-medium transition ${
                                   payChoice === "cash"
@@ -716,16 +684,6 @@ function RouteDetail() {
                                   </>
                                 );
                               })()
-                            ) : payChoice === "wallet" ? (
-                              <button
-                                onClick={() => payWithWallet(bookedBookingId)}
-                                disabled={payingBookingId === bookedBookingId}
-                                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
-                              >
-                                {payingBookingId === bookedBookingId
-                                  ? "Paying…"
-                                  : "Pay from wallet"}
-                              </button>
                             ) : (
                               <button
                                 onClick={() => payWithCash(bookedBookingId)}

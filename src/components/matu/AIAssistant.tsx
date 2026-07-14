@@ -72,7 +72,7 @@ const PLACEHOLDERS: Record<AssistantContext["page"], string> = {
 const QUICK_TOPICS = [
   "How do I book a ride?",
   "What's in account settings?",
-  "How do wallet top-ups work?",
+  "How do I pay for a trip?",
   "How do I file a complaint?",
   "How do I become a driver?",
   "How do I register a SACCO?",
