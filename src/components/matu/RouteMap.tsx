@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { L, NAIROBI_CENTER } from "@/lib/leaflet-map";
 
-export type MapStage = { id: string; name: string; lat: number; lng: number };
+export type MapStage = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  passengerCount?: number;
+};
 export type MapVehicle = {
   id: string;
   lat: number;
@@ -84,12 +90,27 @@ function pinDivIcon() {
   return L.divIcon({ html, className: "", iconSize: [16, 16], iconAnchor: [8, 8] });
 }
 
-function stageDivIcon() {
-  const html = `<div style="
-    width:14px;height:14px;border-radius:50%;
-    background:#0a5f3d;
-    border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.15);
-  "></div>`;
+function stageDivIcon(passengerCount?: number) {
+  // Badge only appears when there's actually demand at this stage — a driver
+  // scanning the map at a glance should be able to tell "3 people waiting
+  // here" apart from an empty stop without reading every label.
+  const badge =
+    passengerCount && passengerCount > 0
+      ? `<div style="
+          position:absolute;top:-8px;right:-8px;min-width:16px;height:16px;
+          border-radius:8px;background:#e11d48;color:#fff;font-size:10px;
+          font-weight:700;display:flex;align-items:center;justify-content:center;
+          padding:0 3px;border:1.5px solid #fff;
+        ">${passengerCount > 9 ? "9+" : passengerCount}</div>`
+      : "";
+  const html = `<div style="position:relative;width:14px;height:14px;">
+    <div style="
+      width:14px;height:14px;border-radius:50%;
+      background:#0a5f3d;
+      border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.15);
+    "></div>
+    ${badge}
+  </div>`;
   return L.divIcon({ html, className: "", iconSize: [14, 14], iconAnchor: [7, 7] });
 }
 
@@ -100,6 +121,7 @@ export function RouteMap({
   liveRoute = null,
   etaLabelByVehicleId,
   onMapClick,
+  showTraffic = false,
   className,
 }: {
   stages: MapStage[];
@@ -116,6 +138,11 @@ export function RouteMap({
   // vehicle's marker, keyed by vehicle id — same idea as Uber's live trip map.
   etaLabelByVehicleId?: Record<string, string>;
   onMapClick?: (lat: number, lng: number) => void;
+  // Overlays Mapbox's live traffic raster tiles (color-coded by congestion:
+  // green free-flowing, orange moderate, red/dark-red heavy). Off by default
+  // since it's an extra tile layer/network cost — opt in per screen (e.g. the
+  // driver's trip map) rather than loading it everywhere.
+  showTraffic?: boolean;
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -125,6 +152,7 @@ export function RouteMap({
   const vehicleMarkers = useRef<Record<string, L.Marker>>({});
   const pinMarker = useRef<L.Marker | null>(null);
   const liveRoutePolylineRef = useRef<L.Polyline | null>(null);
+  const trafficLayerRef = useRef<L.TileLayer | null>(null);
   const liveRouteOriginRef = useRef(liveRoute?.origin);
   liveRouteOriginRef.current = liveRoute?.origin;
   const [ready, setReady] = useState(false);
@@ -152,13 +180,41 @@ export function RouteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Live traffic overlay — Mapbox's traffic-day-v2 style tiles, color-coded
+  // by current congestion. Added/removed as a separate tile layer rather than
+  // baked into the base map so it can be toggled without recreating the map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const token = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
+
+    if (!showTraffic || !token) {
+      trafficLayerRef.current?.remove();
+      trafficLayerRef.current = null;
+      return;
+    }
+    if (!trafficLayerRef.current) {
+      trafficLayerRef.current = L.tileLayer(
+        `https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=${token}`,
+        { maxZoom: 19, opacity: 0.75 },
+      ).addTo(map);
+    }
+    return () => {
+      trafficLayerRef.current?.remove();
+      trafficLayerRef.current = null;
+    };
+  }, [showTraffic, ready]);
+
   // Draw stages + polyline
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     stageMarkers.current.forEach((m) => m.remove());
     stageMarkers.current = stages.map((s) =>
-      L.marker([s.lat, s.lng], { icon: stageDivIcon(), title: s.name }).addTo(map),
+      L.marker([s.lat, s.lng], {
+        icon: stageDivIcon(s.passengerCount),
+        title: s.passengerCount ? `${s.name} — ${s.passengerCount} waiting` : s.name,
+      }).addTo(map),
     );
     polylineRef.current?.remove();
     polylineRef.current = null;

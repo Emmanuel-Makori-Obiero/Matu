@@ -11,6 +11,7 @@ import { ShieldAlert, ShieldCheck, ShieldX, MessageSquareWarning } from "lucide-
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import { OfflineDebugPanel } from "@/components/matu/OfflineDebugPanel";
 import type { Database } from "@/integrations/supabase/types";
 
 type ComplaintStatus = Database["public"]["Enums"]["complaint_status"];
@@ -202,6 +203,7 @@ function PlatformAdminPage() {
       subtitle="Cross-SACCO oversight. Suspending a vehicle here blocks it platform-wide, regardless of which SACCO owns it."
     >
       <div className="space-y-3">
+        <OfflineDebugPanel />
         {loading && <p className="text-sm opacity-70">Loading vehicles…</p>}
         {!loading && vehicles.length === 0 && (
           <p className="text-sm opacity-70">No vehicles found across any SACCO yet.</p>

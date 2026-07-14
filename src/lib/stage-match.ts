@@ -1,10 +1,15 @@
-// The passenger's "from"/"to" text (e.g. "Roysambu") often isn't the exact name of a
-// stage. This geocodes what they typed with Nominatim (OpenStreetMap's free geocoder,
-// no key/billing), then finds the nearest actual stage across ALL routes (using
-// straight-line/haversine distance), so we can say "closest stop: Roysambu is served by
-// CBD <-> Kasarani, alight at Roasters" instead of finding nothing.
+// The passenger's "from"/"to" text (e.g. "Roysambu" or "GoMyCode") often isn't the
+// exact name of a stage. This geocodes what they typed with Mapbox (POI/business
+// coverage is much better than OSM/Nominatim for named places like a specific
+// building or business — the whole point of this lookup), then finds the nearest
+// actual stage across ALL routes (using straight-line/haversine distance), so we
+// can say "closest stop: Roysambu is served by CBD <-> Kasarani, alight at
+// Roasters" instead of finding nothing.
 
 import { supabase } from "@/integrations/supabase/client";
+
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
+const NAIROBI_PROXIMITY = "36.8219,-1.2921"; // lng,lat
 
 type StageRow = { id: string; route_id: string; name: string; lat: number; lng: number };
 
@@ -24,9 +29,12 @@ export type NearestStageResult = {
   exactNameMatch: boolean;
 };
 
-// Nominatim (OpenStreetMap's free geocoder) — no key, no billing. Their usage policy
-// asks for at most ~1 req/sec and a descriptive User-Agent/Referer, which the browser
-// sets automatically; keep this to on-demand lookups (not polling) to stay within it.
+// Nominatim (OpenStreetMap's free geocoder) — no key, no billing. Kept as a
+// fallback for when Mapbox has no token configured or returns nothing; Mapbox
+// tends to win for named businesses/buildings, Nominatim occasionally has
+// small local landmarks Mapbox lacks. Their usage policy asks for at most
+// ~1 req/sec and a descriptive User-Agent/Referer, which the browser sets
+// automatically; keep this to on-demand lookups (not polling) to stay within it.
 async function geocodeWithNominatim(query: string): Promise<{ lat: number; lng: number } | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
@@ -38,6 +46,32 @@ async function geocodeWithNominatim(query: string): Promise<{ lat: number; lng: 
   } catch {
     return null;
   }
+}
+
+// Primary geocoder: Mapbox's POI index covers named businesses/buildings
+// ("GoMyCode", "Platinum Plaza", "Westside Towers") far more completely than
+// OSM/Nominatim does for Nairobi. Proximity-biased so ambiguous names favor
+// the local match.
+async function geocodeWithMapbox(query: string): Promise<{ lat: number; lng: number } | null> {
+  if (!MAPBOX_TOKEN) return null;
+  try {
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+      `?access_token=${MAPBOX_TOKEN}&proximity=${NAIROBI_PROXIMITY}&country=ke&limit=1` +
+      `&types=poi,address,place,neighborhood`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { features?: Array<{ center: [number, number] }> };
+    const center = data.features?.[0]?.center;
+    if (!center) return null;
+    return { lat: center[1], lng: center[0] };
+  } catch {
+    return null;
+  }
+}
+
+async function geocode(query: string): Promise<{ lat: number; lng: number } | null> {
+  return (await geocodeWithMapbox(query)) ?? (await geocodeWithNominatim(query));
 }
 
 // Given raw coordinates (e.g. from a map click/tap), returns the closest stage(s) on
@@ -77,7 +111,7 @@ export async function findNearestStage(query: string, limit = 3): Promise<Neares
   }
 
   // No stage literally named that — geocode it and find the nearest real stage.
-  const geocoded = await geocodeWithNominatim(`${query}, Nairobi, Kenya`);
+  const geocoded = await geocode(`${query}, Nairobi, Kenya`);
   if (!geocoded) return [];
 
   const { lat, lng } = geocoded;

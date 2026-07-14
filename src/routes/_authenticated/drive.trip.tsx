@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
-import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
+import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { startNoisyAlert, stopNoisyAlert, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 import { TicketScanner } from "@/components/matu/TicketScanner";
 import { ParcelPanel } from "@/components/matu/ParcelPanel";
@@ -28,6 +28,7 @@ type BookingWithProfile = {
   passenger_id: string;
   payment_method: string | null;
   cash_collected: boolean | null;
+  pickup_stage_id: string | null;
 };
 type AlertRow = {
   id: string;
@@ -57,6 +58,18 @@ function DriverTrip() {
   const [currentStageId, setCurrentStageId] = useState<string | null>(null);
   const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
   const [wakeLockActive, setWakeLockActive] = useState(false);
+  // Defaults on for drivers — "where is there a jam" was literally what a
+  // driver asked for when we surveyed what would help them most.
+  const [showTraffic, setShowTraffic] = useState(true);
+  // The GPS watch below already sends position to Supabase for passengers to
+  // see, but never kept a local copy — so the driver's own trip map couldn't
+  // show them their own position ("where they are" was the other half of
+  // what that driver asked for). This mirrors the same reading into state.
+  const [driverPos, setDriverPos] = useState<{
+    lat: number;
+    lng: number;
+    heading: number | null;
+  } | null>(null);
 
   // Load driver's vehicles + routes on mount
   useEffect(() => {
@@ -91,7 +104,9 @@ function DriverTrip() {
           .order("order_index"),
         supabase
           .from("bookings")
-          .select("id,seat_number,status,passenger_id,payment_method,cash_collected")
+          .select(
+            "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id",
+          )
           .eq("trip_id", trip.id),
         supabase
           .from("alerts")
@@ -114,7 +129,9 @@ function DriverTrip() {
         async () => {
           const { data } = await supabase
             .from("bookings")
-            .select("id,seat_number,status,passenger_id,payment_method,cash_collected")
+            .select(
+              "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id",
+            )
             .eq("trip_id", trip.id);
           setBookings((data ?? []) as BookingWithProfile[]);
         },
@@ -148,6 +165,11 @@ function DriverTrip() {
     if (!("geolocation" in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
       async (pos) => {
+        setDriverPos({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          heading: pos.coords.heading,
+        });
         await supabase
           .from("trips")
           .update({
@@ -312,7 +334,7 @@ function DriverTrip() {
     if (!trip) return;
     const { data } = await supabase
       .from("bookings")
-      .select("id,seat_number,status,passenger_id,payment_method,cash_collected")
+      .select("id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id")
       .eq("trip_id", trip.id);
     setBookings((data ?? []) as BookingWithProfile[]);
   }
@@ -529,6 +551,19 @@ function DriverTrip() {
     (b) => b.status !== "cancelled" && b.status !== "alighted",
   ).length;
 
+  // Shows the driver at a glance which upcoming stages actually have people
+  // waiting to board, not just where the route passes through — counts
+  // still-active bookings (not cancelled, not yet alighted) by pickup stage.
+  const stagesWithPassengerCounts: MapStage[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const b of bookings) {
+      if (b.status === "cancelled" || b.status === "alighted") continue;
+      if (!b.pickup_stage_id) continue;
+      counts[b.pickup_stage_id] = (counts[b.pickup_stage_id] ?? 0) + 1;
+    }
+    return stages.map((s) => ({ ...s, passengerCount: counts[s.id] ?? 0 }));
+  }, [stages, bookings]);
+
   return (
     <AppShell title="Trip in progress" subtitle="Your live location is broadcasting to passengers.">
       {wakeLockActive && (
@@ -539,7 +574,37 @@ function DriverTrip() {
       )}
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <div className="grid gap-3">
-          <RouteMap stages={stages} onMapClick={addStage} />
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowTraffic((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+                showTraffic
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              Traffic {showTraffic ? "on" : "off"}
+            </button>
+          </div>
+          <RouteMap
+            stages={stagesWithPassengerCounts}
+            vehicles={
+              driverPos
+                ? [
+                    {
+                      id: "self",
+                      lat: driverPos.lat,
+                      lng: driverPos.lng,
+                      heading: driverPos.heading,
+                      label: "You",
+                    },
+                  ]
+                : []
+            }
+            onMapClick={addStage}
+            showTraffic={showTraffic}
+          />
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
             <button
               onClick={() => setAddStageMode((v) => !v)}

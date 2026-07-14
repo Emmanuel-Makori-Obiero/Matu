@@ -15,6 +15,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
+import { PlaceSearch } from "@/components/matu/PlaceSearch";
 import { assignSaccoDriver } from "@/lib/fleet.functions";
 
 type Vehicle = {
@@ -686,6 +687,16 @@ function FleetDetail() {
                         {pickingStage ? "Tap the map to place a stage" : "Add a stage on the map"}
                       </button>
                     </div>
+
+                    {pickingStage && (
+                      <PlaceSearch
+                        placeholder="Search e.g. Platinum Plaza, Westside Towers, GoMyCode…"
+                        onSelect={(place) => {
+                          setPendingStagePin({ lat: place.lat, lng: place.lng });
+                          setNewStageName(place.name);
+                        }}
+                      />
+                    )}
 
                     <RouteMap
                       stages={stagesForRoute.map((s): MapStage => ({
