@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { PlaceSearch, type PlaceResult } from "@/components/matu/PlaceSearch";
 import { useEffect, useMemo, useState } from "react";
 import {
   MapPin,
@@ -74,6 +75,27 @@ function PassengerHome() {
       nearest.distanceKm < 0.05 ? "right there" : `${nearest.distanceKm.toFixed(1)} km away`;
     toast.success(
       `${pickTarget === "from" ? "Pickup" : "Destination"} set to ${nearest.stage.name} (nearest stage, ${distanceLabel})`,
+    );
+  }
+
+  // Passenger typed/selected a building, business, or street from the search box
+  // (Mapbox POI/address search — covers named places Nominatim/stage names miss).
+  // Same idea as tapping the map: drop a pin there, then find the nearest real
+  // matatu stage to it and set that as the pickup/destination so route matching
+  // still works off actual stage coordinates.
+  async function handlePlaceSelected(place: PlaceResult, target: "from" | "to") {
+    setDroppedPin({ lat: place.lat, lng: place.lng });
+    const matches = await findNearestStageByCoords(place.lat, place.lng, 1);
+    if (matches.length === 0) {
+      return toast.error(`No nearby matatu stage found for ${place.name}`);
+    }
+    const nearest = matches[0];
+    if (target === "from") setFrom(nearest.stage.name);
+    else setTo(nearest.stage.name);
+    const distanceLabel =
+      nearest.distanceKm < 0.05 ? "right there" : `${nearest.distanceKm.toFixed(1)} km away`;
+    toast.success(
+      `${target === "from" ? "Pickup" : "Destination"} set to ${nearest.stage.name} — nearest stage to ${place.name} (${distanceLabel})`,
     );
   }
 
@@ -361,6 +383,10 @@ function PassengerHome() {
             </div>
 
             <div className="grid gap-3">
+              <PlaceSearch
+                placeholder="Search a building, business, or street for pickup…"
+                onSelect={(p) => handlePlaceSelected(p, "from")}
+              />
               <PlaceField
                 icon={<div className="size-2.5 rounded-full bg-accent" />}
                 label="Pickup"
@@ -383,6 +409,10 @@ function PassengerHome() {
                   <ArrowRightLeft className="size-3.5" />
                 </button>
               </div>
+              <PlaceSearch
+                placeholder="Search a building, business, or street for destination…"
+                onSelect={(p) => handlePlaceSelected(p, "to")}
+              />
               <PlaceField
                 icon={<div className="size-2.5 rounded-full bg-primary" />}
                 label="Destination"

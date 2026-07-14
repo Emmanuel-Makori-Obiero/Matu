@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useLiveTrafficEta } from "@/lib/traffic-eta";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus } from "lucide-react";
@@ -195,6 +196,40 @@ function DriverTrip() {
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [trip, currentStageId]);
+
+  // The stage after the one the driver last marked as "current" — this is what
+  // useLiveTrafficEta below checks against, so the jam alert fires for the leg
+  // actually ahead of the vehicle rather than the whole route end-to-end.
+  const nextStage = useMemo(() => {
+    if (stages.length === 0) return null;
+    const current = stages.find((s) => s.id === currentStageId);
+    const sorted = [...stages].sort((a, b) => a.order_index - b.order_index);
+    if (!current) return sorted[0] ?? null;
+    return sorted.find((s) => s.order_index > current.order_index) ?? null;
+  }, [stages, currentStageId]);
+
+  const { delayed: aheadIsJammed } = useLiveTrafficEta(
+    driverPos ? { lat: driverPos.lat, lng: driverPos.lng } : null,
+    nextStage ? { lat: nextStage.lat, lng: nextStage.lng } : null,
+  );
+
+  // Fires once when the leg ahead crosses into "jammed" (traffic-aware ETA is
+  // 2+ min slower than free-flow — same threshold LeaveNowBanner uses for
+  // passengers) so the driver can reroute/warn passengers before they're stuck
+  // in it, not after. Loud + reuses the same alert sound/acknowledge flow as
+  // passenger alerts so there's only one pattern for drivers to learn.
+  useEffect(() => {
+    if (!trip || !aheadIsJammed) return;
+    startNoisyAlert();
+    toast.warning(
+      nextStage ? `Heavy traffic ahead near ${nextStage.name}` : "Heavy traffic ahead",
+      { duration: 15000, action: { label: "Acknowledge", onClick: stopNoisyAlert } },
+    );
+    return () => stopNoisyAlert();
+    // Only re-fire when it flips from clear -> jammed, not on every poll while
+    // still jammed (that would restart the beep loop every 10s).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aheadIsJammed, trip]);
 
   // Keeps the screen from auto-locking while a trip is active, so GPS tracking
   // (watchPosition above) doesn't get throttled/suspended just because the phone
