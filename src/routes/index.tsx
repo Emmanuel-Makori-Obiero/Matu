@@ -1,12 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { Bus, Receipt, Clock, Radar, BellRing, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bus, Receipt, Clock, Radar, BellRing, Search, Loader2, MapPin } from "lucide-react";
 import passengerImg from "../assets/matu-passenger.jpg";
 import driversImg from "../assets/matu-drivers.jpg";
 import saccoImg from "../assets/matu-sacco.jpg";
 import { InstallAppButton } from "@/components/matu/InstallAppButton";
 import { AIAssistant } from "@/components/matu/AIAssistant";
 import { supabase } from "@/integrations/supabase/client";
+import { homePathForUser } from "@/lib/matu-auth";
+import { findNearestStage, type NearestStageResult } from "@/lib/stage-match";
 
 type RouteOption = {
   id: string;
@@ -14,6 +16,16 @@ type RouteOption = {
   origin: string;
   destination: string;
   base_fare: number;
+};
+
+// A search hit backed by a geocoded building/landmark rather than a literal
+// route-name match — "nearest stage" result enriched with the route it sits
+// on, so the UI can say "closest to Westgate: <stage> on <route>".
+type BuildingMatch = {
+  stage: NearestStageResult["stage"];
+  distanceKm: number;
+  exactNameMatch: boolean;
+  route: RouteOption;
 };
 
 export const Route = createFileRoute("/")({
@@ -102,11 +114,25 @@ function RoleCard({ image, title, points }: { image: string; title: string; poin
 function Index() {
   const navigate = useNavigate();
   const [signedIn, setSignedIn] = useState(false);
+  const [homePath, setHomePath] = useState("/ride"); // role-aware fallback, resolved on load
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [query, setQuery] = useState("");
+  const [buildingMatches, setBuildingMatches] = useState<BuildingMatch[]>([]);
+  const [buildingSearching, setBuildingSearching] = useState(false);
+  const buildingDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setSignedIn(!!data.user));
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+      setSignedIn(true);
+      const home = await homePathForUser(data.user.id);
+      setHomePath(home);
+      // Someone who's already signed in landing on the marketing page (e.g.
+      // opened the installed PWA, or bookmarked "/") wants their dashboard,
+      // not the pitch — send drivers to /drive, SACCO admins to /fleet, etc.,
+      // same as the post-login redirect in auth.tsx.
+      navigate({ to: home, replace: true });
+    });
     supabase
       .from("routes")
       .select("id,name,origin,destination,base_fare")
@@ -114,11 +140,13 @@ function Index() {
       .then(({ data }) => {
         if (data) setRoutes(data as RouteOption[]);
       });
-  }, []);
+  }, [navigate]);
 
-  const appPath = signedIn ? "/ride" : "/auth";
+  const appPath = signedIn ? homePath : "/auth";
 
-  const matches = useMemo(() => {
+  // Fast, local, no-network match on route name/origin/destination — covers
+  // typing an actual stage name like "Kasarani" instantly as you type.
+  const routeMatches = useMemo(() => {
     if (!query.trim()) return [];
     const q = query.trim().toLowerCase();
     return routes
@@ -131,17 +159,49 @@ function Index() {
       .slice(0, 6);
   }, [routes, query]);
 
-  function goToRoute(routeId: string) {
+  // Merged in alongside routeMatches: geocodes the query (Mapbox POI index —
+  // covers named buildings/businesses/malls like "Westgate" that never
+  // appear in a route's name) and finds the nearest real stage across every
+  // route, so a building search always resolves to "board here" instead of
+  // coming up empty. Debounced since it hits the network.
+  useEffect(() => {
+    clearTimeout(buildingDebounceRef.current);
+    if (query.trim().length < 3 || routes.length === 0) {
+      setBuildingMatches([]);
+      return;
+    }
+    setBuildingSearching(true);
+    buildingDebounceRef.current = setTimeout(async () => {
+      const nearest = await findNearestStage(query, 4);
+      const routeById = new Map(routes.map((r) => [r.id, r]));
+      const enriched = nearest
+        .map((n) => {
+          const route = routeById.get(n.stage.route_id);
+          return route ? { ...n, route } : null;
+        })
+        .filter((m): m is BuildingMatch => m !== null);
+      setBuildingMatches(enriched);
+      setBuildingSearching(false);
+    }, 400);
+    return () => clearTimeout(buildingDebounceRef.current);
+  }, [query, routes]);
+
+  function goToRoute(routeId: string, fromStageName?: string) {
     if (signedIn) {
       navigate({
         to: "/ride/$routeId",
         params: { routeId },
-        search: { from: undefined, to: undefined },
+        search: { from: fromStageName, to: undefined },
       });
     } else {
       navigate({ to: "/auth" });
     }
   }
+
+  const hasQuery = query.trim().length > 0;
+  const showBuildingLoading = buildingSearching && query.trim().length >= 3;
+  const noResults =
+    hasQuery && !showBuildingLoading && routeMatches.length === 0 && buildingMatches.length === 0;
 
   return (
     <div className="min-h-screen w-full" style={{ backgroundColor: CREAM }}>
@@ -177,29 +237,84 @@ function Index() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Type a stage, e.g. Kasarani or Rongai"
+              placeholder="Type a stage, building, or landmark, e.g. Westgate or Rongai"
               className="w-full rounded-full border border-[#dcd8cb] bg-white py-3.5 pl-11 pr-4 text-base text-[#1a1a1a] outline-none focus:border-[#0f5132]"
             />
           </div>
-          {query.trim() && (
+          {hasQuery && (
             <div className="mt-2 max-w-xl overflow-hidden rounded-xl border border-[#dcd8cb] bg-white">
-              {matches.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-[#8a8a80]">No route matches "{query}" yet.</p>
+              {noResults ? (
+                <div className="px-4 py-3 text-sm text-[#8a8a80]">
+                  {query.trim().length >= 3 ? (
+                    <>
+                      <p>
+                        Couldn't find a route or a nearby stage for "{query}". Try a more specific
+                        name (e.g. add the estate or road), or check the spelling.
+                      </p>
+                      <p className="mt-1">
+                        You can also{" "}
+                        <Link
+                          to={signedIn ? homePath : "/auth"}
+                          className="font-medium text-[#0f5132] underline"
+                        >
+                          {signedIn ? "open the app" : "sign in"}
+                        </Link>{" "}
+                        to pick your spot on the map instead.
+                      </p>
+                    </>
+                  ) : (
+                    <p>No route matches "{query}" yet.</p>
+                  )}
+                </div>
               ) : (
-                matches.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => goToRoute(r.id)}
-                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm hover:bg-[#fbf9f3]"
-                  >
-                    <span>
-                      <span className="font-semibold text-[#1a1a1a]">{r.origin}</span>
-                      <span className="mx-1.5 text-[#8a8a80]">to</span>
-                      <span className="font-semibold text-[#1a1a1a]">{r.destination}</span>
-                    </span>
-                    <span className="text-[#0f5132]">KES {r.base_fare}</span>
-                  </button>
-                ))
+                <>
+                  {routeMatches.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => goToRoute(r.id)}
+                      className="flex w-full items-center justify-between border-b border-[#f0eee5] px-4 py-3 text-left text-sm last:border-0 hover:bg-[#fbf9f3]"
+                    >
+                      <span>
+                        <span className="font-semibold text-[#1a1a1a]">{r.origin}</span>
+                        <span className="mx-1.5 text-[#8a8a80]">to</span>
+                        <span className="font-semibold text-[#1a1a1a]">{r.destination}</span>
+                      </span>
+                      <span className="text-[#0f5132]">KES {r.base_fare}</span>
+                    </button>
+                  ))}
+
+                  {showBuildingLoading && (
+                    <div className="flex items-center gap-2 px-4 py-3 text-sm text-[#8a8a80]">
+                      <Loader2 className="size-4 animate-spin" />
+                      Looking for the nearest stage…
+                    </div>
+                  )}
+
+                  {buildingMatches.map((m) => (
+                    <button
+                      key={`${m.route.id}-${m.stage.id}`}
+                      onClick={() => goToRoute(m.route.id, m.stage.name)}
+                      className="flex w-full items-start gap-2 border-b border-[#f0eee5] px-4 py-3 text-left text-sm last:border-0 hover:bg-[#fbf9f3]"
+                    >
+                      <MapPin size={16} className="mt-0.5 shrink-0 text-[#0f5132]" />
+                      <span className="flex-1">
+                        <span className="block text-[#8a8a80]">
+                          {m.exactNameMatch ? "Board at" : `Nearest stage to "${query}"`}
+                        </span>
+                        <span className="font-semibold text-[#1a1a1a]">{m.stage.name}</span>
+                        <span className="mx-1.5 text-[#8a8a80]">·</span>
+                        <span className="text-[#1a1a1a]">
+                          {m.route.origin} to {m.route.destination}
+                        </span>
+                        {!m.exactNameMatch && (
+                          <span className="ml-1.5 text-xs text-[#8a8a80]">
+                            (~{m.distanceKm.toFixed(1)} km away)
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </>
               )}
             </div>
           )}

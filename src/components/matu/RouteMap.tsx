@@ -15,6 +15,17 @@ export type MapVehicle = {
   heading?: number | null;
   label?: string;
 };
+// A single waiting passenger, positioned near their pickup stage (bookings
+// only store a pickup_stage_id, not a live per-passenger GPS fix, so callers
+// should jitter multiple passengers at the same stage into a small cluster
+// rather than stacking them on one exact point — see jitterAroundStage in
+// drive.trip.tsx).
+export type MapPassenger = {
+  id: string;
+  lat: number;
+  lng: number;
+  label?: string;
+};
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 
@@ -90,6 +101,19 @@ function pinDivIcon() {
   return L.divIcon({ html, className: "", iconSize: [16, 16], iconAnchor: [8, 8] });
 }
 
+// Small purple dot for a single waiting passenger — deliberately smaller and
+// a different color than the stage marker (green) and vehicle marker (yellow)
+// so a driver scanning the map can tell "person" apart from "stop" apart from
+// "matatu" at a glance.
+function passengerDivIcon() {
+  const html = `<div style="
+    width:9px;height:9px;border-radius:50%;
+    background:#7c3aed;border:1.5px solid #ffffff;
+    box-shadow:0 0 0 1px rgba(0,0,0,0.15);
+  "></div>`;
+  return L.divIcon({ html, className: "", iconSize: [9, 9], iconAnchor: [5, 5] });
+}
+
 function stageDivIcon(passengerCount?: number) {
   // Badge only appears when there's actually demand at this stage — a driver
   // scanning the map at a glance should be able to tell "3 people waiting
@@ -117,15 +141,20 @@ function stageDivIcon(passengerCount?: number) {
 export function RouteMap({
   stages,
   vehicles = [],
+  passengers = [],
   pin = null,
   liveRoute = null,
   etaLabelByVehicleId,
   onMapClick,
   showTraffic = false,
+  jammed = false,
   className,
 }: {
   stages: MapStage[];
   vehicles?: MapVehicle[];
+  // Individual waiting-passenger dots — see MapPassenger for the caveat on
+  // where their position comes from.
+  passengers?: MapPassenger[];
   pin?: { lat: number; lng: number } | null;
   // The road-snapped "remaining route" line from a live vehicle to a stage —
   // pass the passenger's booked trip + their pickup/dropoff stage to get the
@@ -143,6 +172,12 @@ export function RouteMap({
   // since it's an extra tile layer/network cost — opt in per screen (e.g. the
   // driver's trip map) rather than loading it everywhere.
   showTraffic?: boolean;
+  // When true, the main route polyline (the stages-to-stages line) is drawn
+  // red instead of green — a driver-facing "the road ahead is jammed" signal
+  // that stays visible on the map itself, not just a toast that can be missed
+  // or dismissed. Pass the same "delayed" flag useLiveTrafficEta returns for
+  // the leg immediately ahead of the vehicle.
+  jammed?: boolean;
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -150,6 +185,7 @@ export function RouteMap({
   const stageMarkers = useRef<L.Marker[]>([]);
   const polylineRef = useRef<L.Polyline | null>(null);
   const vehicleMarkers = useRef<Record<string, L.Marker>>({});
+  const passengerMarkers = useRef<Record<string, L.Marker>>({});
   const pinMarker = useRef<L.Marker | null>(null);
   const liveRoutePolylineRef = useRef<L.Polyline | null>(null);
   const trafficLayerRef = useRef<L.TileLayer | null>(null);
@@ -220,12 +256,26 @@ export function RouteMap({
     polylineRef.current = null;
     if (stages.length > 1) {
       const path = stages.map((s) => [s.lat, s.lng] as [number, number]);
-      polylineRef.current = L.polyline(path, { color: "#0a5f3d", opacity: 0.9, weight: 3 }).addTo(
-        map,
-      );
+      polylineRef.current = L.polyline(path, {
+        color: jammed ? "#dc2626" : "#0a5f3d",
+        opacity: 0.9,
+        weight: jammed ? 5 : 3,
+      }).addTo(map);
       map.fitBounds(L.latLngBounds(path), { padding: [40, 40] });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stages, ready]);
+
+  // Re-colors the existing polyline in place when the jam state flips, instead
+  // of rebuilding it via the effect above — that one also re-fits map bounds,
+  // which would yank the driver's view/zoom every time traffic clears or
+  // returns, purely as a side effect of a color change.
+  useEffect(() => {
+    polylineRef.current?.setStyle({
+      color: jammed ? "#dc2626" : "#0a5f3d",
+      weight: jammed ? 5 : 3,
+    });
+  }, [jammed]);
 
   // Live vehicles
   useEffect(() => {
@@ -272,6 +322,34 @@ export function RouteMap({
       }
     });
   }, [vehicles, ready, etaLabelByVehicleId]);
+
+  // Waiting-passenger dots — same add/update/remove-stale pattern as vehicles
+  // above, keyed by booking id so a dot moves rather than flickers if a
+  // passenger's jittered position is recomputed between renders.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const seen = new Set<string>();
+    passengers.forEach((p) => {
+      seen.add(p.id);
+      const existing = passengerMarkers.current[p.id];
+      if (existing) {
+        existing.setLatLng([p.lat, p.lng]);
+      } else {
+        passengerMarkers.current[p.id] = L.marker([p.lat, p.lng], {
+          icon: passengerDivIcon(),
+          title: p.label ?? "Waiting passenger",
+          zIndexOffset: -100, // sits below stage/vehicle markers, not on top
+        }).addTo(map);
+      }
+    });
+    Object.keys(passengerMarkers.current).forEach((id) => {
+      if (!seen.has(id)) {
+        passengerMarkers.current[id].remove();
+        delete passengerMarkers.current[id];
+      }
+    });
+  }, [passengers, ready]);
 
   // Dropped pin — where the passenger tapped to set pickup/destination.
   useEffect(() => {

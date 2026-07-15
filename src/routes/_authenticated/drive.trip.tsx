@@ -5,7 +5,12 @@ import { toast } from "sonner";
 import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
-import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
+import {
+  RouteMap,
+  type MapStage,
+  type MapVehicle,
+  type MapPassenger,
+} from "@/components/matu/RouteMap";
 import { startNoisyAlert, stopNoisyAlert, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 import { TicketScanner } from "@/components/matu/TicketScanner";
 import { ParcelPanel } from "@/components/matu/ParcelPanel";
@@ -502,6 +507,41 @@ function DriverTrip() {
     return stages.map((s) => ({ ...s, passengerCount: counts[s.id] ?? 0 }));
   }, [stages, bookings]);
 
+  // Individual dots for the map: one per waiting passenger, positioned at
+  // their pickup stage. Bookings don't carry a live per-passenger GPS fix —
+  // only which stage they're picking up from — so where several passengers
+  // share a stage, each is nudged a few meters off-center in a small circle
+  // around it (deterministic by index, not random, so dots don't jump around
+  // between renders) rather than stacking exactly on top of one another or
+  // on top of the stage marker itself.
+  const passengerDots: MapPassenger[] = useMemo(() => {
+    const active = bookings.filter(
+      (b) => b.status !== "cancelled" && b.status !== "alighted" && b.pickup_stage_id,
+    );
+    const byStage: Record<string, BookingWithProfile[]> = {};
+    for (const b of active) {
+      byStage[b.pickup_stage_id!] = [...(byStage[b.pickup_stage_id!] ?? []), b];
+    }
+    const dots: MapPassenger[] = [];
+    for (const stage of stages) {
+      const atStage = byStage[stage.id];
+      if (!atStage || atStage.length === 0) continue;
+      atStage.forEach((b, i) => {
+        // ~15m radius circle, evenly spaced — plenty to visually separate
+        // dots at typical map zoom without drifting into a different stage.
+        const angle = (2 * Math.PI * i) / atStage.length;
+        const radiusDeg = 0.00015;
+        dots.push({
+          id: b.id,
+          lat: stage.lat + radiusDeg * Math.sin(angle),
+          lng: stage.lng + radiusDeg * Math.cos(angle),
+          label: `Waiting at ${stage.name}`,
+        });
+      });
+    }
+    return dots;
+  }, [stages, bookings]);
+
   if (!trip) {
     return (
       <AppShell
@@ -613,7 +653,16 @@ function DriverTrip() {
       )}
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <div className="grid gap-3">
-          <div className="mb-2 flex justify-end">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            {aheadIsJammed ? (
+              <div className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive">
+                <span className="size-2 rounded-full bg-destructive" />
+                Heavy traffic {nextStage ? `ahead near ${nextStage.name}` : "ahead"} — route shown
+                in red
+              </div>
+            ) : (
+              <span />
+            )}
             <button
               type="button"
               onClick={() => setShowTraffic((v) => !v)}
@@ -628,6 +677,7 @@ function DriverTrip() {
           </div>
           <RouteMap
             stages={stagesWithPassengerCounts}
+            passengers={passengerDots}
             vehicles={
               driverPos
                 ? [
@@ -643,6 +693,7 @@ function DriverTrip() {
             }
             onMapClick={addStage}
             showTraffic={showTraffic}
+            jammed={aheadIsJammed}
           />
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
             <button
