@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Bus, ArrowLeft } from "lucide-react";
+import { Bus, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { homePathForUser, type AppRole } from "@/lib/matu-auth";
@@ -402,18 +402,34 @@ function Input({
   placeholder?: string;
   minLength?: number;
 }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const isPassword = type === "password";
   return (
     <label className="block">
       <span className="mb-1 block text-sm font-medium">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required={required}
-        placeholder={placeholder}
-        minLength={minLength}
-        className="w-full rounded-lg border border-input bg-surface px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
-      />
+      <div className="relative">
+        <input
+          type={isPassword && showPassword ? "text" : type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+          placeholder={placeholder}
+          minLength={minLength}
+          className={`w-full rounded-lg border border-input bg-surface px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2 ${
+            isPassword ? "pr-10" : ""
+          }`}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground"
+          >
+            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        )}
+      </div>
     </label>
   );
 }

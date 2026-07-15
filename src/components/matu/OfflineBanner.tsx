@@ -19,7 +19,7 @@ function checkConnectivity(): Promise<boolean> {
   // only its result decides the banner.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4000);
-  return fetch("/manifest.webmanifest", {
+  return fetch("/", {
     method: "HEAD",
     cache: "no-store",
     signal: controller.signal,
@@ -32,12 +32,25 @@ function checkConnectivity(): Promise<boolean> {
 export function useOnlineStatus() {
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const checking = useRef(false);
+  const consecutiveFailures = useRef(0);
 
   async function recheck() {
     if (checking.current) return;
     checking.current = true;
     const result = await checkConnectivity();
-    setOnline(result);
+    if (result) {
+      consecutiveFailures.current = 0;
+      setOnline(true); // one successful check is enough to recover immediately
+    } else {
+      consecutiveFailures.current += 1;
+      // Only flip to "offline" after two failures in a row (a few seconds apart
+      // via the retry below) — a single failed check is too easy to get from a
+      // slow network blip, a cold DNS lookup, or (in some hosting/preview setups)
+      // a restricted environment that blocks this one request even though the
+      // real connection is fine. Two in a row is a much stronger signal.
+      if (consecutiveFailures.current >= 2) setOnline(false);
+      else setTimeout(recheck, 3000); // quick follow-up check before giving up
+    }
     checking.current = false;
   }
 
