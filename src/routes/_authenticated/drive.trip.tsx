@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useLiveTrafficEta } from "@/lib/traffic-eta";
-import { useEffect, useMemo, useState } from "react";
+import { fetchCongestionRoute, type CongestionSegment } from "@/lib/route-congestion";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,6 +52,7 @@ export const Route = createFileRoute("/_authenticated/drive/trip")({
 function DriverTrip() {
   const navigate = useNavigate();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [showMoreVehicleOptions, setShowMoreVehicleOptions] = useState(false);
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [vehicleId, setVehicleId] = useState("");
   const [routeId, setRouteId] = useState("");
@@ -217,6 +219,47 @@ function DriverTrip() {
     driverPos ? { lat: driverPos.lat, lng: driverPos.lng } : null,
     nextStage ? { lat: nextStage.lat, lng: nextStage.lng } : null,
   );
+
+  // The final stop of the route the driver picked when starting the trip —
+  // "the specific location chosen" the road-snapped route line below is
+  // drawn to reach, not just the next stage ahead.
+  const destinationStage = useMemo(() => {
+    if (stages.length === 0) return null;
+    return [...stages].sort((a, b) => b.order_index - a.order_index)[0] ?? null;
+  }, [stages]);
+
+  const [congestionRoute, setCongestionRoute] = useState<CongestionSegment[] | null>(null);
+  const driverPosRef = useRef(driverPos);
+  driverPosRef.current = driverPos;
+
+  useEffect(() => {
+    if (!trip || !destinationStage) {
+      setCongestionRoute(null);
+      return;
+    }
+    let cancelled = false;
+    async function refresh() {
+      const pos = driverPosRef.current;
+      if (!pos) return;
+      const segments = await fetchCongestionRoute(
+        { lat: pos.lat, lng: pos.lng },
+        { lat: destinationStage!.lat, lng: destinationStage!.lng },
+      );
+      if (!cancelled) setCongestionRoute(segments);
+    }
+    refresh();
+    // Directions-with-congestion is a heavier call than the plain ETA check
+    // above, so this refreshes on a slower 20s cadence rather than matching
+    // useLiveTrafficEta's 10s — still feels live, costs less Mapbox quota.
+    // Reads driverPosRef inside the interval rather than depending on
+    // driverPos directly, so this effect (and its timer) doesn't restart on
+    // every single GPS update — only when the trip or destination changes.
+    const iv = setInterval(refresh, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [trip, destinationStage?.id]);
 
   // Fires once when the leg ahead crosses into "jammed" (traffic-aware ETA is
   // 2+ min slower than free-flow — same threshold LeaveNowBanner uses for
@@ -578,7 +621,13 @@ function DriverTrip() {
                 </option>
               ))}
             </select>
-            {vehicles.length === 0 && (
+            {/* Previously this whole block only rendered when vehicles.length
+                === 0, which meant the moment a driver had one vehicle, both
+                "register another vehicle" AND "join a SACCO" silently
+                disappeared — no way to add a second car, no way to join a
+                SACCO later. Now it's always reachable: shown open by default
+                until they have a vehicle, collapsed behind a toggle after. */}
+            {vehicles.length === 0 ? (
               <div className="mt-3 grid gap-3">
                 <RegisterOwnVehicle
                   onCreated={(v) => {
@@ -587,6 +636,29 @@ function DriverTrip() {
                   }}
                 />
                 <JoinSaccoPanel />
+              </div>
+            ) : (
+              <div className="mt-3">
+                {showMoreVehicleOptions ? (
+                  <div className="grid gap-3">
+                    <RegisterOwnVehicle
+                      onCreated={(v) => {
+                        setVehicles((prev) => [...prev, v]);
+                        setVehicleId(v.id);
+                        setShowMoreVehicleOptions(false);
+                      }}
+                    />
+                    <JoinSaccoPanel />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreVehicleOptions(true)}
+                    className="text-sm font-medium text-primary underline"
+                  >
+                    + Add another vehicle or join a SACCO
+                  </button>
+                )}
               </div>
             )}
           </label>
@@ -694,6 +766,7 @@ function DriverTrip() {
             onMapClick={addStage}
             showTraffic={showTraffic}
             jammed={aheadIsJammed}
+            congestionRoute={congestionRoute}
           />
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
             <button

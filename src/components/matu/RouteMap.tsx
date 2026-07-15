@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { L, NAIROBI_CENTER } from "@/lib/leaflet-map";
+import { congestionColor, type CongestionSegment } from "@/lib/route-congestion";
 
 export type MapStage = {
   id: string;
@@ -148,6 +149,7 @@ export function RouteMap({
   onMapClick,
   showTraffic = false,
   jammed = false,
+  congestionRoute,
   className,
 }: {
   stages: MapStage[];
@@ -172,18 +174,27 @@ export function RouteMap({
   // since it's an extra tile layer/network cost — opt in per screen (e.g. the
   // driver's trip map) rather than loading it everywhere.
   showTraffic?: boolean;
-  // When true, the main route polyline (the stages-to-stages line) is drawn
-  // red instead of green — a driver-facing "the road ahead is jammed" signal
-  // that stays visible on the map itself, not just a toast that can be missed
-  // or dismissed. Pass the same "delayed" flag useLiveTrafficEta returns for
-  // the leg immediately ahead of the vehicle.
+  // When true, the main stages-to-stages polyline is drawn red instead of
+  // green — the simple, whole-leg version of the jam signal. If
+  // congestionRoute is also provided, that one is drawn on top and is the
+  // more accurate signal (red only on the actually-jammed stretch); this flag
+  // is kept as the fallback for screens/renders that don't have a live
+  // congestion fetch yet.
   jammed?: boolean;
+  // The actual road-snapped path from the driver's current position to their
+  // chosen destination, colored per-segment by real-time congestion (see
+  // src/lib/route-congestion.ts) — green where traffic is flowing, amber for
+  // moderate, red/dark-red for a genuine jam on that specific stretch of
+  // road. This is what "the route should be red at the part there is a jam"
+  // means literally: only the jammed segments are red, not the whole line.
+  congestionRoute?: CongestionSegment[] | null;
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const stageMarkers = useRef<L.Marker[]>([]);
   const polylineRef = useRef<L.Polyline | null>(null);
+  const congestionLayerRef = useRef<L.LayerGroup | null>(null);
   const vehicleMarkers = useRef<Record<string, L.Marker>>({});
   const passengerMarkers = useRef<Record<string, L.Marker>>({});
   const pinMarker = useRef<L.Marker | null>(null);
@@ -350,6 +361,33 @@ export function RouteMap({
       }
     });
   }, [passengers, ready]);
+
+  // The road-snapped, per-segment jam-colored route — drawn as its own layer
+  // group so it can sit on top of the plain green/red stages polyline without
+  // fighting it for the same L.Polyline instance. Rebuilt whenever the
+  // segments change (i.e. on each periodic congestion refetch), not diffed
+  // segment-by-segment — a full route redraw every ~15s is cheap compared to
+  // the network fetch that produced it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    congestionLayerRef.current?.remove();
+    congestionLayerRef.current = null;
+    if (congestionRoute && congestionRoute.length > 0) {
+      const group = L.layerGroup();
+      for (const seg of congestionRoute) {
+        L.polyline(
+          [
+            [seg.coords[0].lat, seg.coords[0].lng],
+            [seg.coords[1].lat, seg.coords[1].lng],
+          ],
+          { color: congestionColor(seg.level), weight: 5, opacity: 0.95 },
+        ).addTo(group);
+      }
+      group.addTo(map);
+      congestionLayerRef.current = group;
+    }
+  }, [congestionRoute, ready]);
 
   // Dropped pin — where the passenger tapped to set pickup/destination.
   useEffect(() => {

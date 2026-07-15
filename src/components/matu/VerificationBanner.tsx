@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -39,7 +40,10 @@ export function VerificationBanner() {
         <ShieldX className="mt-0.5 size-4 shrink-0" />
         <span>
           <span className="font-medium">Verification wasn't approved.</span>{" "}
-          {reason ?? "Contact support to find out what needs fixing."}
+          {reason ?? "Update your details and resubmit."}{" "}
+          <Link to="/verify" className="font-medium underline">
+            Fix this
+          </Link>
         </span>
       </div>
     );
@@ -50,7 +54,10 @@ export function VerificationBanner() {
       <ShieldAlert className="mt-0.5 size-4 shrink-0" />
       <span>
         <span className="font-medium">Verification pending.</span> You can keep using the app while
-        our team reviews your details — this usually doesn't take long.
+        our team reviews your details — this usually doesn't take long.{" "}
+        <Link to="/verify" className="font-medium underline">
+          Review details
+        </Link>
       </span>
     </div>
   );

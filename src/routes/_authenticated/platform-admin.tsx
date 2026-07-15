@@ -26,6 +26,10 @@ type PendingVerificationRow = {
   roles: string[];
   sacco_name: string | null;
   sacco_registration_number: string | null;
+  id_document_path: string | null;
+  license_document_path: string | null;
+  psv_badge_path: string | null;
+  good_conduct_path: string | null;
   created_at: string;
 };
 
@@ -196,6 +200,21 @@ function PlatformAdminPage() {
 
   const visibleComplaints = complaints.filter((c) => showResolved || c.status !== "resolved");
 
+  async function openDocument(path: string) {
+    // Signed, short-lived (5 min) rather than a public URL — the bucket is
+    // private specifically so only the uploader and platform admins (via the
+    // "Platform admins read verification documents" storage policy) can ever
+    // see these.
+    const { data, error } = await supabase.storage
+      .from("verification-documents")
+      .createSignedUrl(path, 300);
+    if (error || !data) {
+      toast.error(error?.message ?? "Couldn't open that document");
+      return;
+    }
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
   async function loadVerifications() {
     setLoadingVerifications(true);
     // pending_verifications is a view scoped to is_platform_admin() itself
@@ -356,6 +375,43 @@ function PlatformAdminPage() {
                     {row.sacco_registration_number && ` (reg. ${row.sacco_registration_number})`}
                   </p>
                 )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {row.id_document_path && (
+                    <button
+                      onClick={() => openDocument(row.id_document_path!)}
+                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
+                    >
+                      View ID
+                    </button>
+                  )}
+                  {row.license_document_path && (
+                    <button
+                      onClick={() => openDocument(row.license_document_path!)}
+                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
+                    >
+                      View license
+                    </button>
+                  )}
+                  {row.psv_badge_path && (
+                    <button
+                      onClick={() => openDocument(row.psv_badge_path!)}
+                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
+                    >
+                      View PSV badge
+                    </button>
+                  )}
+                  {row.good_conduct_path && (
+                    <button
+                      onClick={() => openDocument(row.good_conduct_path!)}
+                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
+                    >
+                      View good conduct cert.
+                    </button>
+                  )}
+                  {!row.id_document_path && (
+                    <span className="text-xs italic text-destructive">No ID document uploaded</span>
+                  )}
+                </div>
               </div>
               <div className="flex shrink-0 gap-2">
                 <button

@@ -42,6 +42,10 @@ function AuthPage() {
   const [role, setRole] = useState<AppRole>(roleParam ?? "passenger");
   const [idNumber, setIdNumber] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
+  const [idDocFile, setIdDocFile] = useState<File | null>(null);
+  const [licenseDocFile, setLicenseDocFile] = useState<File | null>(null);
+  const [psvBadgeFile, setPsvBadgeFile] = useState<File | null>(null);
+  const [goodConductFile, setGoodConductFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
 
   const needsVerificationFields = role === "driver" || role === "sacco_admin";
@@ -69,13 +73,13 @@ function AuthPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (mode === "signup" && needsVerificationFields && !idNumber.trim()) {
-      toast.error("Enter your national ID number");
-      return;
-    }
-    if (mode === "signup" && role === "driver" && !licenseNumber.trim()) {
-      toast.error("Enter your driving license number");
-      return;
+    if (mode === "signup" && needsVerificationFields) {
+      if (!idNumber.trim()) return toast.error("Enter your national ID number");
+      if (!idDocFile) return toast.error("Upload a photo of your national ID");
+      if (role === "driver" && !licenseNumber.trim())
+        return toast.error("Enter your driving license number");
+      if (role === "driver" && !licenseDocFile)
+        return toast.error("Upload a photo of your driving license");
     }
     setLoading(true);
     try {
@@ -96,23 +100,66 @@ function AuthPage() {
           // to 'pending' (see claim_role) — the identity details below are what
           // a platform admin reviews to clear that.
           await supabase.rpc("claim_role", { _role: role });
+          let verificationUploadFailed = false;
           if (needsVerificationFields) {
-            const { error: verifyError } = await supabase
-              .from("profiles")
-              .update({
-                id_number: idNumber.trim(),
-                license_number: role === "driver" ? licenseNumber.trim() : null,
-              })
-              .eq("id", data.session.user.id);
-            if (verifyError) throw verifyError;
+            // Isolated from the outer try/catch on purpose: the account and
+            // session already exist by this point, so if a document upload
+            // fails partway through, we still want to sign the user in and
+            // send them home rather than stranding them on this form — the
+            // /verify page (linked from their dashboard's VerificationBanner)
+            // is where they finish this, not a retry of signup itself.
+            try {
+              const userId = data.session.user.id;
+              const uploads: Array<{ file: File; docType: string }> = [
+                { file: idDocFile!, docType: "id" },
+              ];
+              if (role === "driver") uploads.push({ file: licenseDocFile!, docType: "license" });
+              if (role === "driver" && psvBadgeFile)
+                uploads.push({ file: psvBadgeFile, docType: "psv-badge" });
+              if (goodConductFile) uploads.push({ file: goodConductFile, docType: "good-conduct" });
+
+              const paths: Record<string, string> = {};
+              for (const { file, docType } of uploads) {
+                const ext = file.name.split(".").pop() || "jpg";
+                const path = `${userId}/${docType}.${ext}`;
+                const { error: uploadError } = await supabase.storage
+                  .from("verification-documents")
+                  .upload(path, file, { upsert: true });
+                if (uploadError) throw uploadError;
+                paths[docType] = path;
+              }
+
+              const { error: verifyError } = await supabase
+                .from("profiles")
+                .update({
+                  id_number: idNumber.trim(),
+                  license_number: role === "driver" ? licenseNumber.trim() : null,
+                  id_document_path: paths.id,
+                  license_document_path: paths.license ?? null,
+                  psv_badge_path: paths["psv-badge"] ?? null,
+                  good_conduct_path: paths["good-conduct"] ?? null,
+                })
+                .eq("id", userId);
+              if (verifyError) throw verifyError;
+            } catch (uploadErr) {
+              console.error("[auth] verification document upload failed:", uploadErr);
+              verificationUploadFailed = true;
+            }
           }
           const home = await homePathForUser(data.session.user.id);
-          toast.success(
-            needsVerificationFields
-              ? `Welcome to Matu, ${roleLabel(role)}! Your account is pending verification — you can start using the app now, and we'll confirm your details shortly.`
-              : `Welcome to Matu, ${roleLabel(role)}!`,
-            { duration: 6000 },
-          );
+          if (verificationUploadFailed) {
+            toast.warning(
+              `Welcome to Matu, ${roleLabel(role)}! Your account was created, but your documents didn't fully upload — finish that from the "Review details" link on your dashboard.`,
+              { duration: 9000 },
+            );
+          } else {
+            toast.success(
+              needsVerificationFields
+                ? `Welcome to Matu, ${roleLabel(role)}! Your account is pending verification — you can start using the app now, and we'll confirm your details shortly.`
+                : `Welcome to Matu, ${roleLabel(role)}!`,
+              { duration: 6000 },
+            );
+          }
           navigate({ to: home, replace: true });
         } else {
           // Email confirmation is required — there's no session yet, so there's
@@ -267,15 +314,37 @@ function AuthPage() {
                 required
                 placeholder="e.g. 12345678"
               />
+              <FileInput
+                label="Photo of your national ID"
+                file={idDocFile}
+                onChange={setIdDocFile}
+              />
               {role === "driver" && (
-                <Input
-                  label="Driving license number"
-                  value={licenseNumber}
-                  onChange={setLicenseNumber}
-                  required
-                  placeholder="e.g. DL1234567"
-                />
+                <>
+                  <Input
+                    label="Driving license number"
+                    value={licenseNumber}
+                    onChange={setLicenseNumber}
+                    required
+                    placeholder="e.g. DL1234567"
+                  />
+                  <FileInput
+                    label="Photo of your driving license"
+                    file={licenseDocFile}
+                    onChange={setLicenseDocFile}
+                  />
+                  <FileInput
+                    label="PSV badge (optional — can add later)"
+                    file={psvBadgeFile}
+                    onChange={setPsvBadgeFile}
+                  />
+                </>
               )}
+              <FileInput
+                label="Certificate of good conduct (optional — can add later)"
+                file={goodConductFile}
+                onChange={setGoodConductFile}
+              />
             </fieldset>
           )}
 
@@ -345,6 +414,33 @@ function Input({
         minLength={minLength}
         className="w-full rounded-lg border border-input bg-surface px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
       />
+    </label>
+  );
+}
+
+// A photo of an ID/license document — accepts camera capture on mobile
+// (capture="environment") since most drivers signing up will be on a phone,
+// not typing on a laptop with a scanner handy.
+function FileInput({
+  label,
+  file,
+  onChange,
+}: {
+  label: string;
+  file: File | null;
+  onChange: (f: File | null) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-medium">{label}</span>
+      <input
+        type="file"
+        accept="image/*,application/pdf"
+        capture="environment"
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+        className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-xs outline-none ring-ring file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-primary-foreground focus:ring-2"
+      />
+      {file && <span className="mt-1 block text-xs text-muted-foreground">{file.name}</span>}
     </label>
   );
 }
