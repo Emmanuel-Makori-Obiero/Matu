@@ -32,10 +32,12 @@ type BookingWithProfile = {
   id: string;
   seat_number: number | null;
   status: string;
-  passenger_id: string;
+  passenger_id: string | null;
   payment_method: string | null;
   cash_collected: boolean | null;
   pickup_stage_id: string | null;
+  is_walk_in: boolean;
+  walk_in_label: string | null;
 };
 type AlertRow = {
   id: string;
@@ -60,6 +62,7 @@ function DriverTrip() {
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
   const [stages, setStages] = useState<Stage[]>([]);
   const [bookings, setBookings] = useState<BookingWithProfile[]>([]);
+  const [walkInLabel, setWalkInLabel] = useState("");
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [newStageName, setNewStageName] = useState("");
   const [addStageMode, setAddStageMode] = useState(false);
@@ -113,7 +116,7 @@ function DriverTrip() {
         supabase
           .from("bookings")
           .select(
-            "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id",
+            "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label",
           )
           .eq("trip_id", trip.id),
         supabase
@@ -138,7 +141,7 @@ function DriverTrip() {
           const { data } = await supabase
             .from("bookings")
             .select(
-              "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id",
+              "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label",
             )
             .eq("trip_id", trip.id);
           setBookings((data ?? []) as BookingWithProfile[]);
@@ -417,9 +420,29 @@ function DriverTrip() {
     if (!trip) return;
     const { data } = await supabase
       .from("bookings")
-      .select("id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id")
+      .select("id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label")
       .eq("trip_id", trip.id);
     setBookings((data ?? []) as BookingWithProfile[]);
+  }
+
+  // For passengers with no smartphone/app account: the conductor adds them
+  // directly so they still count toward capacity and show up in the boarding
+  // list, instead of being invisible to the seat/tracking system just because
+  // they can't book through the app themselves. No passenger_id -- see the
+  // is_walk_in migration for why that's allowed only for these rows.
+  async function addWalkInBooking(label: string) {
+    if (!trip) return;
+    const { error } = await supabase.from("bookings").insert({
+      trip_id: trip.id,
+      is_walk_in: true,
+      walk_in_label: label.trim() || null,
+      status: "confirmed",
+      payment_method: "cash",
+      fare_paid: trip.fare,
+    });
+    if (error) return toast.error(error.message);
+    toast.success("Walk-in passenger added");
+    refreshBookings();
   }
 
   // Cash bookings aren't run through M-Pesa, so there's nothing for the backend to
@@ -853,6 +876,24 @@ function DriverTrip() {
             <div className="mt-3">
               <TicketScanner tripId={trip.id} onBoarded={refreshBookings} />
             </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                type="text"
+                placeholder="No app? Add them here (e.g. \"woman, front seat\") — optional"
+                value={walkInLabel}
+                onChange={(e) => setWalkInLabel(e.target.value)}
+                className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+              />
+              <button
+                onClick={() => {
+                  addWalkInBooking(walkInLabel);
+                  setWalkInLabel("");
+                }}
+                className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+              >
+                + Add walk-in
+              </button>
+            </div>
             {bookings.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">No bookings yet.</p>
             ) : (
@@ -869,7 +910,11 @@ function DriverTrip() {
                           b.status === "alighted" ? "text-muted-foreground line-through" : ""
                         }
                       >
-                        Passenger · seat {b.seat_number ?? "—"}
+                        {b.is_walk_in ? (
+                          <>Walk-in{b.walk_in_label ? ` · ${b.walk_in_label}` : ""} (no app)</>
+                        ) : (
+                          <>Passenger · seat {b.seat_number ?? "—"}</>
+                        )}
                       </span>
                       <div className="flex items-center gap-1.5">
                         {b.payment_method === "cash" &&

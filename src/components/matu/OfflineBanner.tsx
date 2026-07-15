@@ -43,13 +43,21 @@ export function useOnlineStatus() {
       setOnline(true); // one successful check is enough to recover immediately
     } else {
       consecutiveFailures.current += 1;
-      // Only flip to "offline" after two failures in a row (a few seconds apart
-      // via the retry below) — a single failed check is too easy to get from a
-      // slow network blip, a cold DNS lookup, or (in some hosting/preview setups)
-      // a restricted environment that blocks this one request even though the
-      // real connection is fine. Two in a row is a much stronger signal.
-      if (consecutiveFailures.current >= 2) setOnline(false);
-      else setTimeout(recheck, 3000); // quick follow-up check before giving up
+      // Never show "offline" on a failed check alone. The browser's own
+      // navigator.onLine has to agree too — this is the actual fix for the
+      // banner getting stuck on: some hosting/preview setups block or fail
+      // this verification request even though the real connection (and
+      // navigator.onLine) is fine, and a failed fetch alone was enough to
+      // flip the banner on. Requiring both signals means a broken/blocked
+      // fetch can no longer show "offline" by itself.
+      const browserAgrees = typeof navigator !== "undefined" && !navigator.onLine;
+      if (consecutiveFailures.current >= 2 && browserAgrees) {
+        setOnline(false);
+      } else if (consecutiveFailures.current < 2) {
+        setTimeout(recheck, 3000); // quick follow-up check before giving up
+      }
+      // else: two failures but the browser still thinks we're online — trust
+      // the browser and stay online rather than get stuck showing the banner.
     }
     checking.current = false;
   }
