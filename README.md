@@ -299,6 +299,11 @@ appears on the Account page, leading to `/platform-admin`, which currently suppo
   regardless of which SACCO owns it — for use after a safety complaint or incident.
 - Viewing and resolving every complaint in the system, not just ones tied to a SACCO
   the admin happens to own.
+- Suspending/reinstating or warning any user account, of any role (`admin_set_user_suspension()`,
+  `admin_issue_warning()`) — see section 5.
+- A full directory of every signed-up user and a cross-SACCO overview of drivers, vehicles,
+  wallet balances, and money moved (`admin_list_users()`, `admin_sacco_overview()`) — see
+  section 5.
 
 ### 4.2 Rate limiting
 
@@ -306,7 +311,7 @@ appears on the Account page, leading to `/platform-admin`, which currently suppo
 window counter (backed by `rate_limit_hits`) that any RPC or trigger can call. It's
 currently wired into one place: an `alerts` insert trigger capping passengers at 10
 "I'm near pickup" / "let me off" alerts per 5 minutes. Other high-frequency actions
-(`ping_stage`, booking creation) aren't rate-limited yet — see section 5.
+(`ping_stage`, booking creation) aren't rate-limited yet — see section 6.
 
 ### 4.3 Complaints
 
@@ -330,11 +335,43 @@ Resolution workflow: `status` moves `open` → `acknowledged` → `resolved` via
 in the complaint, the owning SACCO admin, or a platform admin. The platform admin
 panel (`/platform-admin`) is currently the only UI surfacing this queue — SACCO admins
 and drivers can see complaints about them via RLS but don't yet have a dedicated
-in-app view to act on them (see section 5).
+in-app view to act on them (see section 6).
 
 ---
 
-## 5. Known gaps / next steps
+## 5. Recent fixes (2026-07-15)
+
+- **"You're offline" banner showing while online.** `useOnlineStatus()` was short-circuiting
+  to "offline" whenever `navigator.onLine` read `false`, without ever running the real
+  connectivity check it was written to do — and `navigator.onLine` is exactly the value the
+  code's own comments call unreliable (wifi↔cellular handoffs, some Android power-saving
+  quirks). Fixed in `src/components/matu/OfflineBanner.tsx`: the banner now always trusts the
+  live fetch check, never the raw browser flag alone.
+- **Place search only returning counties/regions for named buildings** (e.g. "Westside
+  Towers"). `PlaceSearch.tsx` queried Mapbox alone with no fallback, so a POI gap in Mapbox's
+  Nairobi data left users with only place/neighborhood-level matches. Fixed by adding a
+  Nairobi bounding box (stronger than proximity bias alone), `autocomplete`/`fuzzyMatch`, and
+  merging in Nominatim (OSM) results the same way `lib/stage-match.ts` already did — so a
+  Mapbox miss no longer means "nothing but the county."
+- **Platform admin now has full authority**, not just vehicle suspension and complaint
+  resolution. New migration `20260715120000_platform_admin_superpowers.sql` adds:
+  - **User management** — suspend or reinstate _any_ account (passenger, driver, conductor,
+    sacco_admin), or send them a warning message, via `admin_set_user_suspension()` /
+    `admin_issue_warning()`. Suspended accounts are flagged with a reason and timestamp.
+  - **Full user directory** — `admin_list_users()` lists every signed-up account across every
+    role, not just ones with a pending complaint or verification.
+  - **Sacco & driver oversight** — `admin_sacco_overview()` shows every SACCO, its owner,
+    driver/vehicle counts, current wallet balance, total commission earned, and total fares
+    collected, so the admin can see who joined where and how much money has moved.
+  - These are additive: they only run for callers holding `platform_admin` and never narrow
+    any existing SACCO admin/driver/passenger access.
+  - **Not yet wired up:** account suspension is recorded and queryable, but no login/booking
+    path checks `profiles.is_suspended` yet (a helper, `assert_not_suspended()`, exists for
+    this — see section 6) — enforcing it everywhere real money/bookings happen is next.
+
+---
+
+## 6. Known gaps / next steps
 
 - **`send-complaint-email` is on Resend's free/test tier**, sending from the shared
   `onboarding@resend.dev` address. Verify your own domain in Resend and swap

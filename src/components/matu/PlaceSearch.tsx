@@ -20,19 +20,33 @@ export type PlaceResult = {
   lng: number;
 };
 
-async function searchPlaces(query: string): Promise<PlaceResult[]> {
-  if (!MAPBOX_TOKEN || query.trim().length < 2) return [];
+// Nairobi bounding box (roughly the metro area) — a hard bbox pulls Mapbox's
+// ranking toward genuinely local POIs far more than proximity bias alone,
+// which only nudges ambiguous matches and still lets far-away/admin-level
+// results ("Nairobi County", a whole town) outrank a real nearby building.
+const NAIROBI_BBOX = "36.65,-1.45,37.05,-1.10"; // minLng,minLat,maxLng,maxLat
+
+async function searchMapbox(query: string): Promise<PlaceResult[]> {
+  if (!MAPBOX_TOKEN) return [];
   try {
     const url =
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-      `?access_token=${MAPBOX_TOKEN}&proximity=${NAIROBI_PROXIMITY}&country=ke&limit=6` +
-      // poi = businesses/buildings/landmarks, address = street addresses — the two
-      // types that actually matter for "where is Platinum Plaza" style queries.
-      `&types=poi,address,place,neighborhood`;
+      `?access_token=${MAPBOX_TOKEN}&proximity=${NAIROBI_PROXIMITY}&bbox=${NAIROBI_BBOX}` +
+      `&country=ke&limit=8&autocomplete=true&fuzzyMatch=true` +
+      // poi/poi.landmark = businesses/buildings/landmarks, address = street
+      // addresses — these are what actually matter for "where is Platinum
+      // Plaza" style queries; place/neighborhood are kept only as a last resort.
+      `&types=poi,poi.landmark,address,neighborhood,place`;
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = (await res.json()) as {
-      features?: Array<{ id: string; text: string; place_name: string; center: [number, number] }>;
+      features?: Array<{
+        id: string;
+        text: string;
+        place_name: string;
+        center: [number, number];
+        place_type?: string[];
+      }>;
     };
     return (data.features ?? []).map((f) => ({
       id: f.id,
@@ -44,6 +58,51 @@ async function searchPlaces(query: string): Promise<PlaceResult[]> {
   } catch {
     return [];
   }
+}
+
+// Nominatim (OSM) — no key, no billing. Mapbox's POI coverage is usually
+// better in Nairobi, but not always complete, so this fills gaps (a specific
+// tower/plaza Mapbox has no POI entry for) rather than leaving the dropdown
+// showing only broad place/neighborhood matches.
+async function searchNominatim(query: string): Promise<PlaceResult[]> {
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ke` +
+      `&viewbox=${NAIROBI_BBOX}&bounded=1&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return [];
+    const data = (await res.json()) as Array<{
+      place_id: number;
+      display_name: string;
+      lat: string;
+      lon: string;
+      name?: string;
+    }>;
+    return data.map((r) => ({
+      id: `osm-${r.place_id}`,
+      name: r.name || r.display_name.split(",")[0],
+      fullAddress: r.display_name,
+      lat: parseFloat(r.lat),
+      lng: parseFloat(r.lon),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function searchPlaces(query: string): Promise<PlaceResult[]> {
+  if (query.trim().length < 2) return [];
+  const [mapbox, nominatim] = await Promise.all([searchMapbox(query), searchNominatim(query)]);
+  // Mapbox first (usually better-ranked/named), then any Nominatim results
+  // whose coordinates aren't basically the same point already returned.
+  const merged = [...mapbox];
+  for (const n of nominatim) {
+    const dupe = merged.some(
+      (m) => Math.abs(m.lat - n.lat) < 0.0005 && Math.abs(m.lng - n.lng) < 0.0005,
+    );
+    if (!dupe) merged.push(n);
+  }
+  return merged.slice(0, 8);
 }
 
 export function PlaceSearch({
@@ -87,8 +146,6 @@ export function PlaceSearch({
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
-
-  if (!MAPBOX_TOKEN) return null; // silently degrade — tap-the-map still works
 
   return (
     <div ref={containerRef} className={`relative ${className ?? ""}`}>

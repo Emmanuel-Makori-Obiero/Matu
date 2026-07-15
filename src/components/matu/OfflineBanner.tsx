@@ -10,7 +10,13 @@ import { WifiOff } from "lucide-react";
 // reason to suspect the state changed (an event fires, the tab regains
 // focus, or a periodic backstop timer), and only trusts that result.
 function checkConnectivity(): Promise<boolean> {
-  if (typeof navigator !== "undefined" && !navigator.onLine) return Promise.resolve(false);
+  // NOTE: we deliberately do NOT short-circuit on `!navigator.onLine` here.
+  // That flag is exactly what the comment above says is unreliable — trusting
+  // its "false" without verifying defeats the whole point of this function
+  // and was the actual bug: a bad onLine reading (or a stale 'offline' event
+  // firing on wifi<->cellular handoff) made the banner show even while the
+  // device had a perfectly working connection. Always do the real request;
+  // only its result decides the banner.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4000);
   return fetch("/manifest.webmanifest", {

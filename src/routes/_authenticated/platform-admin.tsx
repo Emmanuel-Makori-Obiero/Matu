@@ -56,6 +56,30 @@ type VehicleRow = {
   sacco_name?: string | null;
 };
 
+type AdminUserRow = {
+  user_id: string;
+  full_name: string | null;
+  phone: string | null;
+  email: string | null;
+  roles: string[];
+  is_suspended: boolean;
+  suspended_reason: string | null;
+  created_at: string;
+  warning_count: number;
+};
+
+type SaccoOverviewRow = {
+  sacco_id: string;
+  sacco_name: string;
+  registration_number: string | null;
+  owner_name: string | null;
+  driver_count: number;
+  vehicle_count: number;
+  sacco_wallet_balance: number;
+  total_commission_earned: number;
+  total_fares_collected: number;
+};
+
 export const Route = createFileRoute("/_authenticated/platform-admin")({
   component: PlatformAdminPage,
 });
@@ -77,6 +101,16 @@ function PlatformAdminPage() {
   const [verifyBusyId, setVerifyBusyId] = useState<string | null>(null);
   const [rejectReasonDraft, setRejectReasonDraft] = useState<Record<string, string>>({});
 
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [userSearch, setUserSearch] = useState("");
+  const [userBusyId, setUserBusyId] = useState<string | null>(null);
+  const [suspendReasonDraft, setSuspendReasonDraft] = useState<Record<string, string>>({});
+  const [warningDraft, setWarningDraft] = useState<Record<string, string>>({});
+
+  const [saccoOverview, setSaccoOverview] = useState<SaccoOverviewRow[]>([]);
+  const [loadingSaccoOverview, setLoadingSaccoOverview] = useState(true);
+
   useEffect(() => {
     checkAccess();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,7 +129,77 @@ function PlatformAdminPage() {
       load();
       loadComplaints();
       loadVerifications();
+      loadUsers();
+      loadSaccoOverview();
     }
+  }
+
+  async function loadUsers() {
+    setLoadingUsers(true);
+    const { data, error } = await supabase.rpc("admin_list_users");
+    if (error) {
+      toast.error(error.message);
+    } else {
+      setUsers((data ?? []) as AdminUserRow[]);
+    }
+    setLoadingUsers(false);
+  }
+
+  async function loadSaccoOverview() {
+    setLoadingSaccoOverview(true);
+    const { data, error } = await supabase.rpc("admin_sacco_overview");
+    if (error) {
+      toast.error(error.message);
+    } else {
+      setSaccoOverview((data ?? []) as SaccoOverviewRow[]);
+    }
+    setLoadingSaccoOverview(false);
+  }
+
+  async function toggleUserSuspension(u: AdminUserRow) {
+    setUserBusyId(u.user_id);
+    const nextSuspended = !u.is_suspended;
+    const reason = nextSuspended ? (suspendReasonDraft[u.user_id] ?? "").trim() : null;
+    if (nextSuspended && !reason) {
+      toast.error("Add a reason before suspending an account.");
+      setUserBusyId(null);
+      return;
+    }
+    const { error } = await supabase.rpc("admin_set_user_suspension", {
+      _user_id: u.user_id,
+      _suspended: nextSuspended,
+      _reason: reason,
+    });
+    setUserBusyId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(
+      nextSuspended ? `${u.full_name ?? "User"} suspended` : `${u.full_name ?? "User"} reinstated`,
+    );
+    loadUsers();
+  }
+
+  async function sendWarning(u: AdminUserRow) {
+    const message = (warningDraft[u.user_id] ?? "").trim();
+    if (!message) {
+      toast.error("Write a warning message first.");
+      return;
+    }
+    setUserBusyId(u.user_id);
+    const { error } = await supabase.rpc("admin_issue_warning", {
+      _user_id: u.user_id,
+      _message: message,
+    });
+    setUserBusyId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setWarningDraft((prev) => ({ ...prev, [u.user_id]: "" }));
+    toast.success(`Warning sent to ${u.full_name ?? "user"}`);
+    loadUsers();
   }
 
   async function load() {
@@ -281,8 +385,159 @@ function PlatformAdminPage() {
       title="Platform admin"
       subtitle="Cross-SACCO oversight. Suspending a vehicle here blocks it platform-wide, regardless of which SACCO owns it."
     >
-      <div className="space-y-3">
+      <div className="mt-2 space-y-3">
+        <h2 className="font-display text-lg font-semibold">Users</h2>
+        <p className="text-xs opacity-70">
+          Every account on the platform, any role. Suspend blocks sign-in/booking entirely; a
+          warning just leaves a note the user sees next time they open the app.
+        </p>
+        <input
+          type="text"
+          placeholder="Search by name, phone, or email…"
+          value={userSearch}
+          onChange={(e) => setUserSearch(e.target.value)}
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        />
+        {loadingUsers && <p className="text-sm opacity-70">Loading users…</p>}
+        {!loadingUsers &&
+          users
+            .filter((u) => {
+              const q = userSearch.trim().toLowerCase();
+              if (!q) return true;
+              return (
+                (u.full_name ?? "").toLowerCase().includes(q) ||
+                (u.phone ?? "").toLowerCase().includes(q) ||
+                (u.email ?? "").toLowerCase().includes(q)
+              );
+            })
+            .map((u) => (
+              <div
+                key={u.user_id}
+                className={`rounded-2xl border p-4 ${
+                  u.is_suspended ? "border-red-500/50 bg-red-500/5" : "border-border bg-surface"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-semibold">{u.full_name ?? "(no name set)"}</p>
+                    <p className="text-xs opacity-70">
+                      {u.email ?? "no email"} · {u.phone ?? "no phone"} ·{" "}
+                      {u.roles.length > 0 ? u.roles.join(", ") : "no role"}
+                    </p>
+                    {u.warning_count > 0 && (
+                      <p className="text-xs opacity-70">
+                        {u.warning_count} warning{u.warning_count === 1 ? "" : "s"} issued
+                      </p>
+                    )}
+                    {u.is_suspended && u.suspended_reason && (
+                      <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                        <ShieldAlert className="size-3.5" /> {u.suspended_reason}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    disabled={userBusyId === u.user_id}
+                    onClick={() => toggleUserSuspension(u)}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${
+                      u.is_suspended ? "bg-green-600" : "bg-red-600"
+                    }`}
+                  >
+                    {u.is_suspended ? (
+                      <>
+                        <ShieldCheck className="size-4" /> Reinstate
+                      </>
+                    ) : (
+                      <>
+                        <ShieldX className="size-4" /> Suspend
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {!u.is_suspended && (
+                  <input
+                    type="text"
+                    placeholder="Reason (required to suspend)"
+                    value={suspendReasonDraft[u.user_id] ?? ""}
+                    onChange={(e) =>
+                      setSuspendReasonDraft((prev) => ({ ...prev, [u.user_id]: e.target.value }))
+                    }
+                    className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  />
+                )}
+
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Send a warning message…"
+                    value={warningDraft[u.user_id] ?? ""}
+                    onChange={(e) =>
+                      setWarningDraft((prev) => ({ ...prev, [u.user_id]: e.target.value }))
+                    }
+                    className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <button
+                    disabled={userBusyId === u.user_id}
+                    onClick={() => sendWarning(u)}
+                    className="flex shrink-0 items-center gap-1.5 rounded-xl bg-amber-500 px-3 py-2 text-sm font-medium text-amber-950 disabled:opacity-50"
+                  >
+                    <MessageSquareWarning className="size-4" /> Warn
+                  </button>
+                </div>
+              </div>
+            ))}
+      </div>
+
+      <div className="mt-8 space-y-3">
+        <h2 className="font-display text-lg font-semibold">Saccos &amp; drivers</h2>
+        <p className="text-xs opacity-70">
+          Every SACCO, who owns it, how many drivers/vehicles it has, and the real money that's
+          moved through its wallet (commission earned, fares collected).
+        </p>
+        {loadingSaccoOverview && <p className="text-sm opacity-70">Loading saccos…</p>}
+        {!loadingSaccoOverview && saccoOverview.length === 0 && (
+          <p className="text-sm opacity-70">No saccos registered yet.</p>
+        )}
+        {!loadingSaccoOverview && saccoOverview.length > 0 && (
+          <div className="overflow-x-auto rounded-2xl border border-border">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="bg-secondary/50 text-xs uppercase opacity-70">
+                <tr>
+                  <th className="px-3 py-2">Sacco</th>
+                  <th className="px-3 py-2">Owner</th>
+                  <th className="px-3 py-2">Drivers</th>
+                  <th className="px-3 py-2">Vehicles</th>
+                  <th className="px-3 py-2">Wallet balance</th>
+                  <th className="px-3 py-2">Commission earned</th>
+                  <th className="px-3 py-2">Fares collected</th>
+                </tr>
+              </thead>
+              <tbody>
+                {saccoOverview.map((s) => (
+                  <tr key={s.sacco_id} className="border-t border-border">
+                    <td className="px-3 py-2 font-medium">
+                      {s.sacco_name}
+                      {s.registration_number && (
+                        <span className="ml-1 opacity-60">({s.registration_number})</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">{s.owner_name ?? "—"}</td>
+                    <td className="px-3 py-2">{s.driver_count}</td>
+                    <td className="px-3 py-2">{s.vehicle_count}</td>
+                    <td className="px-3 py-2">KSh {s.sacco_wallet_balance.toLocaleString()}</td>
+                    <td className="px-3 py-2">KSh {s.total_commission_earned.toLocaleString()}</td>
+                    <td className="px-3 py-2">KSh {s.total_fares_collected.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-8 space-y-3">
         <OfflineDebugPanel />
+        <h2 className="font-display text-lg font-semibold">Vehicles</h2>
         {loading && <p className="text-sm opacity-70">Loading vehicles…</p>}
         {!loading && vehicles.length === 0 && (
           <p className="text-sm opacity-70">No vehicles found across any SACCO yet.</p>
