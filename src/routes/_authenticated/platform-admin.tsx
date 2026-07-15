@@ -7,7 +7,7 @@
 // happened to look.
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ShieldAlert, ShieldCheck, ShieldX, MessageSquareWarning } from "lucide-react";
+import { ShieldAlert, ShieldCheck, ShieldX, MessageSquareWarning, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
@@ -15,6 +15,19 @@ import { OfflineDebugPanel } from "@/components/matu/OfflineDebugPanel";
 import type { Database } from "@/integrations/supabase/types";
 
 type ComplaintStatus = Database["public"]["Enums"]["complaint_status"];
+
+type PendingVerificationRow = {
+  user_id: string;
+  full_name: string | null;
+  phone: string | null;
+  id_number: string | null;
+  license_number: string | null;
+  driver_type: string | null;
+  roles: string[];
+  sacco_name: string | null;
+  sacco_registration_number: string | null;
+  created_at: string;
+};
 
 type ComplaintRow = {
   id: string;
@@ -55,6 +68,10 @@ function PlatformAdminPage() {
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const [pendingVerifications, setPendingVerifications] = useState<PendingVerificationRow[]>([]);
+  const [loadingVerifications, setLoadingVerifications] = useState(true);
+  const [verifyBusyId, setVerifyBusyId] = useState<string | null>(null);
+  const [rejectReasonDraft, setRejectReasonDraft] = useState<Record<string, string>>({});
 
   useEffect(() => {
     checkAccess();
@@ -73,6 +90,7 @@ function PlatformAdminPage() {
     if (data) {
       load();
       loadComplaints();
+      loadVerifications();
     }
   }
 
@@ -178,6 +196,48 @@ function PlatformAdminPage() {
 
   const visibleComplaints = complaints.filter((c) => showResolved || c.status !== "resolved");
 
+  async function loadVerifications() {
+    setLoadingVerifications(true);
+    // pending_verifications is a view scoped to is_platform_admin() itself
+    // (see the migration) — a non-admin querying it just gets an empty
+    // result, but we only ever reach here after checkAccess() confirms admin.
+    const { data, error } = await supabase
+      .from("pending_verifications")
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (error) {
+      toast.error(error.message);
+      setLoadingVerifications(false);
+      return;
+    }
+    setPendingVerifications((data ?? []) as PendingVerificationRow[]);
+    setLoadingVerifications(false);
+  }
+
+  async function reviewVerification(row: PendingVerificationRow, status: "verified" | "rejected") {
+    if (status === "rejected" && !(rejectReasonDraft[row.user_id] ?? "").trim()) {
+      toast.error("Add a reason before rejecting.");
+      return;
+    }
+    setVerifyBusyId(row.user_id);
+    const { error } = await supabase.rpc("set_verification_status", {
+      _user_id: row.user_id,
+      _status: status,
+      _reason: status === "rejected" ? rejectReasonDraft[row.user_id].trim() : null,
+    });
+    setVerifyBusyId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(
+      status === "verified"
+        ? `${row.full_name ?? "Account"} verified`
+        : `${row.full_name ?? "Account"} rejected`,
+    );
+    loadVerifications();
+  }
+
   if (checkingAccess) {
     return (
       <AppShell title="Platform admin">
@@ -259,6 +319,70 @@ function PlatformAdminPage() {
                 className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
               />
             )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 space-y-3">
+        <h2 className="font-display text-lg font-semibold">Pending verifications</h2>
+        <p className="text-xs opacity-70">
+          Drivers and SACCO owners submit ID/license details at signup and can use the app
+          immediately — approving or rejecting here just updates their verified badge.
+        </p>
+
+        {loadingVerifications && <p className="text-sm opacity-70">Loading…</p>}
+        {!loadingVerifications && pendingVerifications.length === 0 && (
+          <p className="text-sm opacity-70">Nothing pending right now.</p>
+        )}
+        {pendingVerifications.map((row) => (
+          <div
+            key={row.user_id}
+            className="rounded-2xl border border-amber-500/50 bg-amber-500/5 p-4"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-1.5 font-semibold">
+                  <UserCheck className="size-4" />
+                  {row.full_name ?? "Unnamed"}
+                  <span className="font-normal opacity-70"> · {row.roles.join(", ")}</span>
+                </p>
+                <p className="text-xs opacity-70">
+                  {row.phone ?? "No phone"} · ID {row.id_number ?? "—"}
+                  {row.license_number && ` · License ${row.license_number}`}
+                </p>
+                {row.sacco_name && (
+                  <p className="text-xs opacity-70">
+                    SACCO: {row.sacco_name}
+                    {row.sacco_registration_number && ` (reg. ${row.sacco_registration_number})`}
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  disabled={verifyBusyId === row.user_id}
+                  onClick={() => reviewVerification(row, "verified")}
+                  className="flex items-center gap-1.5 rounded-xl bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  <ShieldCheck className="size-4" /> Verify
+                </button>
+                <button
+                  disabled={verifyBusyId === row.user_id}
+                  onClick={() => reviewVerification(row, "rejected")}
+                  className="flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  <ShieldX className="size-4" /> Reject
+                </button>
+              </div>
+            </div>
+            <input
+              type="text"
+              placeholder="Rejection reason (required to reject)"
+              value={rejectReasonDraft[row.user_id] ?? ""}
+              onChange={(e) =>
+                setRejectReasonDraft((prev) => ({ ...prev, [row.user_id]: e.target.value }))
+              }
+              className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            />
           </div>
         ))}
       </div>

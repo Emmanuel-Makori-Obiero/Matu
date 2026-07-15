@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Wallet, MapPin, Users, Play } from "lucide-react";
 import { AppShell } from "@/components/matu/AppShell";
+import { VerificationBanner } from "@/components/matu/VerificationBanner";
 import { supabase } from "@/integrations/supabase/client";
 
 type ActiveTripSummary = {
@@ -78,6 +79,7 @@ function DriverHome() {
       subtitle="Start your shift, set today's fare, and broadcast your location to passengers."
     >
       <div className="grid gap-5">
+        <VerificationBanner />
         <div className="grid gap-4 md:grid-cols-3">
           <Link to="/drive/trip">
             <Tile

@@ -6,6 +6,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { homePathForUser, type AppRole } from "@/lib/matu-auth";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    role:
+      search.role === "passenger" || search.role === "driver" || search.role === "sacco_admin"
+        ? (search.role as AppRole)
+        : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Sign in · Matu" },
@@ -27,13 +33,29 @@ function roleLabel(role: AppRole) {
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const { role: roleParam } = Route.useSearch();
+  const [mode, setMode] = useState<"signin" | "signup">(roleParam ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState<AppRole>("passenger");
+  const [role, setRole] = useState<AppRole>(roleParam ?? "passenger");
+  const [idNumber, setIdNumber] = useState("");
+  const [licenseNumber, setLicenseNumber] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const needsVerificationFields = role === "driver" || role === "sacco_admin";
+
+  // A homepage "Become a driver" / "Become a SACCO owner" / "Become a
+  // passenger" button lands here with ?role=driver etc. — jump straight into
+  // signup with that role already picked, instead of making them re-select
+  // it after already telling us what they wanted.
+  useEffect(() => {
+    if (roleParam) {
+      setMode("signup");
+      setRole(roleParam);
+    }
+  }, [roleParam]);
 
   // Redirect signed-in users away
   useEffect(() => {
@@ -47,6 +69,14 @@ function AuthPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (mode === "signup" && needsVerificationFields && !idNumber.trim()) {
+      toast.error("Enter your national ID number");
+      return;
+    }
+    if (mode === "signup" && role === "driver" && !licenseNumber.trim()) {
+      toast.error("Enter your driving license number");
+      return;
+    }
     setLoading(true);
     try {
       if (mode === "signup") {
@@ -62,9 +92,27 @@ function AuthPage() {
 
         if (data.session?.user) {
           // Guarantee chosen role is assigned even if the DB trigger missed it.
+          // For driver/sacco_admin this also flips profiles.verification_status
+          // to 'pending' (see claim_role) — the identity details below are what
+          // a platform admin reviews to clear that.
           await supabase.rpc("claim_role", { _role: role });
+          if (needsVerificationFields) {
+            const { error: verifyError } = await supabase
+              .from("profiles")
+              .update({
+                id_number: idNumber.trim(),
+                license_number: role === "driver" ? licenseNumber.trim() : null,
+              })
+              .eq("id", data.session.user.id);
+            if (verifyError) throw verifyError;
+          }
           const home = await homePathForUser(data.session.user.id);
-          toast.success(`Welcome to Matu, ${roleLabel(role)}!`);
+          toast.success(
+            needsVerificationFields
+              ? `Welcome to Matu, ${roleLabel(role)}! Your account is pending verification — you can start using the app now, and we'll confirm your details shortly.`
+              : `Welcome to Matu, ${roleLabel(role)}!`,
+            { duration: 6000 },
+          );
           navigate({ to: home, replace: true });
         } else {
           // Email confirmation is required — there's no session yet, so there's
@@ -201,6 +249,33 @@ function AuthPage() {
                   </label>
                 ))}
               </div>
+            </fieldset>
+          )}
+
+          {mode === "signup" && needsVerificationFields && (
+            <fieldset className="space-y-3 rounded-lg border border-border bg-secondary/40 p-3">
+              <legend className="px-1 text-sm font-medium">Identity verification</legend>
+              <p className="text-xs text-muted-foreground">
+                {role === "driver"
+                  ? "Required for every driver — a platform admin reviews this before your account is fully verified. You can start using the app right away; verification runs in the background."
+                  : "Required for SACCO owners — a platform admin reviews this before your account is fully verified. You can start using the app right away; verification runs in the background."}
+              </p>
+              <Input
+                label="National ID number"
+                value={idNumber}
+                onChange={setIdNumber}
+                required
+                placeholder="e.g. 12345678"
+              />
+              {role === "driver" && (
+                <Input
+                  label="Driving license number"
+                  value={licenseNumber}
+                  onChange={setLicenseNumber}
+                  required
+                  placeholder="e.g. DL1234567"
+                />
+              )}
             </fieldset>
           )}
 

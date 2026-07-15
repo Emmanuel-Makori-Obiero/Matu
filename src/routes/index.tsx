@@ -7,7 +7,7 @@ import saccoImg from "../assets/matu-sacco.jpg";
 import { InstallAppButton } from "@/components/matu/InstallAppButton";
 import { AIAssistant } from "@/components/matu/AIAssistant";
 import { supabase } from "@/integrations/supabase/client";
-import { homePathForUser } from "@/lib/matu-auth";
+import { homePathForUser, type AppRole } from "@/lib/matu-auth";
 import { findNearestStage, type NearestStageResult } from "@/lib/stage-match";
 
 type RouteOption = {
@@ -85,7 +85,19 @@ function Feature({
   );
 }
 
-function RoleCard({ image, title, points }: { image: string; title: string; points: string[] }) {
+function RoleCard({
+  image,
+  title,
+  points,
+  ctaLabel,
+  ctaRole,
+}: {
+  image: string;
+  title: string;
+  points: string[];
+  ctaLabel: string;
+  ctaRole: AppRole;
+}) {
   return (
     <div className="overflow-hidden rounded-xl border border-[#dcd8cb] bg-[#fbf9f3]">
       <img
@@ -106,6 +118,14 @@ function RoleCard({ image, title, points }: { image: string; title: string; poin
             </li>
           ))}
         </ul>
+        <Link
+          to="/auth"
+          search={{ role: ctaRole }}
+          className="mt-4 flex w-full items-center justify-center rounded-lg py-2.5 text-sm font-bold text-white"
+          style={{ backgroundColor: GREEN }}
+        >
+          {ctaLabel}
+        </Link>
       </div>
     </div>
   );
@@ -357,6 +377,8 @@ function Index() {
               "See the nearest matatu on the live map",
               "Get a buzz when your ride is near",
             ]}
+            ctaLabel="Become a passenger"
+            ctaRole="passenger"
           />
           <RoleCard
             image={driversImg}
@@ -366,6 +388,8 @@ function Index() {
               "Set and share today's SACCO fare",
               "Reach more passengers on your route",
             ]}
+            ctaLabel="Become a driver"
+            ctaRole="driver"
           />
           <RoleCard
             image={saccoImg}
@@ -375,6 +399,8 @@ function Index() {
               "Manage fares and routes in one place",
               "See trips, revenue, and performance",
             ]}
+            ctaLabel="Become a SACCO owner"
+            ctaRole="sacco_admin"
           />
         </div>
 

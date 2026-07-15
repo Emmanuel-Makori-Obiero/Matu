@@ -4,6 +4,7 @@ import { Bus, Users, Map, Plus, Radio, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import { VerificationBanner } from "@/components/matu/VerificationBanner";
 
 type Sacco = { id: string; name: string; registration_number: string | null };
 type DashboardRow = {
@@ -111,6 +112,7 @@ function SaccoHome() {
       accent="primary"
     >
       <div className="grid gap-5">
+        <VerificationBanner />
         <div className="rounded-2xl border border-border bg-surface p-6 text-sm text-muted-foreground">
           <strong className="text-foreground">Phase 4 active:</strong> open a SACCO to add vehicles,
           assign drivers by phone, create routes, watch live trips, and adjust fares.
