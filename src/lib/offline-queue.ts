@@ -7,10 +7,17 @@ import { getQueuedActions, removeQueuedAction, type QueuedAction } from "@/lib/o
 // harmless, it just re-sets the same value.
 async function replay(action: QueuedAction): Promise<boolean> {
   if (action.type === "mark_cash_collected") {
-    const { error } = await supabase
-      .from("bookings")
-      .update({ cash_collected: true })
-      .eq("id", action.bookingId);
+    // Direct column writes to cash_collected are revoked at the DB level —
+    // this must go through the driver-verified RPC, same as the online path.
+    const { error } = await supabase.rpc("confirm_cash_payment", {
+      p_booking_id: action.bookingId,
+    });
+    return !error;
+  }
+  if (action.type === "confirm_manual_payment") {
+    const { error } = await supabase.rpc("confirm_manual_payment", {
+      p_booking_id: action.bookingId,
+    });
     return !error;
   }
   if (action.type === "mark_alighted") {

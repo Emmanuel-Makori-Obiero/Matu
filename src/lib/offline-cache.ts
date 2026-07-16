@@ -116,7 +116,7 @@ export async function getLastSynced(key: string): Promise<number | null> {
 
 export type QueuedAction = {
   id: string; // uuid, doubles as the IndexedDB key
-  type: "mark_cash_collected" | "mark_alighted";
+  type: "mark_cash_collected" | "mark_alighted" | "confirm_manual_payment";
   bookingId: string;
   createdAt: number;
 };

@@ -35,6 +35,7 @@ type BookingWithProfile = {
   passenger_id: string | null;
   payment_method: string | null;
   cash_collected: boolean | null;
+  manual_payment_confirmed: boolean | null;
   pickup_stage_id: string | null;
   is_walk_in: boolean;
   walk_in_label: string | null;
@@ -116,7 +117,7 @@ function DriverTrip() {
         supabase
           .from("bookings")
           .select(
-            "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label",
+            "id,seat_number,status,passenger_id,payment_method,cash_collected,manual_payment_confirmed,pickup_stage_id,is_walk_in,walk_in_label",
           )
           .eq("trip_id", trip.id),
         supabase
@@ -141,7 +142,7 @@ function DriverTrip() {
           const { data } = await supabase
             .from("bookings")
             .select(
-              "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label",
+              "id,seat_number,status,passenger_id,payment_method,cash_collected,manual_payment_confirmed,pickup_stage_id,is_walk_in,walk_in_label",
             )
             .eq("trip_id", trip.id);
           setBookings((data ?? []) as BookingWithProfile[]);
@@ -436,7 +437,7 @@ function DriverTrip() {
     const { data } = await supabase
       .from("bookings")
       .select(
-        "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label",
+        "id,seat_number,status,passenger_id,payment_method,cash_collected,manual_payment_confirmed,pickup_stage_id,is_walk_in,walk_in_label",
       )
       .eq("trip_id", trip.id);
     setBookings((data ?? []) as BookingWithProfile[]);
@@ -463,12 +464,17 @@ function DriverTrip() {
   }
 
   // Cash bookings aren't run through M-Pesa, so there's nothing for the backend to
-  // confirm automatically — the conductor marks it collected themselves. This is
-  // informational only: it never blocks boarding or the seat being counted as taken.
+  // confirm automatically — the conductor marks it collected themselves.
   //
-  // Offline-safe: this is a pure status flip with no capacity/payment logic behind
-  // it, so if there's no connection it's queued locally and replayed the moment
-  // the connection comes back — the driver's UI updates immediately either way.
+  // This goes through the confirm_cash_payment RPC rather than a direct table
+  // update: the database verifies the caller is this trip's assigned driver
+  // before flipping cash_collected, and direct column writes are revoked at
+  // the DB level, so this is the only path that can succeed.
+  //
+  // Offline-safe: if there's no connection it's queued locally and replayed the
+  // moment the connection comes back — the driver's UI updates optimistically
+  // either way, but is rolled back if the RPC rejects it (e.g. stale queued
+  // action for a booking that's no longer this driver's).
   async function markCashCollected(bookingId: string) {
     setBookings((prev) =>
       prev.map((b) => (b.id === bookingId ? { ...b, cash_collected: true } : b)),
@@ -484,13 +490,21 @@ function DriverTrip() {
       toast.success("Marked as collected — will sync once you're back online");
       return;
     }
-    const { error } = await supabase
-      .from("bookings")
-      .update({ cash_collected: true })
-      .eq("id", bookingId);
+    const { error } = await supabase.rpc("confirm_cash_payment", {
+      p_booking_id: bookingId,
+    });
     if (error) {
-      // Network dropped mid-request even though navigator.onLine said yes —
-      // queue it rather than silently losing the tap.
+      // Distinguish "the DB rejected this" from "the network dropped mid-request".
+      // Only the latter should be silently queued for retry.
+      if (
+        error.message?.includes("assigned driver") ||
+        error.message?.includes("not a cash payment")
+      ) {
+        setBookings((prev) =>
+          prev.map((b) => (b.id === bookingId ? { ...b, cash_collected: false } : b)),
+        );
+        return toast.error(error.message);
+      }
       await enqueueAction({
         id: crypto.randomUUID(),
         type: "mark_cash_collected",
@@ -501,6 +515,50 @@ function DriverTrip() {
       return toast.info("No connection right now — queued, will sync automatically");
     }
     toast.success("Marked as collected");
+  }
+
+  // Passenger self-declared "I've sent the payment" for a direct M-Pesa method
+  // (pochi/send_money/buy_goods) — this is the driver's own explicit check that
+  // the money actually landed (e.g. their M-Pesa SMS), same trust boundary as
+  // cash but recorded server-side instead of being a silent visual-only check.
+  async function confirmManualPayment(bookingId: string) {
+    setBookings((prev) =>
+      prev.map((b) => (b.id === bookingId ? { ...b, manual_payment_confirmed: true } : b)),
+    );
+    if (!navigator.onLine) {
+      await enqueueAction({
+        id: crypto.randomUUID(),
+        type: "confirm_manual_payment",
+        bookingId,
+        createdAt: Date.now(),
+      });
+      registerBackgroundSync();
+      toast.success("Marked as confirmed — will sync once you're back online");
+      return;
+    }
+    const { error } = await supabase.rpc("confirm_manual_payment", {
+      p_booking_id: bookingId,
+    });
+    if (error) {
+      if (
+        error.message?.includes("assigned driver") ||
+        error.message?.includes("not a manual M-Pesa payment")
+      ) {
+        setBookings((prev) =>
+          prev.map((b) => (b.id === bookingId ? { ...b, manual_payment_confirmed: false } : b)),
+        );
+        return toast.error(error.message);
+      }
+      await enqueueAction({
+        id: crypto.randomUUID(),
+        type: "confirm_manual_payment",
+        bookingId,
+        createdAt: Date.now(),
+      });
+      registerBackgroundSync();
+      return toast.info("No connection right now — queued, will sync automatically");
+    }
+    toast.success("Payment confirmed");
   }
 
   // Driver confirms a passenger has physically left the vehicle. This is what
@@ -945,6 +1003,20 @@ function DriverTrip() {
                               className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
                             >
                               Mark cash received
+                            </button>
+                          ))}
+                        {b.payment_method &&
+                          b.payment_method !== "cash" &&
+                          (b.manual_payment_confirmed ? (
+                            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                              Payment confirmed
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => confirmManualPayment(b.id)}
+                              className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
+                            >
+                              Confirm payment received
                             </button>
                           ))}
                         {b.status === "alighted" ? (

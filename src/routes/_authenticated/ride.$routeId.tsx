@@ -58,6 +58,11 @@ function RouteDetail() {
   const [paymentStatus, setPaymentStatus] = useState<Record<string, "held" | "cash" | "manual">>(
     {},
   );
+  // Tracks whether the driver has actually confirmed a manual (M-Pesa direct)
+  // payment server-side. Starts false the moment the passenger taps "I've
+  // sent the payment" — that tap only self-declares it was sent, it's not
+  // confirmation. This flips true only via the driver's own RPC call.
+  const [manualPaymentConfirmed, setManualPaymentConfirmed] = useState<Record<string, boolean>>({});
   const [myBookings, setMyBookings] = useState<
     { trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]
   >([]);
@@ -346,6 +351,34 @@ function RouteDetail() {
   function openBookingPanel(tripId: string) {
     setSelectedTrip(tripId);
   }
+
+  // Watches the passenger's own booking row for manual_payment_confirmed
+  // flipping true (set only by the driver's confirm_manual_payment RPC), so
+  // "waiting for conductor" updates to "confirmed" live without a refresh.
+  useEffect(() => {
+    if (!bookedBookingId) return;
+    const ch = supabase
+      .channel(`booking-${bookedBookingId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "bookings",
+          filter: `id=eq.${bookedBookingId}`,
+        },
+        (payload) => {
+          const row = payload.new as { manual_payment_confirmed?: boolean };
+          if (row.manual_payment_confirmed) {
+            setManualPaymentConfirmed((prev) => ({ ...prev, [bookedBookingId]: true }));
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [bookedBookingId]);
 
   async function bookSeat(tripId: string) {
     const { data: u } = await supabase.auth.getUser();
@@ -711,12 +744,17 @@ function RouteDetail() {
                                 board.
                               </p>
                             )}
-                            {paymentStatus[bookedBookingId] === "manual" && (
-                              <p className="rounded-md bg-accent/30 px-3 py-2 text-xs font-medium">
-                                Booking confirmed. Keep your M-Pesa message to show the conductor
-                                when you board.
-                              </p>
-                            )}
+                            {paymentStatus[bookedBookingId] === "manual" &&
+                              (manualPaymentConfirmed[bookedBookingId] ? (
+                                <p className="rounded-md bg-accent/30 px-3 py-2 text-xs font-medium">
+                                  Payment confirmed by the conductor. You're good to board.
+                                </p>
+                              ) : (
+                                <p className="rounded-md bg-secondary px-3 py-2 text-xs font-medium text-muted-foreground">
+                                  Payment sent — waiting for the conductor to confirm. Keep your
+                                  M-Pesa message ready to show them when you board.
+                                </p>
+                              ))}
                             <LeaveNowBanner
                               busPos={
                                 tripLocs[t.id]
