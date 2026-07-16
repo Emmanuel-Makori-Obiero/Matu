@@ -241,6 +241,7 @@ function DriverTrip() {
       return;
     }
     let cancelled = false;
+    let consecutiveFailures = 0;
     async function refresh() {
       const pos = driverPosRef.current;
       if (!pos) return;
@@ -248,7 +249,21 @@ function DriverTrip() {
         { lat: pos.lat, lng: pos.lng },
         { lat: destinationStage!.lat, lng: destinationStage!.lng },
       );
-      if (!cancelled) setCongestionRoute(segments);
+      if (cancelled) return;
+      if (!segments) {
+        // A single failed refresh shouldn't blank the jam coloring on the
+        // map -- that made the map flicker between "colored" and "plain"
+        // every time one Mapbox request had a hiccup, which is worse than
+        // just briefly showing slightly-stale congestion. Keep the last
+        // known-good segments; only warn after two misses in a row.
+        consecutiveFailures += 1;
+        if (consecutiveFailures === 2) {
+          toast.error("Traffic data isn't refreshing — jam colors on the map may be outdated.");
+        }
+        return;
+      }
+      consecutiveFailures = 0;
+      setCongestionRoute(segments);
     }
     refresh();
     // Directions-with-congestion is a heavier call than the plain ETA check
@@ -420,7 +435,9 @@ function DriverTrip() {
     if (!trip) return;
     const { data } = await supabase
       .from("bookings")
-      .select("id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label")
+      .select(
+        "id,seat_number,status,passenger_id,payment_method,cash_collected,pickup_stage_id,is_walk_in,walk_in_label",
+      )
       .eq("trip_id", trip.id);
     setBookings((data ?? []) as BookingWithProfile[]);
   }
@@ -879,7 +896,7 @@ function DriverTrip() {
             <div className="mt-3 flex gap-2">
               <input
                 type="text"
-                placeholder="No app? Add them here (e.g. \"woman, front seat\") — optional"
+                placeholder="No app? Add them here (e.g. woman, front seat) — optional"
                 value={walkInLabel}
                 onChange={(e) => setWalkInLabel(e.target.value)}
                 className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-xs"

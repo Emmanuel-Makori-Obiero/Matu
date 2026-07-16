@@ -488,6 +488,10 @@ function RouteDetail() {
               ? { origin: trackedVehiclePos, destination: trackedDestination }
               : null
           }
+          onLiveRouteStaleChange={(stale) => {
+            if (stale)
+              toast.error("Live route couldn't refresh — the line on the map may be outdated.");
+          }}
           etaLabelByVehicleId={etaLabelByVehicleId}
         />
 

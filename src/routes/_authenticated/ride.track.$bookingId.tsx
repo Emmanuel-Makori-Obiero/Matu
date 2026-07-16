@@ -4,6 +4,7 @@
 // the pickup stage so far, and how far remains to the drop-off stage, plus the
 // road-snapped remaining-route line on the map.
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Bus, MapPin, Navigation2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -279,6 +280,10 @@ function TrackBooking() {
           stages={mapStages}
           vehicles={mapVehicles}
           liveRoute={vehicleLoc && destination ? { origin: vehicleLoc, destination } : null}
+          onLiveRouteStaleChange={(stale) => {
+            if (stale)
+              toast.error("Live route couldn't refresh — the line on the map may be outdated.");
+          }}
           className="h-[380px] w-full rounded-2xl border border-border"
         />
         {!vehicleLoc && (

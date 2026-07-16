@@ -188,6 +188,11 @@ export function RouteMap({
   // road. This is what "the route should be red at the part there is a jam"
   // means literally: only the jammed segments are red, not the whole line.
   congestionRoute?: CongestionSegment[] | null;
+  // Called once when the live route fails to refresh twice in a row (not on
+  // a single blip) — lets the screen tell the user "this route/ETA may be
+  // outdated" instead of silently drawing a stale line with no signal that
+  // anything's wrong. Called again with `false` once a refresh succeeds.
+  onLiveRouteStaleChange?: (stale: boolean) => void;
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -430,12 +435,24 @@ export function RouteMap({
     let cancelled = false;
     const destination = liveRoute.destination;
     const mapInstance = map;
+    let consecutiveFailures = 0;
 
     async function draw() {
       const origin = liveRouteOriginRef.current;
       if (!origin) return;
       const coords = await fetchRoadRoute(origin, destination);
-      if (cancelled || !coords) return;
+      if (cancelled) return;
+      if (!coords) {
+        // Don't touch the existing line -- an old, road-snapped route is
+        // still more useful than none -- but do tell the caller so the
+        // screen can show "may be outdated" instead of staying silent about
+        // a route that's now failed to refresh twice in a row.
+        consecutiveFailures += 1;
+        if (consecutiveFailures === 2) onLiveRouteStaleChange?.(true);
+        return;
+      }
+      if (consecutiveFailures >= 2) onLiveRouteStaleChange?.(false);
+      consecutiveFailures = 0;
       liveRoutePolylineRef.current?.remove();
       liveRoutePolylineRef.current = L.polyline(coords, {
         color: "#1a73e8",
