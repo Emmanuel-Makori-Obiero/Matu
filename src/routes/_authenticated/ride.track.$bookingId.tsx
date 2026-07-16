@@ -6,7 +6,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Bus, MapPin, Navigation2 } from "lucide-react";
+import { ArrowLeft, Bus, MapPin, Navigation2, Star } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
@@ -21,7 +21,14 @@ type BookingRow = {
   dropoff_stage_id: string | null;
   status: string;
 };
-type TripRow = { id: string; fare: number; status: string; route_id: string; vehicle_id: string };
+type TripRow = {
+  id: string;
+  fare: number;
+  status: string;
+  route_id: string;
+  vehicle_id: string;
+  driver_id: string;
+};
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type VehicleRow = { id: string; plate_number: string; nickname: string | null; capacity: number };
 type StageRow = { id: string; name: string; lat: number; lng: number; order_index?: number };
@@ -60,6 +67,75 @@ function TrackBooking() {
   const [vehicleLoc, setVehicleLoc] = useState<TripLoc | null>(null);
   const [totalMeters, setTotalMeters] = useState<number | null>(null);
 
+  const [existingRating, setExistingRating] = useState<{
+    rating: number;
+    comment: string | null;
+  } | null>(null);
+  const [ratingLoading, setRatingLoading] = useState(true);
+  const [ratingValue, setRatingValue] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
+
+  // Poll the trip's own status (separately from the one-time load above) so
+  // that when the driver marks the trip "completed" from their screen, this
+  // page picks it up on its own -- the passenger shouldn't have to manually
+  // refresh to see the rating prompt appear.
+  useEffect(() => {
+    if (!trip || trip.status === "completed") return;
+    const iv = setInterval(async () => {
+      const { data } = await supabase
+        .from("trips")
+        .select("status")
+        .eq("id", trip.id)
+        .maybeSingle();
+      if (data && data.status !== trip.status) {
+        setTrip((prev) => (prev ? { ...prev, status: data.status } : prev));
+      }
+    }, 8000);
+    return () => clearInterval(iv);
+  }, [trip?.id, trip?.status]);
+
+  // Once the trip is completed, check whether this booking already has a
+  // rating -- shows "thanks, already rated" instead of the form if so.
+  useEffect(() => {
+    if (!trip || trip.status !== "completed" || !booking) {
+      setRatingLoading(false);
+      return;
+    }
+    (async () => {
+      const { data } = await supabase
+        .from("trip_ratings")
+        .select("rating,comment")
+        .eq("booking_id", booking.id)
+        .maybeSingle();
+      setExistingRating(data ?? null);
+      setRatingLoading(false);
+    })();
+  }, [trip?.status, booking?.id]);
+
+  async function submitRating() {
+    if (!trip || !booking) return;
+    if (ratingValue < 1) return toast.error("Tap a star to rate the trip.");
+    setSubmittingRating(true);
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) {
+      setSubmittingRating(false);
+      return toast.error("Please sign in again to submit a rating.");
+    }
+    const { error } = await supabase.from("trip_ratings").insert({
+      booking_id: booking.id,
+      trip_id: trip.id,
+      passenger_id: u.user.id,
+      driver_id: trip.driver_id,
+      rating: ratingValue,
+      comment: ratingComment.trim() || null,
+    });
+    setSubmittingRating(false);
+    if (error) return toast.error(error.message);
+    setExistingRating({ rating: ratingValue, comment: ratingComment.trim() || null });
+    toast.success("Thanks for rating your trip!");
+  }
+
   // Load booking + trip + route + vehicle + stages once.
   useEffect(() => {
     (async () => {
@@ -77,7 +153,7 @@ function TrackBooking() {
 
       const { data: t } = await supabase
         .from("trips")
-        .select("id,fare,status,route_id,vehicle_id")
+        .select("id,fare,status,route_id,vehicle_id,driver_id")
         .eq("id", b.trip_id)
         .maybeSingle();
       if (t) setTrip(t as TripRow);
@@ -262,6 +338,67 @@ function TrackBooking() {
             {trip.status.replace("_", " ")}
           </span>
         </div>
+
+        {/* Rate the trip — shown once the driver marks it completed. One rating
+            per booking; shows a thank-you instead of the form if already submitted. */}
+        {trip.status === "completed" && !ratingLoading && (
+          <div className="rounded-2xl border border-border bg-surface p-5">
+            {existingRating ? (
+              <div className="text-center">
+                <p className="font-display text-base font-semibold">Thanks for rating your trip!</p>
+                <div className="mt-2 flex justify-center gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Star
+                      key={n}
+                      className={`size-6 ${
+                        n <= existingRating.rating
+                          ? "fill-amber-400 text-amber-400"
+                          : "text-muted-foreground"
+                      }`}
+                    />
+                  ))}
+                </div>
+                {existingRating.comment && (
+                  <p className="mt-2 text-sm text-muted-foreground">“{existingRating.comment}”</p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <h2 className="font-display text-lg font-semibold">How was your trip?</h2>
+                <p className="text-xs text-muted-foreground">
+                  Rate your matatu ride — Kadiria safari yako
+                </p>
+                <div className="mt-3 flex justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button key={n} onClick={() => setRatingValue(n)} aria-label={`Rate ${n} star`}>
+                      <Star
+                        className={`size-9 transition-colors ${
+                          n <= ratingValue
+                            ? "fill-amber-400 text-amber-400"
+                            : "text-muted-foreground"
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={ratingComment}
+                  onChange={(e) => setRatingComment(e.target.value)}
+                  placeholder="Anything you want to add? (optional)"
+                  rows={2}
+                  className="mt-3 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  onClick={submitRating}
+                  disabled={submittingRating}
+                  className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                >
+                  {submittingRating ? "Submitting…" : "Submit rating"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* When to leave for pickup — shown until the passenger boards, reusing the same
             hook-driven banner from the booking screen so the number never disagrees with
