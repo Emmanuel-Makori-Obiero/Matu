@@ -29,10 +29,53 @@ type TripRow = {
   vehicle_id: string;
   driver_id: string;
 };
-type RouteRow = { id: string; name: string; origin: string; destination: string };
+type RouteRow = {
+  id: string;
+  name: string;
+  origin: string;
+  destination: string;
+  path: [number, number][] | null;
+};
 type VehicleRow = { id: string; plate_number: string; nickname: string | null; capacity: number };
 type StageRow = { id: string; name: string; lat: number; lng: number; order_index?: number };
 type TripLoc = { lat: number; lng: number; heading: number | null };
+
+// Straight-line distance in meters — only used to find which point of a
+// driver-drawn trail is closest to the vehicle right now, not for anything
+// precision-sensitive.
+function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+// Given a route's full driver-drawn trail (recorded start-to-end while
+// driving) and the vehicle's current position, returns just the remaining
+// slice — from the closest point on the trail to the vehicle, through to the
+// end of the trail. This is what lets the passenger's "remaining route" line
+// be drawn from the driver's own corrected path instead of a freshly-fetched
+// (and possibly outdated-for-this-area) Mapbox/Google route.
+function remainingTrace(
+  path: [number, number][] | null,
+  vehicleLoc: { lat: number; lng: number } | null,
+): [number, number][] | null {
+  if (!path || path.length < 2 || !vehicleLoc) return null;
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < path.length; i++) {
+    const d = haversineMeters(vehicleLoc, { lat: path[i][0], lng: path[i][1] });
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
+    }
+  }
+  const slice = path.slice(bestIdx);
+  return slice.length > 1 ? slice : null;
+}
 
 export const Route = createFileRoute("/_authenticated/ride/track/$bookingId")({
   component: TrackBooking,
@@ -162,7 +205,7 @@ function TrackBooking() {
         t
           ? supabase
               .from("routes")
-              .select("id,name,origin,destination")
+              .select("id,name,origin,destination,path")
               .eq("id", t.route_id)
               .maybeSingle()
           : Promise.resolve({ data: null }),
@@ -268,6 +311,13 @@ function TrackBooking() {
   }, []);
 
   const destination = dropoff ? { lat: dropoff.lat, lng: dropoff.lng } : null;
+  // The driver-drawn "ground truth" remaining route, sliced from wherever the
+  // vehicle currently is through to the end of the recorded trail. Preferred
+  // over the freshly-fetched liveRoute below whenever this route actually has
+  // one saved — that's the whole point of letting drivers draw corrected
+  // routes: passengers should see that corrected line too, not a fetched one
+  // that might still be wrong for this area.
+  const remainingDrawnRoute = remainingTrace(route?.path ?? null, vehicleLoc);
   const {
     minutes: etaMinutes,
     delayed,
@@ -437,7 +487,12 @@ function TrackBooking() {
           stages={mapStages}
           vehicles={mapVehicles}
           selfPosition={selfLoc}
-          liveRoute={vehicleLoc && destination ? { origin: vehicleLoc, destination } : null}
+          tracePath={remainingDrawnRoute}
+          liveRoute={
+            !remainingDrawnRoute && vehicleLoc && destination
+              ? { origin: vehicleLoc, destination }
+              : null
+          }
           onLiveRouteStaleChange={(stale) => {
             if (stale)
               toast.error("Live route couldn't refresh — the line on the map may be outdated.");
@@ -447,6 +502,12 @@ function TrackBooking() {
         {!vehicleLoc && (
           <p className="-mt-2 text-center text-xs text-muted-foreground">
             Waiting for the driver's live location…
+          </p>
+        )}
+        {vehicleLoc && remainingDrawnRoute && (
+          <p className="-mt-2 text-center text-xs text-muted-foreground">
+            Remaining route (dashed blue) traced live by the driver — more accurate than a fetched
+            route for this leg.
           </p>
         )}
 
