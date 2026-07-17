@@ -377,7 +377,7 @@ function BookingHistory() {
                               navigate({
                                 to: "/ride/$routeId",
                                 params: { routeId: trip.route_id },
-                                search: { trip: trip.id },
+                                search: { from: undefined, to: undefined, trip: trip.id },
                               });
                             }}
                             className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"

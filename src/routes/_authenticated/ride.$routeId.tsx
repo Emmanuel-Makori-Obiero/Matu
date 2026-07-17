@@ -53,6 +53,12 @@ function RouteDetail() {
   const [bookedCounts, setBookedCounts] = useState<Record<string, number>>({});
   const [bookingTripId, setBookingTripId] = useState<string | null>(null);
   const [bookedBookingId, setBookedBookingId] = useState<string | null>(null);
+  // When booking more than one seat, bookSeat() inserts one row per seat.
+  // bookedBookingId stays the "primary" one that the existing pay/track flow
+  // already keys off of; the rest of the party's booking ids live here so
+  // payment confirmation can be applied to all of them together.
+  const [siblingBookingIds, setSiblingBookingIds] = useState<string[]>([]);
+  const [seatCount, setSeatCount] = useState(1);
   const [bookedTripId, setBookedTripId] = useState<string | null>(null);
   const [driverPayments, setDriverPayments] = useState<Record<string, DriverPayment>>({});
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
@@ -68,6 +74,12 @@ function RouteDetail() {
   const [myBookings, setMyBookings] = useState<
     { trip_id: string; pickup_stage_id: string | null; dropoff_stage_id: string | null }[]
   >([]);
+  // A passenger with an active booking ANYWHERE (any route/trip) is blocked from
+  // starting a second one — one active reservation at a time. Holds just enough
+  // to show a "you already have a booking" message with a link to it.
+  const [blockingBooking, setBlockingBooking] = useState<{ id: string; sameTrip: boolean } | null>(
+    null,
+  );
   const notifiedRef = useRef<Set<string>>(new Set());
 
   const [pickup, setPickup] = useState<string>("");
@@ -196,6 +208,31 @@ function RouteDetail() {
       clearInterval(iv);
     };
   }, [trips]);
+
+  // One active booking at a time, full stop — checked independently of which
+  // route/trip is on screen (the check above only covers trips on *this*
+  // route). If the passenger already has a reserved/confirmed/boarded booking
+  // on ANY trip, block starting a new one here and point them at the existing
+  // one instead of letting two reservations exist at once.
+  useEffect(() => {
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return;
+      const { data } = await supabase
+        .from("bookings")
+        .select("id,trip_id")
+        .eq("passenger_id", u.user.id)
+        .in("status", ["reserved", "confirmed", "boarded"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        setBlockingBooking({ id: data.id, sameTrip: data.trip_id === bookedTripId });
+      } else {
+        setBlockingBooking(null);
+      }
+    })();
+  }, [routeId, bookedBookingId, bookedTripId]);
 
   // Load my active bookings on this route's trips
   useEffect(() => {
@@ -420,6 +457,9 @@ function RouteDetail() {
     const trip = trips.find((t) => t.id === tripId);
     if (!trip) return;
     if (!pickup || !dropoff) return toast.error("Pick your pickup and drop-off stages");
+    if (blockingBooking && blockingBooking.id !== bookedBookingId) {
+      return toast.error("You already have an active booking. Finish or cancel it first.");
+    }
 
     setBookingTripId(tripId);
     // Re-check capacity right before booking rather than trusting the last-loaded
@@ -429,47 +469,69 @@ function RouteDetail() {
     });
     const takenCount = currentCount ?? 0;
     const capacity = vehicles[trip.vehicle_id]?.capacity ?? 14;
-    if (takenCount >= capacity) {
+    if (takenCount + seatCount > capacity) {
       setBookingTripId(null);
       setBookedCounts((prev) => ({ ...prev, [tripId]: takenCount }));
-      return toast.error("This trip just filled up. Try another matatu.");
+      const left = Math.max(0, capacity - takenCount);
+      return toast.error(
+        left === 0
+          ? "This trip just filled up. Try another matatu."
+          : `Only ${left} seat${left === 1 ? "" : "s"} left on this trip.`,
+      );
     }
 
     // No seat_number: passengers sit wherever's free on board, so booking just
     // reserves a spot rather than a specific seat. Capacity is enforced above
     // (best-effort check) and again by the driver seeing seatsBooked vs capacity.
-    const { data: newBooking, error } = await supabase
+    // One row per seat — there's no "party size" column on bookings, so a
+    // multi-seat booking is just N identical rows sharing the same trip,
+    // passenger, pickup, and drop-off, inserted together in one call.
+    const { data: newBookings, error } = await supabase
       .from("bookings")
-      .insert({
-        trip_id: tripId,
-        passenger_id: u.user.id,
-        pickup_stage_id: pickup,
-        dropoff_stage_id: dropoff,
-        fare_paid: trip.fare,
-        status: "reserved",
-      })
-      .select("id")
-      .single();
+      .insert(
+        Array.from({ length: seatCount }, () => ({
+          trip_id: tripId,
+          passenger_id: u.user.id,
+          pickup_stage_id: pickup,
+          dropoff_stage_id: dropoff,
+          fare_paid: trip.fare,
+          status: "reserved",
+        })),
+      )
+      .select("id");
     setBookingTripId(null);
-    if (error || !newBooking) return toast.error(error?.message ?? "Could not reserve your spot");
-    toast.success("Spot reserved. Pay to confirm it.");
-    setBookedBookingId(newBooking.id);
+    if (error || !newBookings || newBookings.length === 0) {
+      return toast.error(error?.message ?? "Could not reserve your spot");
+    }
+    const [primary, ...rest] = newBookings.map((b) => b.id as string);
+    toast.success(
+      seatCount > 1
+        ? `${seatCount} spots reserved. Pay to confirm them.`
+        : "Spot reserved. Pay to confirm it.",
+    );
+    setBookedBookingId(primary);
+    setSiblingBookingIds(rest);
     setBookedTripId(tripId);
     setPayChoice("manual");
-    setBookedCounts((prev) => ({ ...prev, [tripId]: (prev[tripId] ?? takenCount) + 1 }));
+    setBookedCounts((prev) => ({ ...prev, [tripId]: (prev[tripId] ?? takenCount) + seatCount }));
   }
 
   // Cash coexists with M-Pesa instead of forcing cashless — matatus run on cash today,
   // and past cashless mandates in Kenya stalled when they cut crews out of daily cash
   // flow. This just confirms the seat and tells the passenger to pay the conductor.
   async function payWithCash(bookingId: string) {
+    const ids = [bookingId, ...siblingBookingIds];
     const { error } = await supabase
       .from("bookings")
       .update({ status: "confirmed", payment_method: "cash" })
-      .eq("id", bookingId);
+      .in("id", ids);
     if (error) return toast.error(error.message);
     setPaymentStatus((prev) => ({ ...prev, [bookingId]: "cash" }));
-    toast.success("Seat confirmed. Pay the conductor in cash when you board.");
+    toast.success(
+      ids.length > 1
+        ? `${ids.length} seats confirmed. Pay the conductor in cash when you board.`
+        : "Seat confirmed. Pay the conductor in cash when you board.",
+    );
   }
 
   // Passenger pays the driver directly, outside the app, using the driver's own
@@ -487,14 +549,19 @@ function RouteDetail() {
     // so always store 'mpesa' here — passing `method` straight through violates
     // bookings_payment_method_check and silently fails the whole confirmation.
     void method;
+    const ids = [bookingId, ...siblingBookingIds];
     const { error } = await supabase
       .from("bookings")
       .update({ status: "confirmed", payment_method: "mpesa" })
-      .eq("id", bookingId);
+      .in("id", ids);
     setPayingBookingId(null);
     if (error) return toast.error(error.message);
     setPaymentStatus((prev) => ({ ...prev, [bookingId]: "manual" }));
-    toast.success("Marked as sent. Show your M-Pesa message to the conductor when you board.");
+    toast.success(
+      ids.length > 1
+        ? `${ids.length} seats marked as sent. Show your M-Pesa message to the conductor when you board.`
+        : "Marked as sent. Show your M-Pesa message to the conductor when you board.",
+    );
   }
 
   async function sendAlert(tripId: string, type: "near_pickup" | "alight_request") {
@@ -592,6 +659,16 @@ function RouteDetail() {
         <div className="grid gap-4">
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Live matatus ({trips.length})</h2>
+            {blockingBooking && blockingBooking.id !== bookedBookingId && (
+              <p className="mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                You already have an active booking. Finish or cancel it before booking another seat
+                —{" "}
+                <Link to="/ride/history" className="font-medium underline">
+                  view it in My bookings
+                </Link>
+                .
+              </p>
+            )}
             {trips.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">
                 No matatus on this route right now.
@@ -638,7 +715,8 @@ function RouteDetail() {
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           onClick={() => openBookingPanel(t.id)}
-                          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                          disabled={!!blockingBooking && blockingBooking.id !== bookedBookingId}
+                          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Users className="mr-1 inline size-3" /> Book seat
                         </button>
@@ -658,18 +736,43 @@ function RouteDetail() {
 
                       {selectedTrip === t.id && (
                         <div className="mt-3 grid gap-3 border-t border-border pt-3">
-                          <StageSelect
+                          <StageAutocomplete
                             stages={stages}
                             value={pickup}
                             onChange={setPickup}
                             label="Pickup"
                           />
-                          <StageSelect
+                          <StageAutocomplete
                             stages={stages}
                             value={dropoff}
                             onChange={setDropoff}
                             label="Drop-off"
                           />
+                          <label className="text-xs">
+                            <span className="mb-1 block font-medium">Number of seats</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSeatCount((n) => Math.max(1, n - 1))}
+                                className="size-7 rounded-md border border-input text-sm font-medium"
+                              >
+                                −
+                              </button>
+                              <span className="w-6 text-center text-sm font-semibold">
+                                {seatCount}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setSeatCount((n) => Math.min(4, n + 1))}
+                                className="size-7 rounded-md border border-input text-sm font-medium"
+                              >
+                                +
+                              </button>
+                              <span className="text-[11px] text-muted-foreground">
+                                Booking for more than one person? Up to 4 seats at once.
+                              </span>
+                            </div>
+                          </label>
                           <div className="flex gap-2">
                             <button
                               onClick={() => bookSeat(t.id)}
@@ -881,7 +984,7 @@ function RouteDetail() {
   );
 }
 
-function StageSelect({
+function StageAutocomplete({
   stages,
   value,
   onChange,
@@ -892,21 +995,70 @@ function StageSelect({
   onChange: (v: string) => void;
   label: string;
 }) {
+  const selected = stages.find((s) => s.id === value);
+  const [query, setQuery] = useState(selected?.name ?? "");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Stay in sync if `value` changes from outside (e.g. auto-matched from the
+  // "from"/"to" params passed in from the Find a ride page).
+  useEffect(() => {
+    const s = stages.find((st) => st.id === value);
+    setQuery(s?.name ?? "");
+  }, [value, stages]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  const matches =
+    query.trim().length === 0
+      ? stages
+      : stages.filter((s) => s.name.toLowerCase().includes(query.trim().toLowerCase()));
+
   return (
-    <label className="text-xs">
-      <span className="mb-1 block font-medium">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-input bg-background px-2 py-1.5"
-      >
-        <option value="">Select a stage…</option>
-        {stages.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div ref={containerRef} className="relative text-xs">
+      <label className="text-xs">
+        <span className="mb-1 block font-medium">{label}</span>
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            if (value) onChange(""); // typing again means the old selection no longer applies
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Type a stage name…"
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+        />
+      </label>
+      {open && (
+        <ul className="absolute z-[1000] mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-surface shadow-lg">
+          {matches.length === 0 ? (
+            <li className="px-3 py-2 text-muted-foreground">No stages match "{query}"</li>
+          ) : (
+            matches.map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(s.id);
+                    setQuery(s.name);
+                    setOpen(false);
+                  }}
+                  className="block w-full px-3 py-2 text-left hover:bg-secondary"
+                >
+                  {s.name}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
   );
 }

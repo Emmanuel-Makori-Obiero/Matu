@@ -3,7 +3,7 @@
 // A passenger who hasn't booked (or doesn't want to) can still: pick a route, see every
 // active vehicle on it moving live on the map, and "ping" a stage to tell the driver
 // they're waiting there — reuses the same stage_pings mechanism the booking page uses.
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Bell, MapPin, Radio } from "lucide-react";
@@ -22,6 +22,7 @@ export const Route = createFileRoute("/_authenticated/ride/track")({
 });
 
 function TrackPage() {
+  const navigate = useNavigate();
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [routeId, setRouteId] = useState<string>("");
   const [stages, setStages] = useState<Stage[]>([]);
@@ -32,6 +33,37 @@ function TrackPage() {
   const [myPingStageId, setMyPingStageId] = useState<string | null>(null);
   const [pinging, setPinging] = useState<string | null>(null);
   const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
+  // While this checks, hold off rendering the generic multi-route picker at all —
+  // otherwise a passenger who did book sees the wrong screen flash for a moment.
+  const [checkingMyBooking, setCheckingMyBooking] = useState(true);
+
+  // If the passenger has an active booking (reserved, confirmed, or already boarded)
+  // on ANY route, "Track" should mean *their* trip, not a generic picker across every
+  // route in the system. Redirect straight to the dedicated per-booking screen, which
+  // shows only their route with the live remaining-route line. Only passengers with
+  // no active booking ever see the route-picker UI below.
+  useEffect(() => {
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) {
+        setCheckingMyBooking(false);
+        return;
+      }
+      const { data } = await supabase
+        .from("bookings")
+        .select("id,created_at")
+        .eq("passenger_id", u.user.id)
+        .in("status", ["reserved", "confirmed", "boarded"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
+        return;
+      }
+      setCheckingMyBooking(false);
+    })();
+  }, [navigate]);
 
   // Same as the per-booking tracking screen — starts automatically, no button,
   // so the red "you" dot just appears if location is available/granted.
@@ -210,6 +242,23 @@ function TrackPage() {
       } as MapVehicle;
     })
     .filter((v): v is MapVehicle => v != null);
+
+  if (checkingMyBooking) {
+    return (
+      <AppShell
+        title="Track"
+        subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
+        tabs={[
+          { to: "/ride", label: "Find a ride" },
+          { to: "/ride/track", label: "Track" },
+          { to: "/ride/history", label: "My bookings" },
+        ]}
+        assistantContext={{ page: "passenger_tracking" }}
+      >
+        <p className="text-sm text-muted-foreground">Checking for your booking…</p>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell
