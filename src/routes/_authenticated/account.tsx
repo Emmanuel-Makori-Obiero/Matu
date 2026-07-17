@@ -28,6 +28,8 @@ import {
   getNotificationsPreference,
   setNotificationsPreference,
   notificationPermission,
+  pushNotificationsSupported,
+  enableTripPushNotifications,
 } from "@/lib/push-notifications";
 
 export const Route = createFileRoute("/_authenticated/account")({
@@ -67,6 +69,8 @@ function AccountSettings() {
   const [deleting, setDeleting] = useState(false);
   const [selectedSound, setSelectedSound] = useState<SoundProfileId>(getSelectedSoundId());
   const [notificationsEnabled, setNotificationsEnabled] = useState(getNotificationsPreference());
+  const [pushPermission, setPushPermission] = useState(notificationPermission());
+  const [requestingPush, setRequestingPush] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [payMethod, setPayMethod] = useState<"pochi" | "send_money" | "buy_goods" | "">("");
   const [payTarget, setPayTarget] = useState("");
@@ -234,15 +238,51 @@ function AccountSettings() {
     toast.success("Alert sound saved. That's what you'll hear for new passenger alerts.");
   }
 
-  function toggleNotifications() {
+  async function toggleNotifications() {
     const next = !notificationsEnabled;
-    setNotificationsEnabled(next);
-    setNotificationsPreference(next);
-    toast.success(
-      next
-        ? "Notifications on. You'll be offered the option to enable alerts while tracking a trip."
-        : "Notifications off. Matu won't prompt you to enable trip alerts.",
-    );
+
+    // Turning it off never needs the browser — just stop offering/using push.
+    if (!next) {
+      setNotificationsEnabled(false);
+      setNotificationsPreference(false);
+      toast.success("Notifications off. Matu won't prompt you to enable trip alerts.");
+      return;
+    }
+
+    setNotificationsEnabled(true);
+    setNotificationsPreference(true);
+
+    // Already decided at the browser level — nothing to prompt for.
+    if (pushPermission === "granted") {
+      toast.success("Notifications on.");
+      return;
+    }
+    if (pushPermission === "denied") {
+      toast.error(
+        "Notifications are blocked for Matu in your browser. Allow them in your browser's site settings, then try again.",
+      );
+      return;
+    }
+    if (!pushNotificationsSupported()) {
+      toast.success(
+        "Notifications on. You'll be offered the option to enable alerts while tracking a trip.",
+      );
+      return;
+    }
+
+    // This click is itself the user gesture, so calling this here — rather
+    // than only from the trip-tracking banner — is what makes the real OS/
+    // browser permission dialog appear immediately, on both mobile and
+    // desktop, instead of waiting for a second tap later on the trip screen.
+    setRequestingPush(true);
+    const result = await enableTripPushNotifications();
+    setRequestingPush(false);
+    setPushPermission(notificationPermission());
+    if (result.ok) {
+      toast.success("Notifications on — you'll get alerts as your matatu approaches.");
+    } else {
+      toast.error(result.reason);
+    }
   }
 
   if (loading) {
@@ -430,23 +470,26 @@ function AccountSettings() {
         </section>
 
         {/* Show notifications — controls whether Matu offers to enable browser/push
-            alerts at all (e.g. the "Get notified when your matatu is close" banner
-            on the trip tracking screen). This is Matu's own preference, separate
-            from the browser's notification permission itself — turning this off
-            just stops Matu from asking; it doesn't revoke permission you've
-            already granted the browser. */}
+            alerts at all. Turning this on is itself the user gesture that triggers
+            the real browser/OS permission prompt (via enableTripPushNotifications),
+            so it takes effect at the browser level immediately on both mobile and
+            desktop — it doesn't just set an in-app preference and wait for a later
+            tap. Turning it off only stops Matu from asking again; it doesn't revoke
+            permission already granted at the browser level (only the browser's own
+            site settings can do that). */}
         <section className="rounded-2xl border border-border bg-surface p-6">
           <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
             <Bell className="size-5" /> Notifications
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            When on, Matu will offer to alert you (even outside the app) as your matatu gets close
-            and when it arrives.
+            When on, Matu will alert you (even outside the app) as your matatu gets close and when
+            it arrives.
           </p>
           <button
             type="button"
             onClick={toggleNotifications}
-            className={`mt-4 flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left transition ${
+            disabled={requestingPush}
+            className={`mt-4 flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left transition disabled:opacity-60 ${
               notificationsEnabled
                 ? "border-primary bg-primary/10"
                 : "border-border hover:bg-secondary"
@@ -461,11 +504,15 @@ function AccountSettings() {
               <div>
                 <div className="text-sm font-medium">Show notifications</div>
                 <div className="text-xs text-muted-foreground">
-                  {notificationPermission() === "denied"
-                    ? "Blocked at the browser level — check your browser's site settings to allow them."
-                    : notificationsEnabled
-                      ? "On — you'll be offered trip alerts."
-                      : "Off — Matu won't ask to send alerts."}
+                  {requestingPush
+                    ? "Requesting permission…"
+                    : pushPermission === "denied"
+                      ? "Blocked at the browser level — check your browser's site settings to allow them."
+                      : notificationsEnabled && pushPermission === "granted"
+                        ? "On — allowed at the browser level."
+                        : notificationsEnabled
+                          ? "On — you'll be offered trip alerts."
+                          : "Off — Matu won't ask to send alerts."}
                 </div>
               </div>
             </div>
