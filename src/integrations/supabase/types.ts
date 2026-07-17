@@ -428,6 +428,9 @@ export type Database = {
           id: string;
           name: string;
           origin: string;
+          path: Json | null;
+          path_updated_at: string | null;
+          path_updated_by: string | null;
           sacco_id: string | null;
         };
         Insert: {
@@ -438,6 +441,9 @@ export type Database = {
           id?: string;
           name: string;
           origin: string;
+          path?: Json | null;
+          path_updated_at?: string | null;
+          path_updated_by?: string | null;
           sacco_id?: string | null;
         };
         Update: {
@@ -448,6 +454,9 @@ export type Database = {
           id?: string;
           name?: string;
           origin?: string;
+          path?: Json | null;
+          path_updated_at?: string | null;
+          path_updated_by?: string | null;
           sacco_id?: string | null;
         };
         Relationships: [
@@ -456,6 +465,13 @@ export type Database = {
             columns: ["sacco_id"];
             isOneToOne: false;
             referencedRelation: "saccos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "routes_path_updated_by_fkey";
+            columns: ["path_updated_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
             referencedColumns: ["id"];
           },
         ];

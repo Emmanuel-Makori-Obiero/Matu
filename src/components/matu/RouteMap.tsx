@@ -150,6 +150,7 @@ export function RouteMap({
   showTraffic = false,
   jammed = false,
   congestionRoute,
+  tracePath = null,
   className,
 }: {
   stages: MapStage[];
@@ -188,6 +189,14 @@ export function RouteMap({
   // road. This is what "the route should be red at the part there is a jam"
   // means literally: only the jammed segments are red, not the whole line.
   congestionRoute?: CongestionSegment[] | null;
+  // The driver's own recorded GPS trail — either being drawn live as they
+  // drive ("Draw route" mode, growing point-by-point on every GPS tick) or
+  // the last trail previously saved for this route. Drawn as a dashed blue
+  // line so it's visually distinct from the plain stage-to-stage line and
+  // the Mapbox-derived congestion line, since this one is "ground truth"
+  // traced by an actual vehicle rather than fetched from a map that may be
+  // outdated for this area.
+  tracePath?: [number, number][] | null;
   // Called once when the live route fails to refresh twice in a row (not on
   // a single blip) — lets the screen tell the user "this route/ETA may be
   // outdated" instead of silently drawing a stale line with no signal that
@@ -200,6 +209,7 @@ export function RouteMap({
   const stageMarkers = useRef<L.Marker[]>([]);
   const polylineRef = useRef<L.Polyline | null>(null);
   const congestionLayerRef = useRef<L.LayerGroup | null>(null);
+  const tracePolylineRef = useRef<L.Polyline | null>(null);
   const vehicleMarkers = useRef<Record<string, L.Marker>>({});
   const passengerMarkers = useRef<Record<string, L.Marker>>({});
   const pinMarker = useRef<L.Marker | null>(null);
@@ -393,6 +403,29 @@ export function RouteMap({
       congestionLayerRef.current = group;
     }
   }, [congestionRoute, ready]);
+
+  // The driver-traced route — rebuilt whenever the point array grows (i.e. on
+  // every accepted GPS tick while recording) or when a previously-saved trail
+  // is passed in for display. A full-line redraw per tick is cheap (it's just
+  // a polyline of a few hundred points at most) and keeps this in its own
+  // layer so it never fights the stages polyline or congestion overlay for
+  // the same instance. Deliberately does NOT call fitBounds — recording can
+  // run for a long trip and shouldn't keep yanking the driver's zoom/pan.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    tracePolylineRef.current?.remove();
+    tracePolylineRef.current = null;
+    if (tracePath && tracePath.length > 1) {
+      tracePolylineRef.current = L.polyline(tracePath, {
+        color: "#1a73e8",
+        weight: 4,
+        opacity: 0.9,
+        dashArray: "1,8",
+        lineCap: "round",
+      }).addTo(map);
+    }
+  }, [tracePath, ready]);
 
   // Dropped pin — where the passenger tapped to set pickup/destination.
   useEffect(() => {

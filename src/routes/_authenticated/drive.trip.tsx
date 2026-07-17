@@ -18,6 +18,19 @@ import { ParcelPanel } from "@/components/matu/ParcelPanel";
 import { enqueueAction } from "@/lib/offline-cache";
 import { flushQueue, registerBackgroundSync } from "@/lib/offline-queue";
 
+// Straight-line distance in meters — only used to decide whether a new GPS
+// tick moved far enough to be worth adding to the traced route (see
+// lastTracedPointRef below), not for anything precision-sensitive.
+function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
 type Vehicle = { id: string; plate_number: string; capacity: number };
 type RouteRow = { id: string; name: string; base_fare: number | null };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
@@ -83,6 +96,29 @@ function DriverTrip() {
     heading: number | null;
   } | null>(null);
 
+  // "Draw route" mode: the driver presses this on when they know the app's
+  // usual road-snapped/base-map route for this leg is wrong (old map, new
+  // road, closed diversion, etc). While on, every accepted GPS tick below is
+  // appended to tracedPath, so the remaining-route line on the map is drawn
+  // from the vehicle's actual driven path instead of a fetched line — the
+  // same way a hand-drawn "this is really how you get there" correction
+  // would work, except done live while driving instead of after the fact.
+  const [drawingRoute, setDrawingRoute] = useState(false);
+  const [tracedPath, setTracedPath] = useState<[number, number][]>([]);
+  // The last route path a driver actually traced and saved for this route
+  // (loaded from routes.path) — shown on the map whenever we're not actively
+  // recording a new one, so the "more accurate" line persists across trips
+  // rather than only existing for the driver who originally drew it.
+  const [savedRoutePath, setSavedRoutePath] = useState<[number, number][] | null>(null);
+  const [savingRoutePath, setSavingRoutePath] = useState(false);
+  // Distance-filters GPS ticks before they're added to tracedPath — watchPosition
+  // can fire every few seconds even while stationary in traffic, and without this
+  // the traced line would be full of jittery near-duplicate points bunched at
+  // every stop instead of a clean line of where the vehicle actually went.
+  const lastTracedPointRef = useRef<{ lat: number; lng: number } | null>(null);
+  const drawingRouteRef = useRef(drawingRoute);
+  drawingRouteRef.current = drawingRoute;
+
   // Load driver's vehicles + routes on mount
   useEffect(() => {
     (async () => {
@@ -108,7 +144,7 @@ function DriverTrip() {
   useEffect(() => {
     if (!trip) return;
     (async () => {
-      const [{ data: s }, { data: b }, { data: a }] = await Promise.all([
+      const [{ data: s }, { data: b }, { data: a }, { data: r }] = await Promise.all([
         supabase
           .from("stages")
           .select("id,name,lat,lng,order_index")
@@ -125,10 +161,13 @@ function DriverTrip() {
           .select("id,type,message,created_at,passenger_id")
           .eq("trip_id", trip.id)
           .order("created_at", { ascending: false }),
+        supabase.from("routes").select("path").eq("id", trip.route_id).maybeSingle(),
       ]);
       setStages((s ?? []) as Stage[]);
       setBookings((b ?? []) as BookingWithProfile[]);
       setAlerts((a ?? []) as AlertRow[]);
+      const path = r?.path as [number, number][] | null | undefined;
+      setSavedRoutePath(path && path.length > 1 ? path : null);
     })();
 
     primeAudioOnFirstInteraction();
@@ -182,6 +221,16 @@ function DriverTrip() {
           lng: pos.coords.longitude,
           heading: pos.coords.heading,
         });
+        if (drawingRouteRef.current) {
+          const last = lastTracedPointRef.current;
+          const moved =
+            !last ||
+            haversineMeters(last, { lat: pos.coords.latitude, lng: pos.coords.longitude }) >= 12;
+          if (moved) {
+            lastTracedPointRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setTracedPath((prev) => [...prev, [pos.coords.latitude, pos.coords.longitude]]);
+          }
+        }
         await supabase
           .from("trips")
           .update({
@@ -373,11 +422,16 @@ function DriverTrip() {
 
   async function endTrip() {
     if (!trip) return;
+    if (drawingRoute && tracedPath.length >= 2) {
+      await persistTracedPath(tracedPath);
+    }
     await supabase
       .from("trips")
       .update({ status: "completed", ended_at: new Date().toISOString() })
       .eq("id", trip.id);
     toast.success("Trip ended");
+    setDrawingRoute(false);
+    setTracedPath([]);
     setTrip(null);
     navigate({ to: "/drive" });
   }
@@ -605,10 +659,81 @@ function DriverTrip() {
   }, []);
 
   async function addStage(lat: number, lng: number) {
-    if (!trip || !addStageMode || !newStageName.trim()) {
-      if (addStageMode && !newStageName.trim()) toast.error("Type a stage name first");
+    if (!trip || !addStageMode) return;
+    if (!newStageName.trim()) return toast.error("Type a stage name first");
+    await addStageForced(lat, lng);
+  }
+
+  function startDrawingRoute() {
+    if (!driverPos) {
+      toast.error("Waiting for GPS — try again once your location shows on the map");
       return;
     }
+    lastTracedPointRef.current = { lat: driverPos.lat, lng: driverPos.lng };
+    setTracedPath([[driverPos.lat, driverPos.lng]]);
+    setDrawingRoute(true);
+    toast.success("Drawing route — drive normally, the line will follow you");
+  }
+
+  // Saves whatever's been traced so far without turning recording off — used
+  // both by the periodic autosave below and by the explicit "Save" action, so
+  // a dropped connection or a forgotten tab close doesn't lose the whole trace.
+  async function persistTracedPath(path: [number, number][]) {
+    if (!trip || path.length < 2) return;
+    const { data: u } = await supabase.auth.getUser();
+    if (!u.user) return;
+    const { error } = await supabase
+      .from("routes")
+      .update({
+        path,
+        path_updated_at: new Date().toISOString(),
+        path_updated_by: u.user.id,
+      })
+      .eq("id", trip.route_id);
+    if (error) console.warn("route path autosave failed", error);
+  }
+
+  // Autosaves the trace every 30s while drawing so a long trip's progress
+  // survives a crash/tab-close instead of only being written once at "Stop".
+  useEffect(() => {
+    if (!drawingRoute) return;
+    const iv = setInterval(() => persistTracedPath(tracedPath), 30_000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawingRoute, tracedPath]);
+
+  async function stopDrawingRoute() {
+    setDrawingRoute(false);
+    if (tracedPath.length < 2) {
+      toast.info("Stopped — not enough movement was recorded to save a route");
+      return;
+    }
+    setSavingRoutePath(true);
+    await persistTracedPath(tracedPath);
+    setSavingRoutePath(false);
+    setSavedRoutePath(tracedPath);
+    toast.success(
+      `Route saved — ${tracedPath.length} points. This replaces the old route for everyone using this leg.`,
+    );
+  }
+
+  // Drops a stage at wherever the vehicle actually is right now, rather than
+  // requiring the driver to tap the exact spot on the map — much easier (and
+  // more accurate) to do one-handed while moving than aiming a tap at a small
+  // map while the vehicle is in motion.
+  async function addStageAtCurrentPosition() {
+    if (!trip) return;
+    if (!newStageName.trim()) return toast.error("Type a stage name first");
+    if (!driverPos) return toast.error("Waiting for GPS — try again in a moment");
+    await addStageForced(driverPos.lat, driverPos.lng);
+  }
+
+  // Shared insert used by both the tap-the-map flow (addStage, gated behind
+  // addStageMode) and the "add stage here" live-drawing flow above — pulled
+  // out so the actual insert/order-index/toast logic lives in exactly one
+  // place instead of being duplicated between the two entry points.
+  async function addStageForced(lat: number, lng: number) {
+    if (!trip || !newStageName.trim()) return;
     const { data: u } = await supabase.auth.getUser();
     if (!u.user) return;
     const nextOrder = stages.length ? Math.max(...stages.map((s) => s.order_index)) + 1 : 0;
@@ -865,8 +990,33 @@ function DriverTrip() {
             showTraffic={showTraffic}
             jammed={aheadIsJammed}
             congestionRoute={congestionRoute}
+            tracePath={drawingRoute ? tracedPath : savedRoutePath}
           />
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
+            {drawingRoute ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary">
+                  <span className="size-2 animate-pulse rounded-full bg-primary" />
+                  Drawing route… {tracedPath.length} points
+                </span>
+                <button
+                  type="button"
+                  onClick={stopDrawingRoute}
+                  disabled={savingRoutePath}
+                  className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                >
+                  {savingRoutePath ? "Saving…" : "Stop & save route"}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={startDrawingRoute}
+                className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium"
+              >
+                <MapPin className="size-3" /> Draw route now
+              </button>
+            )}
             <button
               onClick={() => setAddStageMode((v) => !v)}
               className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium ${addStageMode ? "bg-accent text-accent-foreground" : "border border-border"}`}
@@ -882,7 +1032,30 @@ function DriverTrip() {
                 className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-xs"
               />
             )}
+            {drawingRoute && !addStageMode && (
+              <>
+                <input
+                  placeholder="Stage name (e.g. Junction)"
+                  value={newStageName}
+                  onChange={(e) => setNewStageName(e.target.value)}
+                  className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={addStageAtCurrentPosition}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium"
+                >
+                  <Plus className="size-3" /> Add stage here
+                </button>
+              </>
+            )}
           </div>
+          {!drawingRoute && savedRoutePath && (
+            <p className="text-xs text-muted-foreground">
+              Showing a driver-traced route (dashed blue) saved for this leg — more accurate than
+              the base map where it's been corrected.
+            </p>
+          )}
         </div>
 
         <div className="grid gap-4">
