@@ -29,8 +29,23 @@ function detectContext(pathname: string): AssistantContext {
   if (pathname === "/ride/history" || pathname.startsWith("/ride/history")) {
     return { page: "passenger_history" };
   }
+  if (pathname.startsWith("/ride/track")) {
+    return { page: "passenger_tracking" };
+  }
   if (pathname.startsWith("/ride/") && pathname !== "/ride/history") {
     return { page: "passenger_route_details" };
+  }
+  if (pathname.startsWith("/wallet")) {
+    return { page: "passenger_wallet" };
+  }
+  if (pathname.startsWith("/verify")) {
+    return { page: "passenger_verify" };
+  }
+  if (pathname.startsWith("/complaints")) {
+    return { page: "passenger_complaint" };
+  }
+  if (pathname.startsWith("/platform-admin")) {
+    return { page: "platform_admin" };
   }
   return { page: "passenger_search" };
 }

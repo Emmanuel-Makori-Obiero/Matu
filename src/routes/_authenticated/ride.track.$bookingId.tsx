@@ -445,7 +445,7 @@ function TrackBooking() {
     <AppShell
       title={route?.name ?? "Your trip"}
       subtitle={`${pickup?.name ?? "—"} → ${dropoff?.name ?? "—"}`}
-      assistantContext={{ page: "passenger_route_details" }}
+      assistantContext={{ page: "passenger_tracking", details: bookingId }}
     >
       <Link
         to="/ride/history"

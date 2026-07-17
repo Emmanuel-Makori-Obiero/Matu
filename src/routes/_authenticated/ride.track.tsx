@@ -220,7 +220,7 @@ function TrackPage() {
         { to: "/ride/track", label: "Track" },
         { to: "/ride/history", label: "My bookings" },
       ]}
-      assistantContext={{ page: "passenger_route_details" }}
+      assistantContext={{ page: "passenger_tracking" }}
     >
       <div className="grid gap-4">
         <div>

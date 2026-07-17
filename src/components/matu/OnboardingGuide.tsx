@@ -1,11 +1,15 @@
 // FILE: src/components/matu/OnboardingGuide.tsx
 // A one-time, plain-language walkthrough shown to first-time passengers. Stored in
-// localStorage so it only appears once per device — reopenable any time via the
-// "How this works" link left on the search page.
+// a cookie (90-day expiry) so it only appears once per device for a limited window,
+// then resurfaces — reopenable any time via the "How this works" link on the search
+// page. A cookie (vs. localStorage) also means the flag is visible across tabs
+// immediately, e.g. if onboarding is dismissed in one tab it won't flash in another.
 import { useEffect, useState } from "react";
 import { LocateFixed, Search, Ticket, X } from "lucide-react";
+import { getCookie, setCookie } from "@/lib/cookies";
 
 const STORAGE_KEY = "matu_onboarding_seen_v1";
+const SEEN_FOR_DAYS = 90;
 
 const STEPS = [
   {
@@ -28,14 +32,14 @@ const STEPS = [
 export function useOnboardingSeen() {
   const [seen, setSeen] = useState(true);
   useEffect(() => {
-    setSeen(localStorage.getItem(STORAGE_KEY) === "1");
+    setSeen(getCookie(STORAGE_KEY) === "1");
   }, []);
   return seen;
 }
 
 export function OnboardingGuide({ onClose }: { onClose: () => void }) {
   function finish() {
-    localStorage.setItem(STORAGE_KEY, "1");
+    setCookie(STORAGE_KEY, "1", { days: SEEN_FOR_DAYS });
     onClose();
   }
 

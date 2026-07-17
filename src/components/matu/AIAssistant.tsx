@@ -31,10 +31,15 @@ export type AssistantContext = {
     | "landing"
     | "passenger_search"
     | "passenger_route_details"
+    | "passenger_tracking"
     | "passenger_history"
+    | "passenger_wallet"
+    | "passenger_verify"
+    | "passenger_complaint"
     | "driver_home"
     | "driver_trip"
     | "sacco_admin"
+    | "platform_admin"
     | "account";
   details?: string;
 };
@@ -46,13 +51,23 @@ const GREETINGS: Record<AssistantContext["page"], string> = {
     "Hi! Tell me where you're going, e.g. \"I want to go from Kasarani to Ambassadeur\", and I'll check what's available.",
   passenger_route_details:
     "Hi! Ask me about this route: seats left, fare, or how long the trip usually takes.",
+  passenger_tracking:
+    "Hi! I can see your booking — ask me where your matatu is, how far out it is, or anything about this trip.",
   passenger_history:
     "Hi! Ask me about a past or upcoming booking, or say where you want to go next.",
+  passenger_wallet:
+    "Hi! Ask me about topping up, a failed payment, or how your wallet balance works.",
+  passenger_verify:
+    "Hi! Ask me about account verification: what's needed, or why it might be taking a while.",
+  passenger_complaint:
+    "Hi! Ask me how to report an issue, or what happens after you file a complaint.",
   driver_home:
     "Hi! Ask me about routes, fares, or availability. Useful if a passenger asks before you head out.",
   driver_trip: "Hi! I can look up route or fare info while you're on this trip.",
   sacco_admin:
     "Hi! Ask me about any of your SACCO's routes: fares, or how busy a route tends to be.",
+  platform_admin:
+    "Hi! Ask me about platform-wide data: SACCOs, routes, or how the admin tools work.",
   account: "Hi! Ask me about your account, roles, or anything else about how Matu works.",
 };
 
@@ -60,10 +75,15 @@ const PLACEHOLDERS: Record<AssistantContext["page"], string> = {
   landing: "Ask about Matu…",
   passenger_search: "Where are you headed?",
   passenger_route_details: "Ask about this route…",
+  passenger_tracking: "Ask about your trip…",
   passenger_history: "Ask about a booking…",
+  passenger_wallet: "Ask about your wallet…",
+  passenger_verify: "Ask about verification…",
+  passenger_complaint: "Ask about your complaint…",
   driver_home: "Ask about a route…",
   driver_trip: "Ask about this route…",
   sacco_admin: "Ask about your routes…",
+  platform_admin: "Ask about the platform…",
   account: "Ask a question…",
 };
 
