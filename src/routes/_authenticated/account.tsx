@@ -10,6 +10,8 @@ import {
   MessageSquareWarning,
   Volume2,
   ShieldAlert,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +24,11 @@ import {
   testSound,
   type SoundProfileId,
 } from "@/lib/noisy-alert";
+import {
+  getNotificationsPreference,
+  setNotificationsPreference,
+  notificationPermission,
+} from "@/lib/push-notifications";
 
 export const Route = createFileRoute("/_authenticated/account")({
   head: () => ({ meta: [{ title: "Account settings · Matu" }] }),
@@ -59,6 +66,7 @@ function AccountSettings() {
   const [confirmDelete, setConfirmDelete] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [selectedSound, setSelectedSound] = useState<SoundProfileId>(getSelectedSoundId());
+  const [notificationsEnabled, setNotificationsEnabled] = useState(getNotificationsPreference());
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [payMethod, setPayMethod] = useState<"pochi" | "send_money" | "buy_goods" | "">("");
   const [payTarget, setPayTarget] = useState("");
@@ -224,6 +232,17 @@ function AccountSettings() {
     setSelectedSoundId(id);
     testSound(id);
     toast.success("Alert sound saved. That's what you'll hear for new passenger alerts.");
+  }
+
+  function toggleNotifications() {
+    const next = !notificationsEnabled;
+    setNotificationsEnabled(next);
+    setNotificationsPreference(next);
+    toast.success(
+      next
+        ? "Notifications on. You'll be offered the option to enable alerts while tracking a trip."
+        : "Notifications off. Matu won't prompt you to enable trip alerts.",
+    );
   }
 
   if (loading) {
@@ -408,6 +427,60 @@ function AccountSettings() {
               {savingPassword ? "Saving…" : "Update password"}
             </button>
           </form>
+        </section>
+
+        {/* Show notifications — controls whether Matu offers to enable browser/push
+            alerts at all (e.g. the "Get notified when your matatu is close" banner
+            on the trip tracking screen). This is Matu's own preference, separate
+            from the browser's notification permission itself — turning this off
+            just stops Matu from asking; it doesn't revoke permission you've
+            already granted the browser. */}
+        <section className="rounded-2xl border border-border bg-surface p-6">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
+            <Bell className="size-5" /> Notifications
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            When on, Matu will offer to alert you (even outside the app) as your matatu gets close
+            and when it arrives.
+          </p>
+          <button
+            type="button"
+            onClick={toggleNotifications}
+            className={`mt-4 flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left transition ${
+              notificationsEnabled
+                ? "border-primary bg-primary/10"
+                : "border-border hover:bg-secondary"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {notificationsEnabled ? (
+                <Bell className="size-4 text-primary" />
+              ) : (
+                <BellOff className="size-4 text-muted-foreground" />
+              )}
+              <div>
+                <div className="text-sm font-medium">Show notifications</div>
+                <div className="text-xs text-muted-foreground">
+                  {notificationPermission() === "denied"
+                    ? "Blocked at the browser level — check your browser's site settings to allow them."
+                    : notificationsEnabled
+                      ? "On — you'll be offered trip alerts."
+                      : "Off — Matu won't ask to send alerts."}
+                </div>
+              </div>
+            </div>
+            <span
+              className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                notificationsEnabled ? "bg-primary" : "bg-secondary"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition ${
+                  notificationsEnabled ? "left-5" : "left-0.5"
+                }`}
+              />
+            </span>
+          </button>
         </section>
 
         {/* Alert sound — available to everyone. Drivers hear it for new passenger alerts

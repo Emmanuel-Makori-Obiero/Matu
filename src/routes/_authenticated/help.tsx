@@ -18,7 +18,11 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What's in Account settings?",
-    a: "Your profile details, sound/notification preferences, any roles you hold (driver/SACCO admin), and account deletion.",
+    a: "Your profile details, a Show notifications toggle, your alert sound, any roles you hold (driver/SACCO admin), your M-Pesa payout details if you drive, and account deletion.",
+  },
+  {
+    q: "How do I get notified when my matatu is close?",
+    a: 'Book a seat, then on the trip tracking screen tap "Enable" on the notification banner. Make sure Show notifications is on in Account settings, and that your browser allows notifications for Matu.',
   },
   {
     q: "How do I become a driver?",

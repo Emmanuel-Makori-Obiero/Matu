@@ -34,6 +34,31 @@ export function notificationPermission(): NotificationPermission | "unsupported"
   return Notification.permission;
 }
 
+// Passenger-level "show notifications" preference, set from Account settings.
+// Separate from the browser's own Notification.permission: the browser
+// permission controls whether the OS is *allowed* to show anything at all,
+// while this preference controls whether Matu *offers* to turn them on in the
+// first place (e.g. the "Get notified when your matatu is close" banner).
+// Defaults to on so existing behavior doesn't change until someone opts out.
+const NOTIFICATIONS_PREF_KEY = "matu:notifications-enabled";
+
+export function getNotificationsPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(NOTIFICATIONS_PREF_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
+}
+
+export function setNotificationsPreference(enabled: boolean) {
+  try {
+    localStorage.setItem(NOTIFICATIONS_PREF_KEY, String(enabled));
+  } catch {
+    // localStorage unavailable — preference just won't persist across sessions.
+  }
+}
+
 // Call this from a real user gesture (a button tap) — browsers block the
 // permission prompt if it's triggered automatically on page load.
 export async function enableTripPushNotifications(): Promise<

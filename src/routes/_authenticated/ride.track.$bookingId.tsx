@@ -16,6 +16,7 @@ import {
   pushNotificationsSupported,
   notificationPermission,
   enableTripPushNotifications,
+  getNotificationsPreference,
 } from "@/lib/push-notifications";
 
 type BookingRow = {
@@ -481,27 +482,29 @@ function TrackBooking() {
             instead of only seeing updates if they keep this tab open. Hidden
             once permission is settled one way or the other, or once the trip
             is over. */}
-        {trip.status !== "completed" && pushPermission === "default" && (
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
-            <div className="flex items-start gap-2">
-              <Bell className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div>
-                <div className="text-sm font-medium">Get notified when your matatu is close</div>
-                <div className="text-xs text-muted-foreground">
-                  Works even if you're using another app — you'll get an alert as it gets closer,
-                  and another (with sound) the moment it arrives.
+        {trip.status !== "completed" &&
+          pushPermission === "default" &&
+          getNotificationsPreference() && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+              <div className="flex items-start gap-2">
+                <Bell className="mt-0.5 size-4 shrink-0 text-primary" />
+                <div>
+                  <div className="text-sm font-medium">Get notified when your matatu is close</div>
+                  <div className="text-xs text-muted-foreground">
+                    Works even if you're using another app — you'll get an alert as it gets closer,
+                    and another (with sound) the moment it arrives.
+                  </div>
                 </div>
               </div>
+              <button
+                onClick={handleEnableNotifications}
+                disabled={enablingPush || !pushNotificationsSupported()}
+                className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {enablingPush ? "Enabling…" : "Enable"}
+              </button>
             </div>
-            <button
-              onClick={handleEnableNotifications}
-              disabled={enablingPush || !pushNotificationsSupported()}
-              className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
-            >
-              {enablingPush ? "Enabling…" : "Enable"}
-            </button>
-          </div>
-        )}
+          )}
         {pushPermission === "granted" && trip.status !== "completed" && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <BellRing className="size-3.5 text-primary" /> Notifications on for this trip

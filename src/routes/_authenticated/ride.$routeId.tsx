@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { toast } from "sonner";
@@ -36,6 +36,7 @@ export const Route = createFileRoute("/_authenticated/ride/$routeId")({
 });
 
 function RouteDetail() {
+  const navigate = useNavigate();
   const { routeId } = Route.useParams();
   const { from: fromParam, to: toParam } = Route.useSearch();
   const [routeInfo, setRouteInfo] = useState<{
@@ -482,6 +483,26 @@ function RouteDetail() {
     trackedConfirmed && bookedTripId && tripLocs[bookedTripId]
       ? { lat: tripLocs[bookedTripId].lat, lng: tripLocs[bookedTripId].lng }
       : null;
+  // Once the booking is actually confirmed (cash accepted, conductor confirmed
+  // manual payment, or M-Pesa held), send the passenger to the dedicated
+  // per-booking tracking page. That page reads the booking by its URL param
+  // and reloads it from Supabase on mount, so — unlike the in-memory state on
+  // this booking-flow page — it survives a refresh. Without this redirect, a
+  // refresh here always re-renders this page from scratch (route picker +
+  // live vehicles, i.e. "the booking process again") because bookedBookingId
+  // was never persisted anywhere but React state.
+  const bookingIsConfirmed =
+    !!bookedBookingId &&
+    (paymentStatus[bookedBookingId] === "cash" ||
+      paymentStatus[bookedBookingId] === "held" ||
+      (paymentStatus[bookedBookingId] === "manual" && manualPaymentConfirmed[bookedBookingId]));
+  useEffect(() => {
+    if (bookingIsConfirmed && bookedBookingId) {
+      navigate({ to: "/ride/track/$bookingId", params: { bookingId: bookedBookingId } });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingIsConfirmed, bookedBookingId]);
+
   const trackedStage = trackedConfirmed ? stages.find((st) => st.id === pickup) : undefined;
   const trackedDestination = trackedStage ? { lat: trackedStage.lat, lng: trackedStage.lng } : null;
   const { minutes: trackedEtaMinutes } = useLiveTrafficEta(trackedVehiclePos, trackedDestination);
