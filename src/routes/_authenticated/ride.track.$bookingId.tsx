@@ -1,737 +1,345 @@
-// FILE: src/routes/_authenticated/ride.track.$bookingId.tsx
-// Full-page tracking view for a single booking. Reached by tapping a booking in
-// "My bookings" — shows the vehicle's live position, how far it's travelled from
-// the pickup stage so far, and how far remains to the drop-off stage, plus the
-// road-snapped remaining-route line on the map.
-import { createFileRoute, Link } from "@tanstack/react-router";
+// FILE: src/routes/_authenticated/ride.track.tsx
+// Standalone tracking page — deliberately separate from the booking flow (ride/$routeId).
+// A passenger who hasn't booked (or doesn't want to) can still: pick a route, see every
+// active vehicle on it moving live on the map, and "ping" a stage to tell the driver
+// they're waiting there — reuses the same stage_pings mechanism the booking page uses.
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bus, MapPin, Navigation2, Star, Bell, BellRing } from "lucide-react";
+import { Bell, MapPin, Radio } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
-import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
-import { osrmDurationSeconds, useLiveTrafficEta, type LatLng } from "@/lib/traffic-eta";
-import { fetchCongestionRoute, type CongestionSegment } from "@/lib/route-congestion";
-import {
-  pushNotificationsSupported,
-  notificationPermission,
-  enableTripPushNotifications,
-  getNotificationsPreference,
-} from "@/lib/push-notifications";
 
-type BookingRow = {
-  id: string;
-  trip_id: string;
-  seat_number: number | null;
-  pickup_stage_id: string | null;
-  dropoff_stage_id: string | null;
-  status: string;
-};
-type TripRow = {
-  id: string;
-  fare: number;
-  status: string;
-  route_id: string;
-  vehicle_id: string;
-  driver_id: string;
-};
-type RouteRow = {
-  id: string;
-  name: string;
-  origin: string;
-  destination: string;
-  path: [number, number][] | null;
-};
-type VehicleRow = { id: string; plate_number: string; nickname: string | null; capacity: number };
-type StageRow = { id: string; name: string; lat: number; lng: number; order_index?: number };
+type RouteRow = { id: string; name: string; origin: string; destination: string };
+type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
+type Trip = { id: string; vehicle_id: string; status: string };
+type Vehicle = { id: string; plate_number: string; nickname: string | null };
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
-// Straight-line distance in meters — only used to find which point of a
-// driver-drawn trail is closest to the vehicle right now, not for anything
-// precision-sensitive.
-function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const R = 6371000;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const s =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-}
-
-// Given a route's full driver-drawn trail (recorded start-to-end while
-// driving) and the vehicle's current position, returns just the remaining
-// slice — from the closest point on the trail to the vehicle, through to the
-// end of the trail. This is what lets the passenger's "remaining route" line
-// be drawn from the driver's own corrected path instead of a freshly-fetched
-// (and possibly outdated-for-this-area) Mapbox/Google route.
-//
-// `minIdx` enforces "only ever move forward" — without it, a trail that
-// passes close to itself twice (a loop, a junction crossed twice, GPS
-// jitter) can occasionally match a point *behind* where the vehicle already
-// was, which visually looks like the remaining-route line "reset" back to
-// the full route. Passing in the last known index (see progressIdxRef below)
-// means each new match only searches from there onward.
-function remainingTrace(
-  path: [number, number][] | null,
-  vehicleLoc: { lat: number; lng: number } | null,
-  minIdx: number,
-): { slice: [number, number][]; matchedIdx: number } | null {
-  if (!path || path.length < 2 || !vehicleLoc) return null;
-  const floor = Math.min(Math.max(minIdx, 0), path.length - 1);
-  let bestIdx = floor;
-  let bestDist = Infinity;
-  for (let i = floor; i < path.length; i++) {
-    const d = haversineMeters(vehicleLoc, { lat: path[i][0], lng: path[i][1] });
-    if (d < bestDist) {
-      bestDist = d;
-      bestIdx = i;
-    }
-  }
-  const slice = path.slice(bestIdx);
-  return slice.length > 1 ? { slice, matchedIdx: bestIdx } : null;
-}
-
-export const Route = createFileRoute("/_authenticated/ride/track/$bookingId")({
-  component: TrackBooking,
+export const Route = createFileRoute("/_authenticated/ride/track")({
+  component: TrackPage,
 });
 
-// OSRM returns duration only via osrmDurationSeconds; for a one-off static distance
-// (pickup -> dropoff, computed once and never refetched) we call OSRM directly here
-// rather than pulling in the Mapbox traffic call, since traffic doesn't matter for
-// a fixed reference distance.
-async function osrmDistanceMeters(origin: LatLng, destination: LatLng): Promise<number | null> {
-  try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=false`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { routes?: Array<{ distance: number }> };
-    return data.routes?.[0]?.distance ?? null;
-  } catch {
-    return null;
-  }
-}
+function TrackPage() {
+  const navigate = useNavigate();
+  const [routes, setRoutes] = useState<RouteRow[]>([]);
+  const [routeId, setRouteId] = useState<string>("");
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
+  const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
+  const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
+  const [myPingStageId, setMyPingStageId] = useState<string | null>(null);
+  const [pinging, setPinging] = useState<string | null>(null);
+  const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
+  // While this checks, hold off rendering the generic multi-route picker at all —
+  // otherwise a passenger who did book sees the wrong screen flash for a moment.
+  const [checkingMyBooking, setCheckingMyBooking] = useState(true);
 
-function TrackBooking() {
-  const { bookingId } = Route.useParams();
-  const [loading, setLoading] = useState(true);
-  const [booking, setBooking] = useState<BookingRow | null>(null);
-  const [trip, setTrip] = useState<TripRow | null>(null);
-  const [route, setRoute] = useState<RouteRow | null>(null);
-  const [vehicle, setVehicle] = useState<VehicleRow | null>(null);
-  const [pickup, setPickup] = useState<StageRow | null>(null);
-  const [dropoff, setDropoff] = useState<StageRow | null>(null);
-  const [routeStages, setRouteStages] = useState<StageRow[]>([]);
-  const [vehicleLoc, setVehicleLoc] = useState<TripLoc | null>(null);
-  const [totalMeters, setTotalMeters] = useState<number | null>(null);
-
-  const [existingRating, setExistingRating] = useState<{
-    rating: number;
-    comment: string | null;
-  } | null>(null);
-  const [ratingLoading, setRatingLoading] = useState(true);
-  const [ratingValue, setRatingValue] = useState(0);
-  const [ratingComment, setRatingComment] = useState("");
-  const [submittingRating, setSubmittingRating] = useState(false);
-
-  // Poll the trip's own status (separately from the one-time load above) so
-  // that when the driver marks the trip "completed" from their screen, this
-  // page picks it up on its own -- the passenger shouldn't have to manually
-  // refresh to see the rating prompt appear.
-  useEffect(() => {
-    if (!trip || trip.status === "completed") return;
-    const iv = setInterval(async () => {
-      const { data } = await supabase
-        .from("trips")
-        .select("status")
-        .eq("id", trip.id)
-        .maybeSingle();
-      if (data && data.status !== trip.status) {
-        setTrip((prev) => (prev ? { ...prev, status: data.status } : prev));
-      }
-    }, 8000);
-    return () => clearInterval(iv);
-  }, [trip?.id, trip?.status]);
-
-  // Once the trip is completed, check whether this booking already has a
-  // rating -- shows "thanks, already rated" instead of the form if so.
-  useEffect(() => {
-    if (!trip || trip.status !== "completed" || !booking) {
-      setRatingLoading(false);
-      return;
-    }
-    (async () => {
-      const { data } = await supabase
-        .from("trip_ratings")
-        .select("rating,comment")
-        .eq("booking_id", booking.id)
-        .maybeSingle();
-      setExistingRating(data ?? null);
-      setRatingLoading(false);
-    })();
-  }, [trip?.status, booking?.id]);
-
-  async function submitRating() {
-    if (!trip || !booking) return;
-    if (ratingValue < 1) return toast.error("Tap a star to rate the trip.");
-    setSubmittingRating(true);
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) {
-      setSubmittingRating(false);
-      return toast.error("Please sign in again to submit a rating.");
-    }
-    const { error } = await supabase.from("trip_ratings").insert({
-      booking_id: booking.id,
-      trip_id: trip.id,
-      passenger_id: u.user.id,
-      driver_id: trip.driver_id,
-      rating: ratingValue,
-      comment: ratingComment.trim() || null,
-    });
-    setSubmittingRating(false);
-    if (error) return toast.error(error.message);
-    setExistingRating({ rating: ratingValue, comment: ratingComment.trim() || null });
-    toast.success("Thanks for rating your trip!");
-  }
-
-  // Load booking + trip + route + vehicle + stages once.
+  // If the passenger has an active booking (reserved, confirmed, or already boarded)
+  // on ANY route, "Track" should mean *their* trip, not a generic picker across every
+  // route in the system. Redirect straight to the dedicated per-booking screen, which
+  // shows only their route with the live remaining-route line. Only passengers with
+  // no active booking ever see the route-picker UI below.
   useEffect(() => {
     (async () => {
-      setLoading(true);
-      const { data: b } = await supabase
-        .from("bookings")
-        .select("id,trip_id,seat_number,pickup_stage_id,dropoff_stage_id,status")
-        .eq("id", bookingId)
-        .maybeSingle();
-      if (!b) {
-        setLoading(false);
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) {
+        setCheckingMyBooking(false);
         return;
       }
-      setBooking(b as BookingRow);
-
-      const { data: t } = await supabase
-        .from("trips")
-        .select("id,fare,status,route_id,vehicle_id,driver_id")
-        .eq("id", b.trip_id)
+      const { data } = await supabase
+        .from("bookings")
+        .select("id,created_at")
+        .eq("passenger_id", u.user.id)
+        .in("status", ["reserved", "confirmed", "boarded"])
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
-      if (t) setTrip(t as TripRow);
-
-      const [{ data: r }, { data: v }] = await Promise.all([
-        t
-          ? supabase
-              .from("routes")
-              .select("id,name,origin,destination,path")
-              .eq("id", t.route_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null }),
-        t
-          ? supabase
-              .from("vehicles")
-              .select("id,plate_number,nickname,capacity")
-              .eq("id", t.vehicle_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null }),
-      ]);
-      if (r) setRoute(r as RouteRow);
-      if (v) setVehicle(v as VehicleRow);
-
-      const stageIds = [b.pickup_stage_id, b.dropoff_stage_id].filter((x): x is string => !!x);
-      if (stageIds.length) {
-        const { data: s } = await supabase
-          .from("stages")
-          .select("id,name,lat,lng")
-          .in("id", stageIds);
-        const map: Record<string, StageRow> = {};
-        (s ?? []).forEach((x: StageRow) => (map[x.id] = x));
-        if (b.pickup_stage_id) setPickup(map[b.pickup_stage_id] ?? null);
-        if (b.dropoff_stage_id) setDropoff(map[b.dropoff_stage_id] ?? null);
+      if (data) {
+        navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
+        return;
       }
-
-      // Full ordered stage list for the route the trip runs on — this is what
-      // lets the map draw the actual matatu route (all stops), not just a
-      // straight line between the passenger's own pickup and drop-off.
-      if (t) {
-        const { data: rs } = await supabase
-          .from("stages")
-          .select("id,name,lat,lng,order_index")
-          .eq("route_id", t.route_id)
-          .order("order_index");
-        setRouteStages((rs ?? []) as StageRow[]);
-      }
-      setLoading(false);
+      setCheckingMyBooking(false);
     })();
-  }, [bookingId]);
+  }, [navigate]);
 
-  // Static reference distance: pickup -> dropoff. Computed once, used to derive
-  // "distance covered" as (total - remaining).
-  useEffect(() => {
-    if (!pickup || !dropoff) return;
-    let cancelled = false;
-    (async () => {
-      const meters = await osrmDistanceMeters(
-        { lat: pickup.lat, lng: pickup.lng },
-        { lat: dropoff.lat, lng: dropoff.lng },
-      );
-      if (!cancelled) setTotalMeters(meters);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [pickup, dropoff]);
-
-  // Poll the vehicle's live position.
-  useEffect(() => {
-    if (!trip) return;
-    let cancelled = false;
-    const fetchLoc = async () => {
-      const { data } = await supabase.rpc("get_trip_location", { _trip_id: trip.id });
-      const row = Array.isArray(data) ? data[0] : null;
-      if (cancelled) return;
-      if (row?.current_lat != null && row?.current_lng != null) {
-        setVehicleLoc({
-          lat: row.current_lat,
-          lng: row.current_lng,
-          heading: row.current_heading ?? null,
-        });
-      } else {
-        setVehicleLoc(null);
-      }
-    };
-    fetchLoc();
-    const iv = setInterval(fetchLoc, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(iv);
-    };
-  }, [trip]);
-
-  const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
-    notificationPermission(),
-  );
-  const [enablingPush, setEnablingPush] = useState(false);
-
-  async function handleEnableNotifications() {
-    setEnablingPush(true);
-    const result = await enableTripPushNotifications();
-    setEnablingPush(false);
-    setPushPermission(notificationPermission());
-    if (result.ok) {
-      toast.success(
-        "Notifications on — you'll get an alert when your matatu is close and when it arrives.",
-      );
-    } else {
-      toast.error(result.reason);
-    }
-  }
-
-  // The passenger's own live position — starts automatically on page load (no
-  // "track me" button) so opening this screen is enough to see yourself (red),
-  // the matatu (yellow), and the remaining route all at once by default.
+  // Same as the per-booking tracking screen — starts automatically, no button,
+  // so the red "you" dot just appears if location is available/granted.
   useEffect(() => {
     if (!("geolocation" in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => setSelfLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => {
-        // Silent — a passenger who denies location just doesn't get the red
-        // dot; everything else on this screen (route, vehicle, ETA) still
-        // works fine without it, so this shouldn't interrupt them with a toast.
-        console.warn("[ride.track] geolocation unavailable:", err.message);
-      },
+      (err) => console.warn("[ride.track] geolocation unavailable:", err.message),
       { enableHighAccuracy: true, maximumAge: 10_000 },
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  const destination = dropoff ? { lat: dropoff.lat, lng: dropoff.lng } : null;
-  // Once booked, the line on the map should go straight to the passenger
-  // themselves (same idea as Uber/Bolt showing the car heading to *you*), not
-  // to the trip's dropoff stage — that's a separate concept (how far along
-  // the whole trip is) still tracked below via `destination` for the
-  // progress bar/ETA, unaffected by this. Falls back to the dropoff stage
-  // only if the passenger hasn't granted location (selfLoc is null), so the
-  // map still shows a meaningful line rather than nothing.
-  const lineTarget = selfLoc ?? destination;
-  const [showTraffic, setShowTraffic] = useState(true);
-  const [congestionRoute, setCongestionRoute] = useState<CongestionSegment[] | null>(null);
-  const vehicleLocRef = useRef(vehicleLoc);
-  vehicleLocRef.current = vehicleLoc;
-  const lineTargetRef = useRef(lineTarget);
-  lineTargetRef.current = lineTarget;
+  // Load every route once, for the picker.
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("routes")
+        .select("id,name,origin,destination")
+        .order("name");
+      const r = (data ?? []) as RouteRow[];
+      setRoutes(r);
+      if (r.length > 0) setRouteId(r[0].id);
+    })();
+  }, []);
 
-  // How far along the driver-drawn trail we've already matched, floored so a
-  // new match can never land earlier than this — see remainingTrace's minIdx
-  // param. Persisted to sessionStorage per booking so a page reload resumes
-  // from the same point instead of re-searching the whole trail from zero
-  // (which is what could make the line look like it "reset" right after a
-  // reload, before the next GPS fix arrives). Cleared once the trip ends.
-  const progressStorageKey = `matu-route-progress-${bookingId}`;
-  const [progressIdx, setProgressIdx] = useState<number>(() => {
-    if (typeof window === "undefined") return 0;
-    const stored = window.sessionStorage.getItem(progressStorageKey);
-    return stored ? Number(stored) || 0 : 0;
-  });
-  const remainingMatch = remainingTrace(route?.path ?? null, vehicleLoc, progressIdx);
+  // Stages for the selected route.
   useEffect(() => {
-    if (!remainingMatch) return;
-    if (remainingMatch.matchedIdx > progressIdx) {
-      setProgressIdx(remainingMatch.matchedIdx);
-      window.sessionStorage.setItem(progressStorageKey, String(remainingMatch.matchedIdx));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remainingMatch?.matchedIdx]);
-  // Once the trip is over, this booking's saved progress is no longer
-  // meaningful — clear it so a *future* booking on the same route (which
-  // reuses the same trail from the start) doesn't inherit a stale floor.
-  useEffect(() => {
-    if (trip?.status === "completed") {
-      window.sessionStorage.removeItem(progressStorageKey);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trip?.status]);
-  // The driver-drawn "ground truth" remaining route. Preferred over the
-  // freshly-fetched liveRoute below whenever this route actually has one
-  // saved — that's the whole point of letting drivers draw corrected
-  // routes: passengers should see that corrected line too, not a fetched one
-  // that might still be wrong for this area. Keeps showing the last known
-  // slice (rather than blanking) if vehicleLoc is briefly unavailable, e.g.
-  // the driver's GPS momentarily drops.
-  const [lastRemainingSlice, setLastRemainingSlice] = useState<[number, number][] | null>(null);
-  useEffect(() => {
-    if (remainingMatch) setLastRemainingSlice(remainingMatch.slice);
-  }, [remainingMatch]);
-  const remainingDrawnRoute = remainingMatch?.slice ?? lastRemainingSlice;
+    if (!routeId) return;
+    (async () => {
+      const { data } = await supabase
+        .from("stages")
+        .select("id,name,lat,lng,order_index")
+        .eq("route_id", routeId)
+        .order("order_index");
+      setStages((data ?? []) as Stage[]);
+    })();
+  }, [routeId]);
 
-  // Same jam-colored road route the driver's own map fetches (see
-  // drive.trip.tsx) — only refetched when there's no driver-drawn trail to
-  // show instead, matching how the plain liveRoute line below is gated.
+  // Active trips (+ vehicles) on the selected route, kept live via realtime.
+  async function loadTrips() {
+    if (!routeId) return;
+    const { data } = await supabase
+      .from("trips")
+      .select("id,vehicle_id,status")
+      .eq("route_id", routeId)
+      .in("status", ["boarding", "in_transit"]);
+    const t = (data ?? []) as Trip[];
+    setTrips(t);
+    const ids = [...new Set(t.map((x) => x.vehicle_id))];
+    if (ids.length) {
+      const { data: v } = await supabase
+        .from("vehicles")
+        .select("id,plate_number,nickname")
+        .in("id", ids);
+      const map: Record<string, Vehicle> = {};
+      (v ?? []).forEach((x: Vehicle) => (map[x.id] = x));
+      setVehicles(map);
+    } else {
+      setVehicles({});
+    }
+  }
+
   useEffect(() => {
-    if (remainingDrawnRoute) {
-      setCongestionRoute(null);
+    if (!routeId) return;
+    loadTrips();
+    const ch = supabase
+      .channel(`track-trips-${routeId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "trips", filter: `route_id=eq.${routeId}` },
+        () => loadTrips(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId]);
+
+  // Poll live positions for every active trip on this route.
+  useEffect(() => {
+    if (trips.length === 0) {
+      setTripLocs({});
       return;
     }
     let cancelled = false;
-    let consecutiveFailures = 0;
-    async function refresh() {
-      const pos = vehicleLocRef.current;
-      const target = lineTargetRef.current;
-      if (!pos || !target) return;
-      const segments = await fetchCongestionRoute(
-        { lat: pos.lat, lng: pos.lng },
-        { lat: target.lat, lng: target.lng },
+    const fetchAll = async () => {
+      const entries = await Promise.all(
+        trips.map(async (t) => {
+          const { data } = await supabase.rpc("get_trip_location", { _trip_id: t.id });
+          const row = Array.isArray(data) ? data[0] : null;
+          if (row?.current_lat != null && row?.current_lng != null) {
+            return [
+              t.id,
+              { lat: row.current_lat, lng: row.current_lng, heading: row.current_heading ?? null },
+            ] as const;
+          }
+          return null;
+        }),
       );
       if (cancelled) return;
-      if (!segments) {
-        consecutiveFailures += 1;
-        if (consecutiveFailures === 2) {
-          toast.error("Traffic data isn't refreshing — jam colors on the map may be outdated.");
-        }
-        return;
-      }
-      consecutiveFailures = 0;
-      setCongestionRoute(segments);
-    }
-    refresh();
-    const iv = setInterval(refresh, 20_000);
+      const next: Record<string, TripLoc> = {};
+      entries.forEach((e) => {
+        if (e) next[e[0]] = e[1];
+      });
+      setTripLocs(next);
+    };
+    fetchAll();
+    const iv = setInterval(fetchAll, 5000);
     return () => {
       cancelled = true;
       clearInterval(iv);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remainingDrawnRoute, !!vehicleLoc, !!lineTarget]);
+  }, [trips]);
 
-  const {
-    minutes: etaMinutes,
-    delayed,
-    error: etaError,
-    distanceMeters: remainingMeters,
-  } = useLiveTrafficEta(vehicleLoc, destination);
-
-  const coveredMeters =
-    totalMeters != null && remainingMeters != null
-      ? Math.max(totalMeters - remainingMeters, 0)
-      : null;
-  const progressPct =
-    totalMeters != null && coveredMeters != null && totalMeters > 0
-      ? Math.min(100, Math.round((coveredMeters / totalMeters) * 100))
-      : null;
-
-  const mapStages: MapStage[] =
-    routeStages.length > 0
-      ? routeStages.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))
-      : [pickup, dropoff]
-          .filter((s): s is StageRow => !!s)
-          .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
-  const mapVehicles: MapVehicle[] = vehicleLoc
-    ? [
-        {
-          id: "tracked-vehicle",
-          lat: vehicleLoc.lat,
-          lng: vehicleLoc.lng,
-          heading: vehicleLoc.heading,
-          label: vehicle?.plate_number ?? "Matatu",
-        },
-      ]
-    : [];
-
-  if (loading) {
-    return (
-      <AppShell title="Tracking" subtitle="Loading your trip…">
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      </AppShell>
-    );
+  // Demand signal: same stage_pings mechanism as the booking page — lets the driver
+  // see people waiting even though nobody here has booked a seat.
+  async function loadPingCounts() {
+    if (!routeId) return;
+    const { data } = await supabase.rpc("get_stage_ping_counts", { _route_id: routeId });
+    const counts: Record<string, number> = {};
+    (data ?? []).forEach((r: { stage_id: string; waiting_count: number }) => {
+      counts[r.stage_id] = Number(r.waiting_count);
+    });
+    setPingCounts(counts);
   }
 
-  if (!booking || !trip) {
+  useEffect(() => {
+    if (!routeId) return;
+    setMyPingStageId(null);
+    loadPingCounts();
+    const ch = supabase
+      .channel(`track-stage-pings-${routeId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "stage_pings", filter: `route_id=eq.${routeId}` },
+        () => loadPingCounts(),
+      )
+      .subscribe();
+    const iv = setInterval(loadPingCounts, 20_000);
+    return () => {
+      supabase.removeChannel(ch);
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId]);
+
+  async function notifyDriver(stageId: string) {
+    setPinging(stageId);
+    const { error } = await supabase.rpc("ping_stage", { _stage_id: stageId });
+    setPinging(null);
+    if (error) return toast.error(error.message);
+    setMyPingStageId(stageId);
+    toast.success("Driver notified. You're marked as waiting here.");
+    loadPingCounts();
+  }
+
+  const mapStages: MapStage[] = stages.map((s) => ({
+    id: s.id,
+    name: s.name,
+    lat: s.lat,
+    lng: s.lng,
+  }));
+  const mapVehicles: MapVehicle[] = trips
+    .map((t) => {
+      const loc = tripLocs[t.id];
+      if (!loc) return null;
+      const v = vehicles[t.vehicle_id];
+      return {
+        id: t.id,
+        lat: loc.lat,
+        lng: loc.lng,
+        heading: loc.heading,
+        label: v ? `${v.plate_number}${v.nickname ? ` · ${v.nickname}` : ""}` : "Matatu",
+      } as MapVehicle;
+    })
+    .filter((v): v is MapVehicle => v != null);
+
+  if (checkingMyBooking) {
     return (
-      <AppShell title="Tracking" subtitle="This booking couldn't be found.">
-        <Link
-          to="/ride/history"
-          className="inline-flex items-center gap-1 text-sm font-medium text-primary"
-        >
-          <ArrowLeft className="size-4" /> Back to my bookings
-        </Link>
+      <AppShell
+        title="Track"
+        subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
+        tabs={[
+          { to: "/ride", label: "Find a ride" },
+          { to: "/ride/track", label: "Track" },
+          { to: "/ride/history", label: "My bookings" },
+        ]}
+        assistantContext={{ page: "passenger_tracking" }}
+      >
+        <p className="text-sm text-muted-foreground">Checking for your booking…</p>
       </AppShell>
     );
   }
 
   return (
     <AppShell
-      title={route?.name ?? "Your trip"}
-      subtitle={`${pickup?.name ?? "—"} → ${dropoff?.name ?? "—"}`}
-      assistantContext={{ page: "passenger_tracking", details: bookingId }}
+      title="Track"
+      subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
+      tabs={[
+        { to: "/ride", label: "Find a ride" },
+        { to: "/ride/track", label: "Track" },
+        { to: "/ride/history", label: "My bookings" },
+      ]}
+      assistantContext={{ page: "passenger_tracking" }}
     >
-      <Link
-        to="/ride/history"
-        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" /> Back to my bookings
-      </Link>
-
       <div className="grid gap-4">
-        {/* Vehicle details */}
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-4">
-          <div className="flex items-center gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-              <Bus className="size-5" />
-            </span>
-            <div>
-              <div className="font-display text-sm font-semibold">
-                {vehicle?.plate_number ?? "—"}
-                {vehicle?.nickname ? ` · ${vehicle.nickname}` : ""}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {vehicle?.capacity ? `${vehicle.capacity}-seater` : "—"}
-                {booking.seat_number ? ` · Seat ${booking.seat_number}` : ""}
-              </div>
-            </div>
-          </div>
-          <span className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-medium capitalize text-accent-foreground">
-            {trip.status.replace("_", " ")}
-          </span>
-        </div>
-
-        {/* Notification opt-in — lets the passenger get alerted (with the
-            phone actually buzzing/sounding) even while using another app,
-            instead of only seeing updates if they keep this tab open. Hidden
-            once permission is settled one way or the other, or once the trip
-            is over. */}
-        {trip.status !== "completed" &&
-          pushPermission === "default" &&
-          getNotificationsPreference() && (
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
-              <div className="flex items-start gap-2">
-                <Bell className="mt-0.5 size-4 shrink-0 text-primary" />
-                <div>
-                  <div className="text-sm font-medium">Get notified when your matatu is close</div>
-                  <div className="text-xs text-muted-foreground">
-                    Works even if you're using another app — you'll get an alert as it gets closer,
-                    and another (with sound) the moment it arrives.
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={handleEnableNotifications}
-                disabled={enablingPush || !pushNotificationsSupported()}
-                className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
-              >
-                {enablingPush ? "Enabling…" : "Enable"}
-              </button>
-            </div>
-          )}
-        {pushPermission === "granted" && trip.status !== "completed" && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <BellRing className="size-3.5 text-primary" /> Notifications on for this trip
-          </div>
-        )}
-
-        {/* Rate the trip — shown once the driver marks it completed. One rating
-            per booking; shows a thank-you instead of the form if already submitted. */}
-        {trip.status === "completed" && !ratingLoading && (
-          <div className="rounded-2xl border border-border bg-surface p-5">
-            {existingRating ? (
-              <div className="text-center">
-                <p className="font-display text-base font-semibold">Thanks for rating your trip!</p>
-                <div className="mt-2 flex justify-center gap-1">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <Star
-                      key={n}
-                      className={`size-6 ${
-                        n <= existingRating.rating
-                          ? "fill-amber-400 text-amber-400"
-                          : "text-muted-foreground"
-                      }`}
-                    />
-                  ))}
-                </div>
-                {existingRating.comment && (
-                  <p className="mt-2 text-sm text-muted-foreground">“{existingRating.comment}”</p>
-                )}
-              </div>
-            ) : (
-              <div>
-                <h2 className="font-display text-lg font-semibold">How was your trip?</h2>
-                <p className="text-xs text-muted-foreground">
-                  Rate your matatu ride — Kadiria safari yako
-                </p>
-                <div className="mt-3 flex justify-center gap-2">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button key={n} onClick={() => setRatingValue(n)} aria-label={`Rate ${n} star`}>
-                      <Star
-                        className={`size-9 transition-colors ${
-                          n <= ratingValue
-                            ? "fill-amber-400 text-amber-400"
-                            : "text-muted-foreground"
-                        }`}
-                      />
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  value={ratingComment}
-                  onChange={(e) => setRatingComment(e.target.value)}
-                  placeholder="Anything you want to add? (optional)"
-                  rows={2}
-                  className="mt-3 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                />
-                <button
-                  onClick={submitRating}
-                  disabled={submittingRating}
-                  className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
-                >
-                  {submittingRating ? "Submitting…" : "Submit rating"}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* When to leave for pickup — shown until the passenger boards, reusing the same
-            hook-driven banner from the booking screen so the number never disagrees with
-            it. Only meaningful before boarding; once boarded there's no "leave now" to give. */}
-        {pickup && trip.status !== "completed" && booking.status !== "boarded" && (
-          <LeaveNowBanner
-            busPos={vehicleLoc}
-            stage={{ lat: pickup.lat, lng: pickup.lng, name: pickup.name }}
-          />
-        )}
-
-        {/* Map — always shown so the route (all stages on this trip) is visible even
-            before the driver's live GPS arrives; the vehicle marker/live route line
-            just won't appear yet in that case. Traffic toggle mirrors the driver's
-            own trip map so both sides are looking at the same picture. */}
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setShowTraffic((v) => !v)}
-            className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium ${
-              showTraffic
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border text-muted-foreground hover:bg-secondary"
-            }`}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Route</label>
+          <select
+            value={routeId}
+            onChange={(e) => setRouteId(e.target.value)}
+            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm sm:w-96"
           >
-            Traffic {showTraffic ? "on" : "off"}
-          </button>
+            {routes.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name} ({r.origin} → {r.destination})
+              </option>
+            ))}
+          </select>
         </div>
+
         <RouteMap
           stages={mapStages}
           vehicles={mapVehicles}
           selfPosition={selfLoc}
-          tracePath={remainingDrawnRoute}
-          showTraffic={showTraffic}
-          congestionRoute={remainingDrawnRoute ? null : congestionRoute}
-          liveRoute={
-            !remainingDrawnRoute && vehicleLoc && lineTarget
-              ? { origin: vehicleLoc, destination: lineTarget }
-              : null
-          }
-          onLiveRouteStaleChange={(stale) => {
-            if (stale)
-              toast.error("Live route couldn't refresh — the line on the map may be outdated.");
-          }}
-          className="h-[380px] w-full rounded-2xl border border-border"
+          className="h-[420px] w-full rounded-2xl border border-border"
         />
-        {!vehicleLoc && (
-          <p className="-mt-2 text-center text-xs text-muted-foreground">
-            Waiting for the driver's live location…
-          </p>
-        )}
-        {vehicleLoc && remainingDrawnRoute && (
-          <p className="-mt-2 text-center text-xs text-muted-foreground">
-            Remaining route (dashed blue) traced live by the driver — more accurate than a fetched
-            route for this leg.
-          </p>
-        )}
-        {vehicleLoc && !remainingDrawnRoute && (
-          <p className="-mt-2 text-center text-xs text-muted-foreground">
-            {selfLoc
-              ? "Blue line shows the live route between your matatu and you."
-              : "Blue line shows the route to your drop-off — enable location to see the route to you directly."}
+
+        {mapVehicles.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No matatus are currently active on this route.
           </p>
         )}
 
-        {/* Distance covered / remaining */}
-        <div className="rounded-2xl border border-border bg-surface p-4">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <MapPin className="size-3" /> {pickup?.name ?? "Pickup"}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              {dropoff?.name ?? "Drop-off"} <MapPin className="size-3" />
-            </span>
-          </div>
-          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${progressPct ?? 0}%` }}
-            />
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-3 text-center">
-            <div>
-              <div className="font-display text-lg font-semibold">
-                {coveredMeters != null ? `${(coveredMeters / 1000).toFixed(1)} km` : "—"}
-              </div>
-              <div className="text-xs text-muted-foreground">Covered</div>
-            </div>
-            <div>
-              <div className="font-display text-lg font-semibold">
-                {remainingMeters != null ? `${(remainingMeters / 1000).toFixed(1)} km` : "—"}
-              </div>
-              <div className="text-xs text-muted-foreground">Remaining</div>
-            </div>
-          </div>
-          {etaMinutes != null && (
-            <div className="mt-3 flex items-center justify-center gap-1 text-xs font-medium text-primary">
-              <Navigation2 className="size-3.5" /> Arriving in {etaMinutes} min
-              {delayed && <span className="font-medium text-amber-600"> · delayed by traffic</span>}
-            </div>
-          )}
-          {etaMinutes == null && etaError && vehicleLoc && (
-            <div className="mt-3 flex items-center justify-center gap-1 text-xs font-medium text-muted-foreground">
-              <Navigation2 className="size-3.5" /> Live ETA unavailable
-            </div>
-          )}
+        <div>
+          <h2 className="font-display text-sm font-semibold">Notify the driver you're waiting</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Tap your stage so drivers on this route can see demand building, even without a booking.
+          </p>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {stages.map((s) => {
+              const waiting = pingCounts[s.id] ?? 0;
+              const isMine = myPingStageId === s.id;
+              return (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-border bg-surface p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1 text-sm font-medium">
+                      <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{s.name}</span>
+                    </div>
+                    {waiting > 0 && (
+                      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Radio className="size-3" /> {waiting} waiting here
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => notifyDriver(s.id)}
+                    disabled={pinging === s.id}
+                    className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium disabled:opacity-60 ${
+                      isMine
+                        ? "bg-primary/15 text-primary"
+                        : "border border-border hover:bg-secondary"
+                    }`}
+                  >
+                    <Bell className="size-3" /> {isMine ? "Notified" : "I'm here"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </div>
     </AppShell>
