@@ -88,6 +88,8 @@ function PassengerHome() {
   const [geoAttempted, setGeoAttempted] = useState(false);
   const [availableVehicles, setAvailableVehicles] = useState<AvailableVehicle[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [showResultsSheet, setShowResultsSheet] = useState(false);
 
   async function handleMapClick(lat: number, lng: number) {
     if (!pickingOnMap) return;
@@ -273,6 +275,7 @@ function PassengerHome() {
   // is what Bolt/Uber do: you see the cars actually available, not the road names
   // that could get you there.
   useEffect(() => {
+    if (!searched) return;
     const routeIds = filtered.map((r) => r.id);
     if (routeIds.length === 0) {
       setAvailableVehicles([]);
@@ -334,7 +337,21 @@ function PassengerHome() {
     return () => {
       cancelled = true;
     };
-  }, [filtered, routes]);
+  }, [searched, filtered, routes]);
+
+  // Typing a new destination/pickup after already searching invalidates the old
+  // result set — close the sheet and require another explicit tap of Search
+  // rather than silently refreshing a popup the passenger already dismissed.
+  useEffect(() => {
+    setSearched(false);
+    setShowResultsSheet(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to]);
+
+  function handleSearch() {
+    setSearched(true);
+    setShowResultsSheet(true);
+  }
 
   async function useMyLocation() {
     if (!("geolocation" in navigator)) return toast.error("Location not available");
@@ -514,6 +531,15 @@ function PassengerHome() {
             </details>
           </div>
 
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={!to.trim() && !from.trim()}
+            className="mt-3 w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-soft transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Search
+          </button>
+
           {(from || to) && (
             <button
               type="button"
@@ -521,7 +547,7 @@ function PassengerHome() {
                 setFrom("");
                 setTo("");
               }}
-              className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-sm font-medium"
+              className="mt-2 w-full rounded-lg border border-border px-3 py-2 text-sm font-medium"
             >
               Clear search
             </button>
@@ -585,130 +611,159 @@ function PassengerHome() {
           </div>
         )}
 
-        {/* Results — actual vehicles, not routes. Several routes commonly overlap
-            the same stage, so showing routes just repeats the same matatus under
-            different headings; showing the vehicles themselves is unambiguous. */}
-        <section className="mt-4 rounded-2xl border border-border bg-surface p-4 shadow-soft">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-base font-semibold">
-              {from || to
-                ? `Available matatus (${availableVehicles.length})`
-                : `Live now (${availableVehicles.length})`}
-            </h2>
-          </div>
-          {loading || loadingVehicles ? (
-            <p className="mt-3 text-sm text-muted-foreground">Finding matatus…</p>
-          ) : filtered.length === 0 ? (
-            <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              <p>No routes match. Try a nearby stage or clear the search.</p>
-              {nearestSuggestions.length > 0 && (
-                <div className="mt-3">
-                  {!nearestSuggestions[0].exactNameMatch && (
-                    <p className="text-xs">
-                      No stage called "{to || from}". Nearest stop is{" "}
-                      <strong>{nearestSuggestions[0].stage.name}</strong> (
-                      {nearestSuggestions[0].distanceKm.toFixed(1)} km away)
-                    </p>
-                  )}
-                  <ul className="mt-2 grid gap-1.5">
-                    {nearestSuggestions.map((m) => (
-                      <li key={m.stage.id}>
-                        <button
-                          type="button"
-                          onClick={() => (to ? setTo(m.stage.name) : setFrom(m.stage.name))}
-                          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs hover:border-primary"
-                        >
-                          {m.stage.name}
-                          {!m.exactNameMatch &&
-                            ` · ${m.distanceKm.toFixed(1)} km from "${to || from}"`}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          ) : availableVehicles.length === 0 ? (
-            <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              <p>
-                This route is covered, but nothing's currently boarding or en route. Check back
-                shortly.
-              </p>
-            </div>
-          ) : (
-            <ul className="mt-3 grid max-h-[440px] gap-2 overflow-y-auto pr-1">
-              {[...availableVehicles]
-                .sort(
-                  (a, b) =>
-                    (favoriteIds.has(b.routeId) ? 1 : 0) - (favoriteIds.has(a.routeId) ? 1 : 0),
-                )
-                .map((v) => (
-                  <li key={v.tripId} className="relative">
-                    <button
-                      onClick={() =>
-                        navigate({
-                          to: "/ride/$routeId",
-                          params: { routeId: v.routeId },
-                          search: {
-                            from: from.trim() || undefined,
-                            to: to.trim() || undefined,
-                            trip: v.tripId,
-                          },
-                        })
-                      }
-                      className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-display text-sm font-semibold">
-                          {v.plate}{" "}
-                          {v.nickname && (
-                            <span className="font-normal text-muted-foreground">
-                              · {v.nickname}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="size-3 shrink-0" />
-                          <span className="truncate">
-                            {v.routeName}
-                            {v.vehicleType ? ` · ${v.vehicleType}` : ""}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">
-                          {v.seatsLeft === null
-                            ? "Checking seats…"
-                            : v.seatsLeft === 0
-                              ? "Full"
-                              : `${v.seatsLeft} seat${v.seatsLeft === 1 ? "" : "s"} left`}
-                        </div>
-                      </div>
-                      <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
-                        KSh {v.fare}
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite(v.routeId);
-                      }}
-                      aria-label={
-                        favoriteIds.has(v.routeId)
-                          ? "Remove route from favorites"
-                          : "Save route as favorite"
-                      }
-                      className="absolute right-2 top-2 rounded-full p-1 hover:bg-secondary"
-                    >
-                      <Star
-                        className={`size-4 ${favoriteIds.has(v.routeId) ? "fill-accent text-accent" : "text-muted-foreground"}`}
-                      />
-                    </button>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </section>
+        {/* Reopen chip if the sheet was dismissed but results are still valid. */}
+        {searched && !showResultsSheet && (
+          <button
+            type="button"
+            onClick={() => setShowResultsSheet(true)}
+            className="mt-3 w-full rounded-xl border border-primary/40 bg-primary/10 px-4 py-2.5 text-sm font-semibold text-primary"
+          >
+            See available matatus ({availableVehicles.length})
+          </button>
+        )}
       </div>
+
+      {/* Vehicle results — shown as a popup only after an explicit search, the way
+          Uber/Bolt present ride options as a sheet over the map rather than an
+          always-visible list on the page. */}
+      {showResultsSheet && (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center"
+          onClick={() => setShowResultsSheet(false)}
+        >
+          <section
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[75vh] w-full max-w-xl overflow-y-auto rounded-t-2xl border border-border bg-surface p-4 shadow-soft sm:max-h-[80vh] sm:rounded-2xl"
+          >
+            <div className="mb-1 flex items-center justify-between">
+              <h2 className="font-display text-base font-semibold">
+                {loading || loadingVehicles
+                  ? "Finding matatus…"
+                  : `Available matatus (${availableVehicles.length})`}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowResultsSheet(false)}
+                aria-label="Close"
+                className="rounded-full p-1.5 text-muted-foreground hover:bg-secondary"
+              >
+                ✕
+              </button>
+            </div>
+            {loading || loadingVehicles ? (
+              <p className="mt-3 text-sm text-muted-foreground">Finding matatus…</p>
+            ) : filtered.length === 0 ? (
+              <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                <p>No routes match. Try a nearby stage or clear the search.</p>
+                {nearestSuggestions.length > 0 && (
+                  <div className="mt-3">
+                    {!nearestSuggestions[0].exactNameMatch && (
+                      <p className="text-xs">
+                        No stage called "{to || from}". Nearest stop is{" "}
+                        <strong>{nearestSuggestions[0].stage.name}</strong> (
+                        {nearestSuggestions[0].distanceKm.toFixed(1)} km away)
+                      </p>
+                    )}
+                    <ul className="mt-2 grid gap-1.5">
+                      {nearestSuggestions.map((m) => (
+                        <li key={m.stage.id}>
+                          <button
+                            type="button"
+                            onClick={() => (to ? setTo(m.stage.name) : setFrom(m.stage.name))}
+                            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs hover:border-primary"
+                          >
+                            {m.stage.name}
+                            {!m.exactNameMatch &&
+                              ` · ${m.distanceKm.toFixed(1)} km from "${to || from}"`}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : availableVehicles.length === 0 ? (
+              <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                <p>
+                  This route is covered, but nothing's currently boarding or en route. Check back
+                  shortly.
+                </p>
+              </div>
+            ) : (
+              <ul className="mt-3 grid gap-2">
+                {[...availableVehicles]
+                  .sort(
+                    (a, b) =>
+                      (favoriteIds.has(b.routeId) ? 1 : 0) - (favoriteIds.has(a.routeId) ? 1 : 0),
+                  )
+                  .map((v) => (
+                    <li key={v.tripId} className="relative">
+                      <button
+                        onClick={() =>
+                          navigate({
+                            to: "/ride/$routeId",
+                            params: { routeId: v.routeId },
+                            search: {
+                              from: from.trim() || undefined,
+                              to: to.trim() || undefined,
+                              trip: v.tripId,
+                            },
+                          })
+                        }
+                        className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-display text-sm font-semibold">
+                            {v.plate}{" "}
+                            {v.nickname && (
+                              <span className="font-normal text-muted-foreground">
+                                · {v.nickname}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                            <MapPin className="size-3 shrink-0" />
+                            <span className="truncate">
+                              {v.routeName}
+                              {v.vehicleType ? ` · ${v.vehicleType}` : ""}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-muted-foreground">
+                            {v.seatsLeft === null
+                              ? "Checking seats…"
+                              : v.seatsLeft === 0
+                                ? "Full"
+                                : `${v.seatsLeft} seat${v.seatsLeft === 1 ? "" : "s"} left`}
+                          </div>
+                        </div>
+                        <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
+                          KSh {v.fare}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(v.routeId);
+                        }}
+                        aria-label={
+                          favoriteIds.has(v.routeId)
+                            ? "Remove route from favorites"
+                            : "Save route as favorite"
+                        }
+                        className="absolute right-2 top-2 rounded-full p-1 hover:bg-secondary"
+                      >
+                        <Star
+                          className={`size-4 ${favoriteIds.has(v.routeId) ? "fill-accent text-accent" : "text-muted-foreground"}`}
+                        />
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
     </AppShell>
   );
 }
