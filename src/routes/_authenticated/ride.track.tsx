@@ -42,27 +42,54 @@ function TrackPage() {
   // route in the system. Redirect straight to the dedicated per-booking screen, which
   // shows only their route with the live remaining-route line. Only passengers with
   // no active booking ever see the route-picker UI below.
+  //
+  // This has a hard timeout and always falls back to the picker on any error — a
+  // flaky connection failing (or just hanging) this check must never leave the
+  // passenger stuck on "Checking for your booking…" forever.
   useEffect(() => {
-    (async () => {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) {
+    let settled = false;
+    const fallback = setTimeout(() => {
+      if (!settled) {
+        settled = true;
         setCheckingMyBooking(false);
-        return;
       }
-      const { data } = await supabase
-        .from("bookings")
-        .select("id,created_at")
-        .eq("passenger_id", u.user.id)
-        .in("status", ["reserved", "confirmed", "boarded"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (data) {
-        navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
-        return;
+    }, 6000);
+
+    (async () => {
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        if (!u.user) return;
+        const { data } = await supabase
+          .from("bookings")
+          .select("id,created_at")
+          .eq("passenger_id", u.user.id)
+          .in("status", ["reserved", "confirmed", "boarded"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (settled) return; // the 6s fallback already took over
+        if (data) {
+          settled = true;
+          clearTimeout(fallback);
+          navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
+          return;
+        }
+      } catch {
+        // Network error, offline, whatever — fall through to the picker below
+        // rather than leaving the passenger stuck on the loading screen.
+      } finally {
+        if (!settled) {
+          settled = true;
+          clearTimeout(fallback);
+          setCheckingMyBooking(false);
+        }
       }
-      setCheckingMyBooking(false);
     })();
+
+    return () => {
+      settled = true;
+      clearTimeout(fallback);
+    };
   }, [navigate]);
 
   // Same as the per-booking tracking screen — starts automatically, no button,
@@ -256,6 +283,12 @@ function TrackPage() {
         assistantContext={{ page: "passenger_tracking" }}
       >
         <p className="text-sm text-muted-foreground">Checking for your booking…</p>
+        <button
+          onClick={() => setCheckingMyBooking(false)}
+          className="mt-3 text-xs font-medium text-primary underline"
+        >
+          Skip — show all routes instead
+        </button>
       </AppShell>
     );
   }
