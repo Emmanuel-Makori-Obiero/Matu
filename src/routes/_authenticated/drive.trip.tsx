@@ -659,20 +659,30 @@ function DriverTrip() {
   }, []);
 
   async function addStage(lat: number, lng: number) {
-    if (!trip || !addStageMode) return;
+    if (!trip || !addStageMode || drawingRoute) return;
     if (!newStageName.trim()) return toast.error("Type a stage name first");
     await addStageForced(lat, lng);
   }
+
+  // Stages added while drawing don't go straight into the shared stages list —
+  // they're held here until "Stop & save" so the map can show a genuinely
+  // blank slate while recording (see the stages prop passed to RouteMap
+  // below), and so a driver who cancels/never saves doesn't leave half-added
+  // stages behind for everyone else.
+  const [recordingStages, setRecordingStages] = useState<Stage[]>([]);
 
   function startDrawingRoute() {
     if (!driverPos) {
       toast.error("Waiting for GPS — try again once your location shows on the map");
       return;
     }
-    lastTracedPointRef.current = { lat: driverPos.lat, lng: driverPos.lng };
-    setTracedPath([[driverPos.lat, driverPos.lng]]);
+    lastTracedPointRef.current = null;
+    setTracedPath([]);
+    setRecordingStages([]);
     setDrawingRoute(true);
-    toast.success("Drawing route — drive normally, the line will follow you");
+    toast.success(
+      "Drawing route — map is cleared. The old route and stages stay untouched until you save.",
+    );
   }
 
   // Saves whatever's been traced so far without turning recording off — used
@@ -704,16 +714,46 @@ function DriverTrip() {
 
   async function stopDrawingRoute() {
     setDrawingRoute(false);
-    if (tracedPath.length < 2) {
-      toast.info("Stopped — not enough movement was recorded to save a route");
+    if (tracedPath.length < 2 && recordingStages.length === 0) {
+      toast.info("Stopped — nothing was recorded, so the old route and stages are unchanged");
       return;
     }
     setSavingRoutePath(true);
     await persistTracedPath(tracedPath);
+
+    // Replace the route's stages with exactly what was recorded this run —
+    // this is the "reset" the driver asked for: old stages for this route
+    // are removed and swapped for the new, more accurate set, rather than
+    // the new ones just being appended on top of the outdated ones.
+    if (trip) {
+      await supabase.from("stages").delete().eq("route_id", trip.route_id);
+      if (recordingStages.length > 0) {
+        const { data: u } = await supabase.auth.getUser();
+        const { data: inserted, error } = await supabase
+          .from("stages")
+          .insert(
+            recordingStages.map((s, i) => ({
+              route_id: trip.route_id,
+              name: s.name,
+              lat: s.lat,
+              lng: s.lng,
+              order_index: i,
+              added_by: u.user?.id ?? null,
+            })),
+          )
+          .select("id,name,lat,lng,order_index");
+        if (error) toast.error(`Path saved, but re-saving stages failed: ${error.message}`);
+        setStages((inserted ?? []) as Stage[]);
+      } else {
+        setStages([]);
+      }
+    }
+
     setSavingRoutePath(false);
-    setSavedRoutePath(tracedPath);
+    setSavedRoutePath(tracedPath.length > 1 ? tracedPath : null);
+    setRecordingStages([]);
     toast.success(
-      `Route saved — ${tracedPath.length} points. This replaces the old route for everyone using this leg.`,
+      `Route saved — ${tracedPath.length} points and ${recordingStages.length} stage(s). This replaces the old route and stages for everyone using this leg.`,
     );
   }
 
@@ -725,7 +765,20 @@ function DriverTrip() {
     if (!trip) return;
     if (!newStageName.trim()) return toast.error("Type a stage name first");
     if (!driverPos) return toast.error("Waiting for GPS — try again in a moment");
-    await addStageForced(driverPos.lat, driverPos.lng);
+    setRecordingStages((prev) => [
+      ...prev,
+      {
+        id: `pending-${Date.now()}`,
+        name: newStageName.trim(),
+        lat: driverPos.lat,
+        lng: driverPos.lng,
+        order_index: prev.length,
+      },
+    ]);
+    setNewStageName("");
+    toast.success(
+      `Stage “${newStageName.trim()}” added — saved when you press "Stop & save route"`,
+    );
   }
 
   // Shared insert used by both the tap-the-map flow (addStage, gated behind
@@ -772,6 +825,14 @@ function DriverTrip() {
     }
     return stages.map((s) => ({ ...s, passengerCount: counts[s.id] ?? 0 }));
   }, [stages, bookings]);
+
+  // While drawing, the map should show a clean slate — only stages dropped
+  // during this recording — instead of the old route's stages, which is the
+  // point of the reset the driver asked for.
+  const recordingStagesForMap: MapStage[] = useMemo(
+    () => recordingStages.map((s) => ({ ...s, passengerCount: 0 })),
+    [recordingStages],
+  );
 
   // Individual dots for the map: one per waiting passenger, positioned at
   // their pickup stage. Bookings don't carry a live per-passenger GPS fix —
@@ -971,8 +1032,8 @@ function DriverTrip() {
             </button>
           </div>
           <RouteMap
-            stages={stagesWithPassengerCounts}
-            passengers={passengerDots}
+            stages={drawingRoute ? recordingStagesForMap : stagesWithPassengerCounts}
+            passengers={drawingRoute ? [] : passengerDots}
             vehicles={
               driverPos
                 ? [
@@ -989,7 +1050,7 @@ function DriverTrip() {
             onMapClick={addStage}
             showTraffic={showTraffic}
             jammed={aheadIsJammed}
-            congestionRoute={congestionRoute}
+            congestionRoute={drawingRoute ? null : congestionRoute}
             tracePath={drawingRoute ? tracedPath : savedRoutePath}
           />
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
@@ -1017,13 +1078,15 @@ function DriverTrip() {
                 <MapPin className="size-3" /> Draw route now
               </button>
             )}
-            <button
-              onClick={() => setAddStageMode((v) => !v)}
-              className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium ${addStageMode ? "bg-accent text-accent-foreground" : "border border-border"}`}
-            >
-              <Plus className="size-3" /> {addStageMode ? "Tap map to add" : "Add stage"}
-            </button>
-            {addStageMode && (
+            {!drawingRoute && (
+              <button
+                onClick={() => setAddStageMode((v) => !v)}
+                className={`inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium ${addStageMode ? "bg-accent text-accent-foreground" : "border border-border"}`}
+              >
+                <Plus className="size-3" /> {addStageMode ? "Tap map to add" : "Add stage"}
+              </button>
+            )}
+            {!drawingRoute && addStageMode && (
               <input
                 autoFocus
                 placeholder="Stage name (e.g. Junction)"
