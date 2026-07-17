@@ -712,6 +712,18 @@ function DriverTrip() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawingRoute, tracedPath]);
 
+  // Abandons the current recording entirely — no path save, no stage
+  // replacement. Distinct from stopDrawingRoute: that one commits whatever
+  // was traced/added as the new route; this one throws it away and leaves
+  // the previously-saved route (if any) exactly as it was.
+  function cancelDrawingRoute() {
+    setDrawingRoute(false);
+    setTracedPath([]);
+    setRecordingStages([]);
+    lastTracedPointRef.current = null;
+    toast.info("Cancelled — nothing was saved, the previous route is unchanged");
+  }
+
   async function stopDrawingRoute() {
     setDrawingRoute(false);
     if (tracedPath.length < 2 && recordingStages.length === 0) {
@@ -1067,6 +1079,14 @@ function DriverTrip() {
                   className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
                 >
                   {savingRoutePath ? "Saving…" : "Stop & save route"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelDrawingRoute}
+                  disabled={savingRoutePath}
+                  className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive disabled:opacity-60"
+                >
+                  Cancel
                 </button>
               </>
             ) : (
