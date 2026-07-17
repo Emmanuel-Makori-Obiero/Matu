@@ -102,6 +102,20 @@ function pinDivIcon() {
   return L.divIcon({ html, className: "", iconSize: [16, 16], iconAnchor: [8, 8] });
 }
 
+// The passenger's own live GPS position on their tracking screen — deliberately
+// red and a plain dot (not the yellow directional wedge used for the vehicle),
+// so "which dot is me" vs "which dot is the matatu" is unambiguous at a glance.
+// Slightly bigger than the purple waiting-passenger dots too, since this one
+// represents "you" specifically rather than generic demand at a stage.
+function selfDivIcon() {
+  const html = `<div style="
+    width:16px;height:16px;border-radius:50%;
+    background:#dc2626;border:3px solid #ffffff;
+    box-shadow:0 0 6px rgba(220,38,38,0.6);
+  "></div>`;
+  return L.divIcon({ html, className: "", iconSize: [16, 16], iconAnchor: [8, 8] });
+}
+
 // Small purple dot for a single waiting passenger — deliberately smaller and
 // a different color than the stage marker (green) and vehicle marker (yellow)
 // so a driver scanning the map can tell "person" apart from "stop" apart from
@@ -151,6 +165,8 @@ export function RouteMap({
   jammed = false,
   congestionRoute,
   tracePath = null,
+  selfPosition = null,
+  onLiveRouteStaleChange,
   className,
 }: {
   stages: MapStage[];
@@ -197,6 +213,12 @@ export function RouteMap({
   // traced by an actual vehicle rather than fetched from a map that may be
   // outdated for this area.
   tracePath?: [number, number][] | null;
+  // The viewer's own live GPS position — used on the passenger tracking
+  // screen so a passenger can see themselves (red dot) alongside the
+  // vehicle (yellow) and the route/remaining-route line, without needing to
+  // press anything first. Not used on the driver's own map, since the
+  // vehicle marker already *is* the driver's position there.
+  selfPosition?: { lat: number; lng: number } | null;
   // Called once when the live route fails to refresh twice in a row (not on
   // a single blip) — lets the screen tell the user "this route/ETA may be
   // outdated" instead of silently drawing a stale line with no signal that
@@ -213,6 +235,7 @@ export function RouteMap({
   const vehicleMarkers = useRef<Record<string, L.Marker>>({});
   const passengerMarkers = useRef<Record<string, L.Marker>>({});
   const pinMarker = useRef<L.Marker | null>(null);
+  const selfMarker = useRef<L.Marker | null>(null);
   const liveRoutePolylineRef = useRef<L.Polyline | null>(null);
   const trafficLayerRef = useRef<L.TileLayer | null>(null);
   const liveRouteOriginRef = useRef(liveRoute?.origin);
@@ -376,6 +399,28 @@ export function RouteMap({
       }
     });
   }, [passengers, ready]);
+
+  // The viewer's own live position — a single marker, moved in place on
+  // every update rather than removed/re-added, so it doesn't flicker each
+  // time a GPS fix comes in every few seconds.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    if (!selfPosition) {
+      selfMarker.current?.remove();
+      selfMarker.current = null;
+      return;
+    }
+    if (selfMarker.current) {
+      selfMarker.current.setLatLng([selfPosition.lat, selfPosition.lng]);
+    } else {
+      selfMarker.current = L.marker([selfPosition.lat, selfPosition.lng], {
+        icon: selfDivIcon(),
+        title: "You",
+        zIndexOffset: 200, // always visible on top of stage/vehicle/passenger markers
+      }).addTo(map);
+    }
+  }, [selfPosition, ready]);
 
   // The road-snapped, per-segment jam-colored route — drawn as its own layer
   // group so it can sit on top of the plain green/red stages polyline without

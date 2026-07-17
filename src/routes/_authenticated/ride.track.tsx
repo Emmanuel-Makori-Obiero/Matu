@@ -31,6 +31,19 @@ function TrackPage() {
   const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
   const [myPingStageId, setMyPingStageId] = useState<string | null>(null);
   const [pinging, setPinging] = useState<string | null>(null);
+  const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Same as the per-booking tracking screen — starts automatically, no button,
+  // so the red "you" dot just appears if location is available/granted.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setSelfLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => console.warn("[ride.track] geolocation unavailable:", err.message),
+      { enableHighAccuracy: true, maximumAge: 10_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   // Load every route once, for the picker.
   useEffect(() => {
@@ -228,6 +241,7 @@ function TrackPage() {
         <RouteMap
           stages={mapStages}
           vehicles={mapVehicles}
+          selfPosition={selfLoc}
           className="h-[420px] w-full rounded-2xl border border-border"
         />
 

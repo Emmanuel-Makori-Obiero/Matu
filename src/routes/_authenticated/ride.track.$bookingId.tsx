@@ -247,6 +247,26 @@ function TrackBooking() {
     };
   }, [trip]);
 
+  const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
+
+  // The passenger's own live position — starts automatically on page load (no
+  // "track me" button) so opening this screen is enough to see yourself (red),
+  // the matatu (yellow), and the remaining route all at once by default.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setSelfLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => {
+        // Silent — a passenger who denies location just doesn't get the red
+        // dot; everything else on this screen (route, vehicle, ETA) still
+        // works fine without it, so this shouldn't interrupt them with a toast.
+        console.warn("[ride.track] geolocation unavailable:", err.message);
+      },
+      { enableHighAccuracy: true, maximumAge: 10_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
   const destination = dropoff ? { lat: dropoff.lat, lng: dropoff.lng } : null;
   const {
     minutes: etaMinutes,
@@ -416,6 +436,7 @@ function TrackBooking() {
         <RouteMap
           stages={mapStages}
           vehicles={mapVehicles}
+          selfPosition={selfLoc}
           liveRoute={vehicleLoc && destination ? { origin: vehicleLoc, destination } : null}
           onLiveRouteStaleChange={(stale) => {
             if (stale)
