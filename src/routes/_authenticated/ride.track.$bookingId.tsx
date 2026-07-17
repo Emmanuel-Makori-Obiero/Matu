@@ -6,12 +6,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Bus, MapPin, Navigation2, Star } from "lucide-react";
+import { ArrowLeft, Bus, MapPin, Navigation2, Star, Bell, BellRing } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
 import { osrmDurationSeconds, useLiveTrafficEta, type LatLng } from "@/lib/traffic-eta";
+import {
+  pushNotificationsSupported,
+  notificationPermission,
+  enableTripPushNotifications,
+} from "@/lib/push-notifications";
 
 type BookingRow = {
   id: string;
@@ -300,6 +305,24 @@ function TrackBooking() {
   }, [trip]);
 
   const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
+    notificationPermission(),
+  );
+  const [enablingPush, setEnablingPush] = useState(false);
+
+  async function handleEnableNotifications() {
+    setEnablingPush(true);
+    const result = await enableTripPushNotifications();
+    setEnablingPush(false);
+    setPushPermission(notificationPermission());
+    if (result.ok) {
+      toast.success(
+        "Notifications on — you'll get an alert when your matatu is close and when it arrives.",
+      );
+    } else {
+      toast.error(result.reason);
+    }
+  }
 
   // The passenger's own live position — starts automatically on page load (no
   // "track me" button) so opening this screen is enough to see yourself (red),
@@ -452,6 +475,38 @@ function TrackBooking() {
             {trip.status.replace("_", " ")}
           </span>
         </div>
+
+        {/* Notification opt-in — lets the passenger get alerted (with the
+            phone actually buzzing/sounding) even while using another app,
+            instead of only seeing updates if they keep this tab open. Hidden
+            once permission is settled one way or the other, or once the trip
+            is over. */}
+        {trip.status !== "completed" && pushPermission === "default" && (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-start gap-2">
+              <Bell className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div>
+                <div className="text-sm font-medium">Get notified when your matatu is close</div>
+                <div className="text-xs text-muted-foreground">
+                  Works even if you're using another app — you'll get an alert as it gets closer,
+                  and another (with sound) the moment it arrives.
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleEnableNotifications}
+              disabled={enablingPush || !pushNotificationsSupported()}
+              className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {enablingPush ? "Enabling…" : "Enable"}
+            </button>
+          </div>
+        )}
+        {pushPermission === "granted" && trip.status !== "completed" && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <BellRing className="size-3.5 text-primary" /> Notifications on for this trip
+          </div>
+        )}
 
         {/* Rate the trip — shown once the driver marks it completed. One rating
             per booking; shows a thank-you instead of the form if already submitted. */}

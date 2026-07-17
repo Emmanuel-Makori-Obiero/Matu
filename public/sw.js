@@ -179,3 +179,56 @@ self.addEventListener("sync", (event) => {
     event.waitUntil(flushQueueInBackground());
   }
 });
+
+// --- Web Push: trip progress + driver-arrived notifications ---------------
+//
+// Sent by the supabase/functions/send-trip-push edge function, triggered
+// from the driver's screen. Progress notifications reuse the same `tag`
+// (matu-progress-<trip_id>) every time, so the browser replaces the existing
+// notification's text in place rather than stacking a new one each update —
+// that's what makes it read as "live" instead of spamming the tray.
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch {
+    return;
+  }
+  const { title, body, tag, icon, badge, data, requireInteraction, vibrate } = payload;
+  event.waitUntil(
+    self.registration.showNotification(title || "Matu", {
+      body,
+      tag,
+      icon: icon || "/icons/icon-192.png",
+      badge: badge || "/icons/icon-192.png",
+      data,
+      requireInteraction: !!requireInteraction,
+      vibrate: vibrate || undefined,
+      // Renotify only for the arrival alert (requireInteraction is only set
+      // there) — a progress update replacing itself shouldn't re-buzz the
+      // phone every ~minute, only the one-off "driver has arrived" should.
+      renotify: !!requireInteraction,
+    }),
+  );
+});
+
+// Tapping the notification focuses an already-open Matu tab if there is one,
+// otherwise opens a new one straight to that booking's tracking screen.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/";
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of allClients) {
+        if (client.url.includes(self.location.origin) && "focus" in client) {
+          await client.focus();
+          if ("navigate" in client) await client.navigate(url);
+          return;
+        }
+      }
+      await self.clients.openWindow(url);
+    })(),
+  );
+});

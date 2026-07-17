@@ -119,6 +119,52 @@ function DriverTrip() {
   const drawingRouteRef = useRef(drawingRoute);
   drawingRouteRef.current = drawingRoute;
 
+  // Fire-and-forget: sends a Web Push to every passenger with an active
+  // booking on this trip, updating their "your matatu is on the way"
+  // notification in place. Errors are swallowed — a failed push shouldn't
+  // interrupt driving or throw a toast the driver can't act on.
+  async function sendProgressPush(lat: number, lng: number) {
+    if (!trip) return;
+    try {
+      await supabase.functions.invoke("send-trip-push", {
+        body: { type: "progress", trip_id: trip.id, lat, lng },
+      });
+    } catch (err) {
+      console.warn("[drive.trip] progress push failed:", err);
+    }
+  }
+
+  const [sendingArrival, setSendingArrival] = useState(false);
+  // "I'm here" — the driver presses this once actually at a stage; pushes an
+  // immediate, sound/vibrate notification to everyone still waiting to
+  // board at that specific stage. Deliberately a manual button rather than
+  // firing automatically when "current stage" is picked (that dropdown gets
+  // set ahead of actually arriving, e.g. while still a few hundred meters
+  // out), so passengers aren't told "arrived" before the vehicle is there.
+  async function announceArrival() {
+    if (!trip || !currentStageId) {
+      toast.error('Pick your current stage first, then press "I\'m here"');
+      return;
+    }
+    setSendingArrival(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-trip-push", {
+        body: { type: "arrived", trip_id: trip.id, stage_id: currentStageId },
+      });
+      if (error) throw error;
+      const notified = (data as { notified?: number } | null)?.notified ?? 0;
+      toast.success(
+        notified > 0
+          ? `Notified ${notified} passenger${notified === 1 ? "" : "s"} waiting here`
+          : "No one waiting at this stage right now",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't send the arrival alert");
+    } finally {
+      setSendingArrival(false);
+    }
+  }
+
   // Load driver's vehicles + routes on mount
   useEffect(() => {
     (async () => {
@@ -386,7 +432,23 @@ function DriverTrip() {
     };
   }, [trip]);
 
-  // Best-effort warning if the driver navigates away or closes the tab mid-trip —
+  // Every ~75s while the trip is active, push an updated "your matatu is on
+  // the way" notification to every booked passenger — this is the "live
+  // updating" progress notification, achieved by the edge function reusing
+  // the same notification tag each time so it replaces in place rather than
+  // stacking. 75s (not tighter) keeps this well within reasonable push-volume
+  // limits for a multi-hour trip; passengers still see it visibly "get
+  // closer" every update, they just don't need it more granular than that
+  // to make routing/boarding decisions.
+  useEffect(() => {
+    if (!trip || (trip.status !== "boarding" && trip.status !== "in_transit")) return;
+    const iv = setInterval(() => {
+      const pos = driverPosRef.current;
+      if (pos) sendProgressPush(pos.lat, pos.lng);
+    }, 75_000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip?.id, trip?.status]);
   // location broadcasting and the seat count both stop the instant this screen
   // unmounts, so passengers would silently lose live tracking.
   useEffect(() => {
@@ -1337,6 +1399,18 @@ function DriverTrip() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={announceArrival}
+              disabled={sendingArrival || !currentStageId}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+            >
+              <Bell className="size-3" /> {sendingArrival ? "Notifying…" : "I'm here"}
+            </button>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Press once you've actually arrived — notifies (with sound) everyone still waiting to
+              board at this stage, even if they're using another app right now.
+            </p>
             <ol className="mt-3 grid gap-1 text-sm">
               {[...stages]
                 .sort((a, b) => (pingCounts[b.id] ?? 0) - (pingCounts[a.id] ?? 0))
