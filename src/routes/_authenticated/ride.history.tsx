@@ -370,6 +370,21 @@ function BookingHistory() {
                             <Navigation2 className="size-3" /> Track on map
                           </button>
                         ) : null}
+                        {b.status === "reserved" && trip && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate({
+                                to: "/ride/$routeId",
+                                params: { routeId: trip.route_id },
+                                search: { trip: trip.id },
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                          >
+                            Finish payment
+                          </button>
+                        )}
                         {canCancel &&
                           (confirmingCancel === b.id ? (
                             <div

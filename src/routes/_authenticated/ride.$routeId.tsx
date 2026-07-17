@@ -208,15 +208,37 @@ function RouteDetail() {
       if (!u.user) return;
       const { data } = await supabase
         .from("bookings")
-        .select("trip_id,pickup_stage_id,dropoff_stage_id,status")
+        .select("id,trip_id,pickup_stage_id,dropoff_stage_id,status")
         .eq("passenger_id", u.user.id)
         .in(
           "trip_id",
           trips.map((t) => t.id),
         )
-        .in("status", ["reserved", "boarded"]);
+        .in("status", ["reserved", "confirmed", "boarded"]);
+      const rows = (data ?? []) as {
+        id: string;
+        trip_id: string;
+        pickup_stage_id: string | null;
+        dropoff_stage_id: string | null;
+        status: string;
+      }[];
+      // Restore state that only ever lived in memory (bookedBookingId etc.), so
+      // leaving the app mid-payment (or just reloading this page) doesn't strand the
+      // passenger back at "pick a trip" with no way to get to their pending payment.
+      // A confirmed booking goes straight to the dedicated tracking page; a reserved
+      // one re-opens this same pay panel exactly where they left off.
+      const mine = rows.find((b) => b.status === "reserved" || b.status === "confirmed");
+      if (mine && !bookedBookingId) {
+        if (mine.status === "confirmed") {
+          navigate({ to: "/ride/track/$bookingId", params: { bookingId: mine.id } });
+        } else {
+          setBookedBookingId(mine.id);
+          setBookedTripId(mine.trip_id);
+          setPayChoice("manual");
+        }
+      }
       setMyBookings(
-        (data ?? []) as {
+        rows as {
           trip_id: string;
           pickup_stage_id: string | null;
           dropoff_stage_id: string | null;
@@ -458,9 +480,16 @@ function RouteDetail() {
   // their own phone before letting the passenger board.
   async function payWithManualMethod(bookingId: string, method: string) {
     setPayingBookingId(bookingId);
+    // `method` here is the driver's channel (pochi/send_money/buy_goods) — useful for
+    // the UI copy above, but bookings.payment_method has a DB check constraint that
+    // only allows 'mpesa' | 'cash' (it records how the passenger paid, not which
+    // specific M-Pesa channel the driver uses). All three manual channels are M-Pesa,
+    // so always store 'mpesa' here — passing `method` straight through violates
+    // bookings_payment_method_check and silently fails the whole confirmation.
+    void method;
     const { error } = await supabase
       .from("bookings")
-      .update({ status: "confirmed", payment_method: method })
+      .update({ status: "confirmed", payment_method: "mpesa" })
       .eq("id", bookingId);
     setPayingBookingId(null);
     if (error) return toast.error(error.message);
