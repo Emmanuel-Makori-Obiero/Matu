@@ -1,17 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PlaceSearch, type PlaceResult } from "@/components/matu/PlaceSearch";
 import { useEffect, useMemo, useState } from "react";
-import {
-  MapPin,
-  Bus,
-  Search,
-  ArrowRightLeft,
-  LocateFixed,
-  Navigation,
-  Star,
-  MapPinned,
-  Package,
-} from "lucide-react";
+import { MapPin, Bus, LocateFixed, Navigation, Star, MapPinned, Package } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
@@ -62,6 +52,9 @@ function PassengerHome() {
   const [pickTarget, setPickTarget] = useState<"from" | "to">("from");
   const [droppedPin, setDroppedPin] = useState<{ lat: number; lng: number } | null>(null);
   const [pickingOnMap, setPickingOnMap] = useState(false);
+  const [editingPickup, setEditingPickup] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  const [geoAttempted, setGeoAttempted] = useState(false);
 
   async function handleMapClick(lat: number, lng: number) {
     if (!pickingOnMap) return;
@@ -297,10 +290,23 @@ function PassengerHome() {
     );
   }
 
+  // Auto-detect pickup from the passenger's location on load, once stages are
+  // loaded to match against — same as Uber/Bolt defaulting pickup to "current
+  // location" instead of making the passenger set it manually every time. If
+  // permission is denied or unavailable, useMyLocation's own error handling
+  // covers it (toast), and the passenger can still fall back to editing
+  // pickup manually via the "Edit pickup" toggle below.
+  useEffect(() => {
+    if (geoAttempted || from || loading || stages.length === 0) return;
+    setGeoAttempted(true);
+    useMyLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, stages.length]);
+
   return (
     <AppShell
       title="Where to?"
-      subtitle="Pick pickup and destination. We'll match you to matatus on your route."
+      subtitle="We'll match you to matatus on your route."
       tabs={[
         { to: "/ride", label: "Find a ride" },
         { to: "/ride/track", label: "Track" },
@@ -309,33 +315,140 @@ function PassengerHome() {
       ]}
     >
       {showOnboarding && <OnboardingGuide onClose={() => setShowOnboarding(false)} />}
-      <Link
-        to="/parcel"
-        className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-green-600 px-4 py-3 text-white shadow-sm transition hover:bg-green-700 active:bg-green-800"
-      >
-        <span className="flex items-center gap-2 text-sm font-semibold">
-          <Package className="size-4" /> Sending a package? Get it delivered along a matatu route
-        </span>
-        <span className="rounded-md bg-white/20 px-3 py-1 text-xs font-bold">Send Parcel →</span>
-      </Link>
-      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
-        {/* Map (left) */}
-        <div className="order-2 lg:order-1">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+
+      <div className="mx-auto max-w-xl">
+        {/* Main search card — pickup is auto-detected, destination is the one thing
+            you actually have to type. Everything else (map picking, manual stage
+            entry, POI search) lives behind "Edit pickup" so the default view stays
+            as simple as Uber/Bolt's home screen. */}
+        <section className="rounded-2xl border border-border bg-surface p-4 shadow-soft">
+          <button
+            type="button"
+            onClick={() => setEditingPickup((v) => !v)}
+            className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-background px-3.5 py-3 text-left"
+          >
+            <span className="size-2.5 shrink-0 rounded-full bg-accent" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Pickup
+              </span>
+              <span className="block truncate text-sm font-medium">
+                {from || "Detecting your location…"}
+              </span>
+            </span>
+            <span className="shrink-0 text-xs font-medium text-primary">
+              {editingPickup ? "Done" : "Edit"}
+            </span>
+          </button>
+
+          {editingPickup && (
+            <div className="mt-3 grid gap-2.5 border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={useMyLocation}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
+              >
+                <LocateFixed className="size-4" /> Use my current location
+              </button>
+              <PlaceSearch
+                placeholder="Search a building, business, or street for pickup…"
+                onSelect={(p) => handlePlaceSelected(p, "from")}
+              />
+              <PlaceField
+                icon={<div className="size-2.5 rounded-full bg-accent" />}
+                label="Pickup"
+                value={from}
+                onChange={setFrom}
+                options={places}
+                placeholder="Where from? (e.g. Utawala)"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setPickTarget("from");
+                  setPickingOnMap(true);
+                  setShowMap(true);
+                }}
+                className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-primary"
+              >
+                <MapPinned className="size-3.5" /> Pick pickup on map instead
+              </button>
+            </div>
+          )}
+
+          <div className="my-2 ml-[13px] h-3 w-px bg-border" />
+
+          {/* Destination — the single prominent field. */}
+          <div className="grid gap-2">
+            <div className="flex items-center gap-2.5 rounded-xl border-2 border-primary/60 bg-background px-1">
+              <span className="ml-2.5 size-2.5 shrink-0 rounded-full bg-primary" />
+              <PlaceSearch placeholder="Where to?" onSelect={(p) => handlePlaceSelected(p, "to")} />
+            </div>
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer select-none font-medium text-primary">
+                Type a specific stage name instead
+              </summary>
+              <div className="mt-2 grid gap-2">
+                <PlaceField
+                  label="Destination"
+                  value={to}
+                  onChange={setTo}
+                  options={places}
+                  placeholder="Where to? (e.g. CBD)"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPickTarget("to");
+                    setPickingOnMap(true);
+                    setShowMap(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-primary"
+                >
+                  <MapPinned className="size-3.5" /> Pick destination on map
+                </button>
+              </div>
+            </details>
+          </div>
+
+          {(from || to) && (
             <button
               type="button"
-              onClick={() => setPickingOnMap((v) => !v)}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium ${
-                pickingOnMap
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:bg-secondary"
-              }`}
+              onClick={() => {
+                setFrom("");
+                setTo("");
+              }}
+              className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-sm font-medium"
             >
-              <MapPinned className="size-3.5" />
-              {pickingOnMap ? "Tap the map to set location" : "Pick location on map"}
+              Clear search
             </button>
+          )}
+        </section>
+
+        {/* Other services — quick, Bolt-style shortcuts below the main search. */}
+        <div className="mt-3 grid grid-cols-4 gap-2">
+          <QuickAction icon={<Navigation className="size-5" />} label="Track" to="/ride/track" />
+          <QuickAction icon={<MapPin className="size-5" />} label="Bookings" to="/ride/history" />
+          <QuickAction icon={<Package className="size-5" />} label="Parcel" to="/parcel" />
+          <QuickAction
+            icon={<MapPinned className="size-5" />}
+            label={showMap ? "Hide map" : "View map"}
+            onClick={() => setShowMap((v) => !v)}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowOnboarding(true)}
+          className="mt-3 text-xs text-primary underline underline-offset-2"
+        >
+          How this works
+        </button>
+
+        {showMap && (
+          <div className="mt-4">
             {pickingOnMap && (
-              <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
+              <div className="mb-2 inline-flex overflow-hidden rounded-md border border-border text-xs">
                 <button
                   type="button"
                   onClick={() => setPickTarget("from")}
@@ -350,225 +463,144 @@ function PassengerHome() {
                 >
                   Setting destination
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setPickingOnMap(false)}
+                  className="border-l border-border px-2.5 py-1.5 font-medium text-muted-foreground"
+                >
+                  Done
+                </button>
               </div>
             )}
+            <RouteMap
+              stages={mapStages}
+              vehicles={myLoc ? [{ id: "me", lat: myLoc.lat, lng: myLoc.lng, label: "You" }] : []}
+              pin={droppedPin}
+              onMapClick={handleMapClick}
+              className={`h-[380px] w-full rounded-2xl border ${pickingOnMap ? "border-primary" : "border-border"}`}
+            />
           </div>
-          <RouteMap
-            stages={mapStages}
-            vehicles={myLoc ? [{ id: "me", lat: myLoc.lat, lng: myLoc.lng, label: "You" }] : []}
-            pin={droppedPin}
-            onMapClick={handleMapClick}
-            className={`h-[420px] w-full rounded-2xl border lg:h-[600px] ${pickingOnMap ? "border-primary" : "border-border"}`}
-          />
-        </div>
+        )}
 
-        {/* Form + results (right) */}
-        <aside className="order-1 flex flex-col gap-4 lg:order-2">
-          <section className="rounded-2xl border border-border bg-surface p-4 shadow-soft">
-            <button
-              type="button"
-              onClick={useMyLocation}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-4 text-base font-semibold text-primary-foreground shadow-soft transition hover:opacity-90"
-            >
-              <LocateFixed className="size-5" /> Use my location as pickup
-            </button>
-            <p className="mt-2 text-center text-xs text-muted-foreground">
-              Easiest way to start. We'll find your nearest matatu stop automatically.
-            </p>
-
-            <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
-              <div className="h-px flex-1 bg-border" />
-              or type it in
-              <div className="h-px flex-1 bg-border" />
-            </div>
-
-            <div className="grid gap-3">
-              <PlaceSearch
-                placeholder="Search a building, business, or street for pickup…"
-                onSelect={(p) => handlePlaceSelected(p, "from")}
-              />
-              <PlaceField
-                icon={<div className="size-2.5 rounded-full bg-accent" />}
-                label="Pickup"
-                value={from}
-                onChange={setFrom}
-                options={places}
-                placeholder="Where from? (e.g. Utawala)"
-              />
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const a = from;
-                    setFrom(to);
-                    setTo(a);
-                  }}
-                  aria-label="Swap"
-                  className="rounded-full border border-border bg-background p-1.5 hover:bg-secondary"
-                >
-                  <ArrowRightLeft className="size-3.5" />
-                </button>
-              </div>
-              <PlaceSearch
-                placeholder="Search a building, business, or street for destination…"
-                onSelect={(p) => handlePlaceSelected(p, "to")}
-              />
-              <PlaceField
-                icon={<div className="size-2.5 rounded-full bg-primary" />}
-                label="Destination"
-                value={to}
-                onChange={setTo}
-                options={places}
-                placeholder="Where to? (e.g. CBD)"
-              />
-              <p className="text-center text-xs text-muted-foreground">
-                Matching matatus appear below as you type. No need to press search.
-              </p>
-              {(from || to) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFrom("");
-                    setTo("");
-                  }}
-                  className="rounded-lg border border-border px-3 py-2.5 text-sm font-medium"
-                >
-                  Clear search
-                </button>
+        {/* Results */}
+        <section className="mt-4 rounded-2xl border border-border bg-surface p-4 shadow-soft">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-base font-semibold">
+              {from || to
+                ? `Matching routes (${filtered.length})`
+                : `All routes (${routes.length})`}
+            </h2>
+          </div>
+          {loading ? (
+            <p className="mt-3 text-sm text-muted-foreground">Loading routes…</p>
+          ) : filtered.length === 0 ? (
+            <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              <p>No routes match. Try a nearby stage or clear the search.</p>
+              {nearestSuggestions.length > 0 && (
+                <div className="mt-3">
+                  {!nearestSuggestions[0].exactNameMatch && (
+                    <p className="text-xs">
+                      No stage called "{to || from}". Nearest stop is{" "}
+                      <strong>{nearestSuggestions[0].stage.name}</strong> (
+                      {nearestSuggestions[0].distanceKm.toFixed(1)} km away)
+                    </p>
+                  )}
+                  <ul className="mt-2 grid gap-1.5">
+                    {nearestSuggestions.map((m) => (
+                      <li key={m.stage.id}>
+                        <button
+                          type="button"
+                          onClick={() => (to ? setTo(m.stage.name) : setFrom(m.stage.name))}
+                          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs hover:border-primary"
+                        >
+                          {m.stage.name}
+                          {!m.exactNameMatch &&
+                            ` · ${m.distanceKm.toFixed(1)} km from "${to || from}"`}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
-              <button
-                type="button"
-                onClick={() => setShowOnboarding(true)}
-                className="text-xs text-primary underline underline-offset-2"
-              >
-                How this works
-              </button>
             </div>
-          </section>
-
-          <section className="rounded-2xl border border-border bg-surface p-4 shadow-soft">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display text-base font-semibold">
-                {from || to
-                  ? `Matching routes (${filtered.length})`
-                  : `All routes (${routes.length})`}
-              </h2>
-            </div>
-            {loading ? (
-              <p className="mt-3 text-sm text-muted-foreground">Loading routes…</p>
-            ) : filtered.length === 0 ? (
-              <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                <p>No routes match. Try a nearby stage or clear the search.</p>
-                {nearestSuggestions.length > 0 && (
-                  <div className="mt-3">
-                    {!nearestSuggestions[0].exactNameMatch && (
-                      <p className="text-xs">
-                        No stage called "{to || from}". Nearest stop is{" "}
-                        <strong>{nearestSuggestions[0].stage.name}</strong> (
-                        {nearestSuggestions[0].distanceKm.toFixed(1)} km away)
-                      </p>
-                    )}
-                    <ul className="mt-2 grid gap-1.5">
-                      {nearestSuggestions.map((m) => (
-                        <li key={m.stage.id}>
-                          <button
-                            type="button"
-                            onClick={() => (to ? setTo(m.stage.name) : setFrom(m.stage.name))}
-                            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-left text-xs hover:border-primary"
-                          >
-                            {m.stage.name}
-                            {!m.exactNameMatch &&
-                              ` · ${m.distanceKm.toFixed(1)} km from "${to || from}"`}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <ul className="mt-3 grid max-h-[440px] gap-2 overflow-y-auto pr-1">
-                {filtered.map((r) => {
-                  const routeStages = stages
-                    .filter((s) => s.route_id === r.id)
-                    .sort((a, b) => a.order_index - b.order_index);
-                  const fLow = from.trim().toLowerCase();
-                  const tLow = to.trim().toLowerCase();
-                  const findIdx = (q: string) =>
-                    routeStages.findIndex((s) => s.name.toLowerCase().includes(q));
-                  let fromIdx = fLow ? findIdx(fLow) : -1;
-                  let toIdx = tLow ? findIdx(tLow) : -1;
-                  if (fromIdx > -1 && toIdx > -1 && fromIdx > toIdx)
-                    [fromIdx, toIdx] = [toIdx, fromIdx];
-                  const between =
-                    fromIdx > -1 && toIdx > -1
-                      ? routeStages.slice(fromIdx, toIdx + 1)
-                      : routeStages;
-                  const showBetween = (fLow || tLow) && between.length > 0;
-                  return (
-                    <li key={r.id} className="relative">
-                      <button
-                        onClick={() =>
-                          navigate({
-                            to: "/ride/$routeId",
-                            params: { routeId: r.id },
-                            search: { from: from.trim() || undefined, to: to.trim() || undefined },
-                          })
-                        }
-                        className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-display text-sm font-semibold">
-                            {r.name}
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                            <MapPin className="size-3 shrink-0" />
-                            <span className="truncate">
-                              {r.origin} → {r.destination}
-                            </span>
-                          </div>
-                          {showBetween && (
-                            <ol className="mt-2 grid gap-0.5 border-l-2 border-primary/40 pl-2 text-[11px] text-muted-foreground">
-                              {between.map((s, i) => (
-                                <li key={s.id} className="flex items-center gap-1">
-                                  <span
-                                    className={`size-1.5 rounded-full ${i === 0 ? "bg-accent" : i === between.length - 1 ? "bg-primary" : "bg-muted-foreground/50"}`}
-                                  />
-                                  <span className="truncate">{s.name}</span>
-                                </li>
-                              ))}
-                            </ol>
-                          )}
+          ) : (
+            <ul className="mt-3 grid max-h-[440px] gap-2 overflow-y-auto pr-1">
+              {filtered.map((r) => {
+                const routeStages = stages
+                  .filter((s) => s.route_id === r.id)
+                  .sort((a, b) => a.order_index - b.order_index);
+                const fLow = from.trim().toLowerCase();
+                const tLow = to.trim().toLowerCase();
+                const findIdx = (q: string) =>
+                  routeStages.findIndex((s) => s.name.toLowerCase().includes(q));
+                let fromIdx = fLow ? findIdx(fLow) : -1;
+                let toIdx = tLow ? findIdx(tLow) : -1;
+                if (fromIdx > -1 && toIdx > -1 && fromIdx > toIdx)
+                  [fromIdx, toIdx] = [toIdx, fromIdx];
+                const between =
+                  fromIdx > -1 && toIdx > -1 ? routeStages.slice(fromIdx, toIdx + 1) : routeStages;
+                const showBetween = (fLow || tLow) && between.length > 0;
+                return (
+                  <li key={r.id} className="relative">
+                    <button
+                      onClick={() =>
+                        navigate({
+                          to: "/ride/$routeId",
+                          params: { routeId: r.id },
+                          search: { from: from.trim() || undefined, to: to.trim() || undefined },
+                        })
+                      }
+                      className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-display text-sm font-semibold">{r.name}</div>
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                          <MapPin className="size-3 shrink-0" />
+                          <span className="truncate">
+                            {r.origin} → {r.destination}
+                          </span>
                         </div>
-                        <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
-                          KSh {r.base_fare ?? "—"}
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFavorite(r.id);
-                        }}
-                        aria-label={
-                          favoriteIds.has(r.id) ? "Remove from favorites" : "Save as favorite"
-                        }
-                        className="absolute right-2 top-2 rounded-full p-1 hover:bg-secondary"
-                      >
-                        <Star
-                          className={`size-4 ${favoriteIds.has(r.id) ? "fill-accent text-accent" : "text-muted-foreground"}`}
-                        />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <Link to="/ride" className="mt-3 inline-flex items-center gap-1 text-xs text-primary">
-              <Navigation className="size-3" /> Browse all routes
-            </Link>
-          </section>
-        </aside>
+                        {showBetween && (
+                          <ol className="mt-2 grid gap-0.5 border-l-2 border-primary/40 pl-2 text-[11px] text-muted-foreground">
+                            {between.map((s, i) => (
+                              <li key={s.id} className="flex items-center gap-1">
+                                <span
+                                  className={`size-1.5 rounded-full ${i === 0 ? "bg-accent" : i === between.length - 1 ? "bg-primary" : "bg-muted-foreground/50"}`}
+                                />
+                                <span className="truncate">{s.name}</span>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                      <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
+                        KSh {r.base_fare ?? "—"}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(r.id);
+                      }}
+                      aria-label={
+                        favoriteIds.has(r.id) ? "Remove from favorites" : "Save as favorite"
+                      }
+                      className="absolute right-2 top-2 rounded-full p-1 hover:bg-secondary"
+                    >
+                      <Star
+                        className={`size-4 ${favoriteIds.has(r.id) ? "fill-accent text-accent" : "text-muted-foreground"}`}
+                      />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <Link to="/ride" className="mt-3 inline-flex items-center gap-1 text-xs text-primary">
+            <Navigation className="size-3" /> Browse all routes
+          </Link>
+        </section>
       </div>
     </AppShell>
   );
@@ -618,3 +650,36 @@ function PlaceField({
 
 // Bus icon kept in imports intentionally for future use
 void Bus;
+
+function QuickAction({
+  icon,
+  label,
+  to,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  to?: string;
+  onClick?: () => void;
+}) {
+  const className =
+    "flex flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-surface py-3 text-xs font-medium text-foreground shadow-soft transition hover:border-primary";
+  const inner = (
+    <>
+      <span className="text-primary">{icon}</span>
+      {label}
+    </>
+  );
+  if (to) {
+    return (
+      <Link to={to} className={className}>
+        {inner}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={className}>
+      {inner}
+    </button>
+  );
+}
