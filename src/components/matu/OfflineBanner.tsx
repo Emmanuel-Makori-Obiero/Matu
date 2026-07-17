@@ -1,29 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { WifiOff } from "lucide-react";
 
-// navigator.onLine's 'online'/'offline' events are known to be unreliable on
-// mobile — a wifi<->cellular handoff, a brief captive-portal check, or some
-// Android OEM power-saving quirks can fire 'offline' and then just never
-// fire 'online' again, leaving the banner stuck showing even once the
-// connection is fine. So instead of trusting the events alone, this also
-// actively re-verifies with a real network request whenever there's a
-// reason to suspect the state changed (an event fires, the tab regains
-// focus, or a periodic backstop timer), and only trusts that result.
-function checkConnectivity(): Promise<boolean> {
-  // NOTE: we deliberately do NOT short-circuit on `!navigator.onLine` here.
-  // That flag is exactly what the comment above says is unreliable — trusting
-  // its "false" without verifying defeats the whole point of this function
-  // and was the actual bug: a bad onLine reading (or a stale 'offline' event
-  // firing on wifi<->cellular handoff) made the banner show even while the
-  // device had a perfectly working connection. Always do the real request;
-  // only its result decides the banner.
+// Earlier version of this hook required BOTH navigator.onLine AND a failed
+// network probe to agree before showing "offline" — meant to stop a bad
+// onLine reading alone from showing the banner. But that made the probe's
+// failure mode just as dangerous in the other direction: a slow serverless
+// cold start, a blocked/CORS'd HEAD request, or a flaky mobile connection
+// can fail the probe on its own, and once navigator.onLine *also* happened
+// to read false for a moment, the banner got stuck showing even though the
+// device was genuinely online — exactly the bug being reported here.
+//
+// So: navigator.onLine is now the only thing that can turn the banner ON,
+// debounced briefly so a one-tick flicker doesn't flash it. The network
+// probe is only ever used to turn it back OFF faster (a successful real
+// request is good evidence of connectivity even if onLine hasn't caught up
+// yet) — it can never keep the banner on by itself.
+function probeConnectivity(): Promise<boolean> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4000);
-  return fetch("/", {
-    method: "HEAD",
-    cache: "no-store",
-    signal: controller.signal,
-  })
+  return fetch("/", { method: "HEAD", cache: "no-store", signal: controller.signal })
     .then(() => true)
     .catch(() => false)
     .finally(() => clearTimeout(timeout));
@@ -31,52 +26,40 @@ function checkConnectivity(): Promise<boolean> {
 
 export function useOnlineStatus() {
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
-  const checking = useRef(false);
-  const consecutiveFailures = useRef(0);
-
-  async function recheck() {
-    if (checking.current) return;
-    checking.current = true;
-    const result = await checkConnectivity();
-    if (result) {
-      consecutiveFailures.current = 0;
-      setOnline(true); // one successful check is enough to recover immediately
-    } else {
-      consecutiveFailures.current += 1;
-      // Never show "offline" on a failed check alone. The browser's own
-      // navigator.onLine has to agree too — this is the actual fix for the
-      // banner getting stuck on: some hosting/preview setups block or fail
-      // this verification request even though the real connection (and
-      // navigator.onLine) is fine, and a failed fetch alone was enough to
-      // flip the banner on. Requiring both signals means a broken/blocked
-      // fetch can no longer show "offline" by itself.
-      const browserAgrees = typeof navigator !== "undefined" && !navigator.onLine;
-      if (consecutiveFailures.current >= 2 && browserAgrees) {
-        setOnline(false);
-      } else if (consecutiveFailures.current < 2) {
-        setTimeout(recheck, 3000); // quick follow-up check before giving up
-      }
-      // else: two failures but the browser still thinks we're online — trust
-      // the browser and stay online rather than get stuck showing the banner.
-    }
-    checking.current = false;
-  }
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    recheck(); // resolve any SSR/hydration mismatch immediately with a real check
-    window.addEventListener("online", recheck);
-    window.addEventListener("offline", recheck);
-    document.addEventListener("visibilitychange", recheck);
-    // Backstop in case every event above misses a transition (rare, but the
-    // whole reason this rewrite exists is that mobile browsers do miss them).
-    const interval = setInterval(recheck, 30_000);
+    function applyBrowserState() {
+      const browserOnline = typeof navigator === "undefined" || navigator.onLine;
+      clearTimeout(debounceRef.current);
+      if (browserOnline) {
+        setOnline(true); // recovering is immediate, never debounced
+        return;
+      }
+      // Going offline is debounced — a brief onLine flicker during a
+      // network handoff shouldn't flash the banner on for a second.
+      debounceRef.current = setTimeout(() => setOnline(false), 1500);
+    }
+
+    applyBrowserState();
+    window.addEventListener("online", applyBrowserState);
+    window.addEventListener("offline", applyBrowserState);
+
+    // Backstop: if we're currently showing "offline" but a real request
+    // actually succeeds, trust that over a stale/wrong onLine reading and
+    // recover immediately — this is the "un-stick" path.
+    const recoveryCheck = setInterval(async () => {
+      if (navigator.onLine) return; // already fine, nothing to recover
+      const reachable = await probeConnectivity();
+      if (reachable) setOnline(true);
+    }, 10_000);
+
     return () => {
-      window.removeEventListener("online", recheck);
-      window.removeEventListener("offline", recheck);
-      document.removeEventListener("visibilitychange", recheck);
-      clearInterval(interval);
+      window.removeEventListener("online", applyBrowserState);
+      window.removeEventListener("offline", applyBrowserState);
+      clearInterval(recoveryCheck);
+      clearTimeout(debounceRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return online;
