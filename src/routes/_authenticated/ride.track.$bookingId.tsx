@@ -59,14 +59,23 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
 // end of the trail. This is what lets the passenger's "remaining route" line
 // be drawn from the driver's own corrected path instead of a freshly-fetched
 // (and possibly outdated-for-this-area) Mapbox/Google route.
+//
+// `minIdx` enforces "only ever move forward" — without it, a trail that
+// passes close to itself twice (a loop, a junction crossed twice, GPS
+// jitter) can occasionally match a point *behind* where the vehicle already
+// was, which visually looks like the remaining-route line "reset" back to
+// the full route. Passing in the last known index (see progressIdxRef below)
+// means each new match only searches from there onward.
 function remainingTrace(
   path: [number, number][] | null,
   vehicleLoc: { lat: number; lng: number } | null,
-): [number, number][] | null {
+  minIdx: number,
+): { slice: [number, number][]; matchedIdx: number } | null {
   if (!path || path.length < 2 || !vehicleLoc) return null;
-  let bestIdx = 0;
+  const floor = Math.min(Math.max(minIdx, 0), path.length - 1);
+  let bestIdx = floor;
   let bestDist = Infinity;
-  for (let i = 0; i < path.length; i++) {
+  for (let i = floor; i < path.length; i++) {
     const d = haversineMeters(vehicleLoc, { lat: path[i][0], lng: path[i][1] });
     if (d < bestDist) {
       bestDist = d;
@@ -74,7 +83,7 @@ function remainingTrace(
     }
   }
   const slice = path.slice(bestIdx);
-  return slice.length > 1 ? slice : null;
+  return slice.length > 1 ? { slice, matchedIdx: bestIdx } : null;
 }
 
 export const Route = createFileRoute("/_authenticated/ride/track/$bookingId")({
@@ -311,13 +320,48 @@ function TrackBooking() {
   }, []);
 
   const destination = dropoff ? { lat: dropoff.lat, lng: dropoff.lng } : null;
-  // The driver-drawn "ground truth" remaining route, sliced from wherever the
-  // vehicle currently is through to the end of the recorded trail. Preferred
-  // over the freshly-fetched liveRoute below whenever this route actually has
-  // one saved — that's the whole point of letting drivers draw corrected
+  // How far along the driver-drawn trail we've already matched, floored so a
+  // new match can never land earlier than this — see remainingTrace's minIdx
+  // param. Persisted to sessionStorage per booking so a page reload resumes
+  // from the same point instead of re-searching the whole trail from zero
+  // (which is what could make the line look like it "reset" right after a
+  // reload, before the next GPS fix arrives). Cleared once the trip ends.
+  const progressStorageKey = `matu-route-progress-${bookingId}`;
+  const [progressIdx, setProgressIdx] = useState<number>(() => {
+    if (typeof window === "undefined") return 0;
+    const stored = window.sessionStorage.getItem(progressStorageKey);
+    return stored ? Number(stored) || 0 : 0;
+  });
+  const remainingMatch = remainingTrace(route?.path ?? null, vehicleLoc, progressIdx);
+  useEffect(() => {
+    if (!remainingMatch) return;
+    if (remainingMatch.matchedIdx > progressIdx) {
+      setProgressIdx(remainingMatch.matchedIdx);
+      window.sessionStorage.setItem(progressStorageKey, String(remainingMatch.matchedIdx));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remainingMatch?.matchedIdx]);
+  // Once the trip is over, this booking's saved progress is no longer
+  // meaningful — clear it so a *future* booking on the same route (which
+  // reuses the same trail from the start) doesn't inherit a stale floor.
+  useEffect(() => {
+    if (trip?.status === "completed") {
+      window.sessionStorage.removeItem(progressStorageKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip?.status]);
+  // The driver-drawn "ground truth" remaining route. Preferred over the
+  // freshly-fetched liveRoute below whenever this route actually has one
+  // saved — that's the whole point of letting drivers draw corrected
   // routes: passengers should see that corrected line too, not a fetched one
-  // that might still be wrong for this area.
-  const remainingDrawnRoute = remainingTrace(route?.path ?? null, vehicleLoc);
+  // that might still be wrong for this area. Keeps showing the last known
+  // slice (rather than blanking) if vehicleLoc is briefly unavailable, e.g.
+  // the driver's GPS momentarily drops.
+  const [lastRemainingSlice, setLastRemainingSlice] = useState<[number, number][] | null>(null);
+  useEffect(() => {
+    if (remainingMatch) setLastRemainingSlice(remainingMatch.slice);
+  }, [remainingMatch]);
+  const remainingDrawnRoute = remainingMatch?.slice ?? lastRemainingSlice;
   const {
     minutes: etaMinutes,
     delayed,
