@@ -5,13 +5,14 @@
 // road-snapped remaining-route line on the map.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bus, MapPin, Navigation2, Star, Bell, BellRing } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
 import { osrmDurationSeconds, useLiveTrafficEta, type LatLng } from "@/lib/traffic-eta";
+import { fetchCongestionRoute, type CongestionSegment } from "@/lib/route-congestion";
 import {
   pushNotificationsSupported,
   notificationPermission,
@@ -344,6 +345,21 @@ function TrackBooking() {
   }, []);
 
   const destination = dropoff ? { lat: dropoff.lat, lng: dropoff.lng } : null;
+  // Once booked, the line on the map should go straight to the passenger
+  // themselves (same idea as Uber/Bolt showing the car heading to *you*), not
+  // to the trip's dropoff stage — that's a separate concept (how far along
+  // the whole trip is) still tracked below via `destination` for the
+  // progress bar/ETA, unaffected by this. Falls back to the dropoff stage
+  // only if the passenger hasn't granted location (selfLoc is null), so the
+  // map still shows a meaningful line rather than nothing.
+  const lineTarget = selfLoc ?? destination;
+  const [showTraffic, setShowTraffic] = useState(true);
+  const [congestionRoute, setCongestionRoute] = useState<CongestionSegment[] | null>(null);
+  const vehicleLocRef = useRef(vehicleLoc);
+  vehicleLocRef.current = vehicleLoc;
+  const lineTargetRef = useRef(lineTarget);
+  lineTargetRef.current = lineTarget;
+
   // How far along the driver-drawn trail we've already matched, floored so a
   // new match can never land earlier than this — see remainingTrace's minIdx
   // param. Persisted to sessionStorage per booking so a page reload resumes
@@ -386,6 +402,45 @@ function TrackBooking() {
     if (remainingMatch) setLastRemainingSlice(remainingMatch.slice);
   }, [remainingMatch]);
   const remainingDrawnRoute = remainingMatch?.slice ?? lastRemainingSlice;
+
+  // Same jam-colored road route the driver's own map fetches (see
+  // drive.trip.tsx) — only refetched when there's no driver-drawn trail to
+  // show instead, matching how the plain liveRoute line below is gated.
+  useEffect(() => {
+    if (remainingDrawnRoute) {
+      setCongestionRoute(null);
+      return;
+    }
+    let cancelled = false;
+    let consecutiveFailures = 0;
+    async function refresh() {
+      const pos = vehicleLocRef.current;
+      const target = lineTargetRef.current;
+      if (!pos || !target) return;
+      const segments = await fetchCongestionRoute(
+        { lat: pos.lat, lng: pos.lng },
+        { lat: target.lat, lng: target.lng },
+      );
+      if (cancelled) return;
+      if (!segments) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures === 2) {
+          toast.error("Traffic data isn't refreshing — jam colors on the map may be outdated.");
+        }
+        return;
+      }
+      consecutiveFailures = 0;
+      setCongestionRoute(segments);
+    }
+    refresh();
+    const iv = setInterval(refresh, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remainingDrawnRoute, !!vehicleLoc, !!lineTarget]);
+
   const {
     minutes: etaMinutes,
     delayed,
@@ -584,15 +639,31 @@ function TrackBooking() {
 
         {/* Map — always shown so the route (all stages on this trip) is visible even
             before the driver's live GPS arrives; the vehicle marker/live route line
-            just won't appear yet in that case. */}
+            just won't appear yet in that case. Traffic toggle mirrors the driver's
+            own trip map so both sides are looking at the same picture. */}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setShowTraffic((v) => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium ${
+              showTraffic
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            Traffic {showTraffic ? "on" : "off"}
+          </button>
+        </div>
         <RouteMap
           stages={mapStages}
           vehicles={mapVehicles}
           selfPosition={selfLoc}
           tracePath={remainingDrawnRoute}
+          showTraffic={showTraffic}
+          congestionRoute={remainingDrawnRoute ? null : congestionRoute}
           liveRoute={
-            !remainingDrawnRoute && vehicleLoc && destination
-              ? { origin: vehicleLoc, destination }
+            !remainingDrawnRoute && vehicleLoc && lineTarget
+              ? { origin: vehicleLoc, destination: lineTarget }
               : null
           }
           onLiveRouteStaleChange={(stale) => {
@@ -610,6 +681,13 @@ function TrackBooking() {
           <p className="-mt-2 text-center text-xs text-muted-foreground">
             Remaining route (dashed blue) traced live by the driver — more accurate than a fetched
             route for this leg.
+          </p>
+        )}
+        {vehicleLoc && !remainingDrawnRoute && (
+          <p className="-mt-2 text-center text-xs text-muted-foreground">
+            {selfLoc
+              ? "Blue line shows the live route between your matatu and you."
+              : "Blue line shows the route to your drop-off — enable location to see the route to you directly."}
           </p>
         )}
 
