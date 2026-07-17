@@ -29,6 +29,37 @@ type StageRow = {
   order_index: number;
   route_id: string;
 };
+type TripRow = {
+  id: string;
+  fare: number;
+  status: string;
+  vehicle_id: string;
+  route_id: string;
+  started_at: string | null;
+};
+type VehicleRow = {
+  id: string;
+  plate_number: string;
+  capacity: number;
+  vehicle_type: string | null;
+  nickname: string | null;
+};
+// A single bookable matatu, flattened out of a trip+vehicle+route join — this is
+// what's actually shown to the passenger now, not the route it happens to belong
+// to, since several routes commonly overlap the same stage(s) and listing routes
+// separately just repeats the same vehicles under different headings.
+type AvailableVehicle = {
+  tripId: string;
+  routeId: string;
+  routeName: string;
+  plate: string;
+  nickname: string | null;
+  vehicleType: string | null;
+  fare: number;
+  capacity: number;
+  seatsLeft: number | null;
+  startedAt: string | null;
+};
 
 export const Route = createFileRoute("/_authenticated/ride/")({
   component: PassengerHome,
@@ -55,6 +86,8 @@ function PassengerHome() {
   const [editingPickup, setEditingPickup] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [geoAttempted, setGeoAttempted] = useState(false);
+  const [availableVehicles, setAvailableVehicles] = useState<AvailableVehicle[]>([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
 
   async function handleMapClick(lat: number, lng: number) {
     if (!pickingOnMap) return;
@@ -232,6 +265,76 @@ function PassengerHome() {
       .filter((s) => routeIds.has(s.route_id))
       .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
   }, [filtered, stages]);
+
+  // Real matatus currently running on the matching route(s), flattened into one
+  // list — not routes. Several routes commonly pass through the same stage, so
+  // showing "routes" as the unit repeats the same handful of live vehicles under
+  // different headings. Showing actual vehicles (plate, fare, seats left) instead
+  // is what Bolt/Uber do: you see the cars actually available, not the road names
+  // that could get you there.
+  useEffect(() => {
+    const routeIds = filtered.map((r) => r.id);
+    if (routeIds.length === 0) {
+      setAvailableVehicles([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingVehicles(true);
+    (async () => {
+      const { data: tripRows, error: tripErr } = await supabase
+        .from("trips")
+        .select("id,fare,status,vehicle_id,route_id,started_at")
+        .in("route_id", routeIds)
+        .in("status", ["boarding", "in_transit"])
+        .order("started_at", { ascending: true });
+
+      if (cancelled) return;
+      if (tripErr || !tripRows?.length) {
+        setAvailableVehicles([]);
+        setLoadingVehicles(false);
+        return;
+      }
+      const trips = tripRows as TripRow[];
+
+      const vehicleIds = [...new Set(trips.map((t) => t.vehicle_id))];
+      const { data: vehicleRows } = await supabase
+        .from("vehicles")
+        .select("id,plate_number,capacity,vehicle_type,nickname")
+        .in("id", vehicleIds);
+      const vehicleMap = new Map((vehicleRows ?? []).map((v) => [v.id, v as VehicleRow]));
+      const routeNameMap = new Map(routes.map((r) => [r.id, r.name]));
+
+      const seatCounts = await Promise.all(
+        trips.map((t) => supabase.rpc("get_trip_booked_count", { _trip_id: t.id })),
+      );
+      if (cancelled) return;
+
+      const combined: AvailableVehicle[] = trips.map((t, i) => {
+        const vehicle = vehicleMap.get(t.vehicle_id);
+        const capacity = vehicle?.capacity ?? 14;
+        const booked = Number(seatCounts[i]?.data ?? 0);
+        return {
+          tripId: t.id,
+          routeId: t.route_id,
+          routeName: routeNameMap.get(t.route_id) ?? "Route",
+          plate: vehicle?.plate_number ?? "Matatu",
+          nickname: vehicle?.nickname ?? null,
+          vehicleType: vehicle?.vehicle_type ?? null,
+          fare: t.fare,
+          capacity,
+          seatsLeft: Math.max(capacity - booked, 0),
+          startedAt: t.started_at,
+        };
+      });
+
+      setAvailableVehicles(combined);
+      setLoadingVehicles(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filtered, routes]);
 
   async function useMyLocation() {
     if (!("geolocation" in navigator)) return toast.error("Location not available");
@@ -482,17 +585,19 @@ function PassengerHome() {
           </div>
         )}
 
-        {/* Results */}
+        {/* Results — actual vehicles, not routes. Several routes commonly overlap
+            the same stage, so showing routes just repeats the same matatus under
+            different headings; showing the vehicles themselves is unambiguous. */}
         <section className="mt-4 rounded-2xl border border-border bg-surface p-4 shadow-soft">
           <div className="flex items-center justify-between">
             <h2 className="font-display text-base font-semibold">
               {from || to
-                ? `Matching routes (${filtered.length})`
-                : `All routes (${routes.length})`}
+                ? `Available matatus (${availableVehicles.length})`
+                : `Live now (${availableVehicles.length})`}
             </h2>
           </div>
-          {loading ? (
-            <p className="mt-3 text-sm text-muted-foreground">Loading routes…</p>
+          {loading || loadingVehicles ? (
+            <p className="mt-3 text-sm text-muted-foreground">Finding matatus…</p>
           ) : filtered.length === 0 ? (
             <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
               <p>No routes match. Try a nearby stage or clear the search.</p>
@@ -523,83 +628,85 @@ function PassengerHome() {
                 </div>
               )}
             </div>
+          ) : availableVehicles.length === 0 ? (
+            <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              <p>
+                This route is covered, but nothing's currently boarding or en route. Check back
+                shortly.
+              </p>
+            </div>
           ) : (
             <ul className="mt-3 grid max-h-[440px] gap-2 overflow-y-auto pr-1">
-              {filtered.map((r) => {
-                const routeStages = stages
-                  .filter((s) => s.route_id === r.id)
-                  .sort((a, b) => a.order_index - b.order_index);
-                const fLow = from.trim().toLowerCase();
-                const tLow = to.trim().toLowerCase();
-                const findIdx = (q: string) =>
-                  routeStages.findIndex((s) => s.name.toLowerCase().includes(q));
-                let fromIdx = fLow ? findIdx(fLow) : -1;
-                let toIdx = tLow ? findIdx(tLow) : -1;
-                if (fromIdx > -1 && toIdx > -1 && fromIdx > toIdx)
-                  [fromIdx, toIdx] = [toIdx, fromIdx];
-                const between =
-                  fromIdx > -1 && toIdx > -1 ? routeStages.slice(fromIdx, toIdx + 1) : routeStages;
-                const showBetween = (fLow || tLow) && between.length > 0;
-                return (
-                  <li key={r.id} className="relative">
+              {[...availableVehicles]
+                .sort(
+                  (a, b) =>
+                    (favoriteIds.has(b.routeId) ? 1 : 0) - (favoriteIds.has(a.routeId) ? 1 : 0),
+                )
+                .map((v) => (
+                  <li key={v.tripId} className="relative">
                     <button
                       onClick={() =>
                         navigate({
                           to: "/ride/$routeId",
-                          params: { routeId: r.id },
-                          search: { from: from.trim() || undefined, to: to.trim() || undefined },
+                          params: { routeId: v.routeId },
+                          search: {
+                            from: from.trim() || undefined,
+                            to: to.trim() || undefined,
+                            trip: v.tripId,
+                          },
                         })
                       }
                       className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-display text-sm font-semibold">{r.name}</div>
+                        <div className="truncate font-display text-sm font-semibold">
+                          {v.plate}{" "}
+                          {v.nickname && (
+                            <span className="font-normal text-muted-foreground">
+                              · {v.nickname}
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                           <MapPin className="size-3 shrink-0" />
                           <span className="truncate">
-                            {r.origin} → {r.destination}
+                            {v.routeName}
+                            {v.vehicleType ? ` · ${v.vehicleType}` : ""}
                           </span>
                         </div>
-                        {showBetween && (
-                          <ol className="mt-2 grid gap-0.5 border-l-2 border-primary/40 pl-2 text-[11px] text-muted-foreground">
-                            {between.map((s, i) => (
-                              <li key={s.id} className="flex items-center gap-1">
-                                <span
-                                  className={`size-1.5 rounded-full ${i === 0 ? "bg-accent" : i === between.length - 1 ? "bg-primary" : "bg-muted-foreground/50"}`}
-                                />
-                                <span className="truncate">{s.name}</span>
-                              </li>
-                            ))}
-                          </ol>
-                        )}
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {v.seatsLeft === null
+                            ? "Checking seats…"
+                            : v.seatsLeft === 0
+                              ? "Full"
+                              : `${v.seatsLeft} seat${v.seatsLeft === 1 ? "" : "s"} left`}
+                        </div>
                       </div>
                       <div className="shrink-0 rounded-md bg-accent/30 px-2 py-1 text-xs font-semibold text-accent-foreground">
-                        KSh {r.base_fare ?? "—"}
+                        KSh {v.fare}
                       </div>
                     </button>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleFavorite(r.id);
+                        toggleFavorite(v.routeId);
                       }}
                       aria-label={
-                        favoriteIds.has(r.id) ? "Remove from favorites" : "Save as favorite"
+                        favoriteIds.has(v.routeId)
+                          ? "Remove route from favorites"
+                          : "Save route as favorite"
                       }
                       className="absolute right-2 top-2 rounded-full p-1 hover:bg-secondary"
                     >
                       <Star
-                        className={`size-4 ${favoriteIds.has(r.id) ? "fill-accent text-accent" : "text-muted-foreground"}`}
+                        className={`size-4 ${favoriteIds.has(v.routeId) ? "fill-accent text-accent" : "text-muted-foreground"}`}
                       />
                     </button>
                   </li>
-                );
-              })}
+                ))}
             </ul>
           )}
-          <Link to="/ride" className="mt-3 inline-flex items-center gap-1 text-xs text-primary">
-            <Navigation className="size-3" /> Browse all routes
-          </Link>
         </section>
       </div>
     </AppShell>

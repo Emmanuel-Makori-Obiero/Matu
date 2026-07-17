@@ -31,6 +31,7 @@ export const Route = createFileRoute("/_authenticated/ride/$routeId")({
   validateSearch: (search: Record<string, unknown>) => ({
     from: typeof search.from === "string" ? search.from : undefined,
     to: typeof search.to === "string" ? search.to : undefined,
+    trip: typeof search.trip === "string" ? search.trip : undefined,
   }),
   component: RouteDetail,
 });
@@ -38,7 +39,7 @@ export const Route = createFileRoute("/_authenticated/ride/$routeId")({
 function RouteDetail() {
   const navigate = useNavigate();
   const { routeId } = Route.useParams();
-  const { from: fromParam, to: toParam } = Route.useSearch();
+  const { from: fromParam, to: toParam, trip: tripParam } = Route.useSearch();
   const [routeInfo, setRouteInfo] = useState<{
     name: string;
     origin: string;
@@ -352,6 +353,16 @@ function RouteDetail() {
   function openBookingPanel(tripId: string) {
     setSelectedTrip(tripId);
   }
+
+  // A specific vehicle picked on the "Find a ride" page arrives here via
+  // ?trip=<id> — open its booking panel directly instead of making the
+  // passenger find and tap it again from this route's own trip list.
+  useEffect(() => {
+    if (tripParam && trips.some((t) => t.id === tripParam)) {
+      setSelectedTrip(tripParam);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripParam, trips]);
 
   // Watches the passenger's own booking row for manual_payment_confirmed
   // flipping true (set only by the driver's confirm_manual_payment RPC), so
