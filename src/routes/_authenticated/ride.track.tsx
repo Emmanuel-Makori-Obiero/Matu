@@ -4,7 +4,7 @@
 // active vehicle on it moving live on the map, and "ping" a stage to tell the driver
 // they're waiting there — reuses the same stage_pings mechanism the booking page uses.
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Bell, MapPin, Radio } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -46,6 +46,16 @@ function TrackPage() {
   // This has a hard timeout and always falls back to the picker on any error — a
   // flaky connection failing (or just hanging) this check must never leave the
   // passenger stuck on "Checking for your booking…" forever.
+  // navigate's identity isn't guaranteed stable across renders. Reading it
+  // through a ref (rather than depending on it directly) means this effect
+  // runs exactly once on mount instead of tearing down and restarting every
+  // time `navigate` changes — which was silently clearing and re-arming the
+  // 6s fallback timer on every re-render, so it never survived long enough
+  // to fire and the passenger got stuck on "Checking for your booking…"
+  // forever despite the timeout existing in the code.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
   useEffect(() => {
     let settled = false;
     const fallback = setTimeout(() => {
@@ -71,7 +81,7 @@ function TrackPage() {
         if (data) {
           settled = true;
           clearTimeout(fallback);
-          navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
+          navigateRef.current({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
           return;
         }
       } catch {
@@ -90,7 +100,8 @@ function TrackPage() {
       settled = true;
       clearTimeout(fallback);
     };
-  }, [navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Same as the per-booking tracking screen — starts automatically, no button,
   // so the red "you" dot just appears if location is available/granted.
