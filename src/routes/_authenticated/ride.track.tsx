@@ -10,10 +10,11 @@ import { Bell, MapPin, Radio } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
+import { osrmDurationSeconds, mapboxTrafficDurationSeconds } from "@/lib/traffic-eta";
 
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
-type Trip = { id: string; vehicle_id: string; status: string };
+type Trip = { id: string; vehicle_id: string; status: string; current_stage_id: string | null };
 type Vehicle = { id: string; plate_number: string; nickname: string | null };
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
@@ -33,6 +34,7 @@ function TrackPage() {
   const [myPingStageId, setMyPingStageId] = useState<string | null>(null);
   const [pinging, setPinging] = useState<string | null>(null);
   const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [showTraffic, setShowTraffic] = useState(true);
   // While this checks, hold off rendering the generic multi-route picker at all —
   // otherwise a passenger who did book sees the wrong screen flash for a moment.
   const [checkingMyBooking, setCheckingMyBooking] = useState(true);
@@ -150,7 +152,7 @@ function TrackPage() {
     if (!routeId) return;
     const { data } = await supabase
       .from("trips")
-      .select("id,vehicle_id,status")
+      .select("id,vehicle_id,status,current_stage_id")
       .eq("route_id", routeId)
       .in("status", ["boarding", "in_transit"]);
     const t = (data ?? []) as Trip[];
@@ -222,6 +224,56 @@ function TrackPage() {
     };
   }, [trips]);
 
+  // Per-vehicle jam check: for each active trip, is the leg immediately ahead
+  // of it (from its live position to the next stage past current_stage_id)
+  // running noticeably slower than free-flow right now? Same "more than 2
+  // minutes slower than free-flow" threshold the driver's own jam alert uses,
+  // computed directly (not via useLiveTrafficEta, since that hook targets one
+  // fixed destination — here there's a different "next stage" per trip and
+  // the list of trips itself changes size, so a dynamic per-trip loop is used
+  // instead of calling the hook N times).
+  const [jammedTripIds, setJammedTripIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (trips.length === 0 || stages.length === 0) {
+      setJammedTripIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    const sortedStages = [...stages].sort((a, b) => a.order_index - b.order_index);
+    const check = async () => {
+      const results = await Promise.all(
+        trips.map(async (t) => {
+          const loc = tripLocs[t.id];
+          if (!loc) return null;
+          const current = sortedStages.find((s) => s.id === t.current_stage_id);
+          const nextStage = current
+            ? sortedStages.find((s) => s.order_index > current.order_index)
+            : sortedStages[0];
+          if (!nextStage) return null;
+          const dest = { lat: nextStage.lat, lng: nextStage.lng };
+          const [trafficSeconds, freeFlowSeconds] = await Promise.all([
+            mapboxTrafficDurationSeconds(loc, dest),
+            osrmDurationSeconds("driving", loc, dest),
+          ]);
+          const jammed =
+            trafficSeconds != null &&
+            freeFlowSeconds != null &&
+            trafficSeconds - freeFlowSeconds > 120;
+          return jammed ? t.id : null;
+        }),
+      );
+      if (cancelled) return;
+      setJammedTripIds(new Set(results.filter((id): id is string => id != null)));
+    };
+    check();
+    const iv = setInterval(check, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trips, stages, tripLocs]);
+
   // Demand signal: same stage_pings mechanism as the booking page — lets the driver
   // see people waiting even though nobody here has booked a seat.
   async function loadPingCounts() {
@@ -275,12 +327,13 @@ function TrackPage() {
       const loc = tripLocs[t.id];
       if (!loc) return null;
       const v = vehicles[t.vehicle_id];
+      const baseLabel = v ? `${v.plate_number}${v.nickname ? ` · ${v.nickname}` : ""}` : "Matatu";
       return {
         id: t.id,
         lat: loc.lat,
         lng: loc.lng,
         heading: loc.heading,
-        label: v ? `${v.plate_number}${v.nickname ? ` · ${v.nickname}` : ""}` : "Matatu",
+        label: jammedTripIds.has(t.id) ? `${baseLabel} · ⚠ Jam ahead` : baseLabel,
       } as MapVehicle;
     })
     .filter((v): v is MapVehicle => v != null);
@@ -320,25 +373,48 @@ function TrackPage() {
       assistantContext={{ page: "passenger_tracking" }}
     >
       <div className="grid gap-4">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Route</label>
-          <select
-            value={routeId}
-            onChange={(e) => setRouteId(e.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm sm:w-96"
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Route</label>
+            <select
+              value={routeId}
+              onChange={(e) => setRouteId(e.target.value)}
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm sm:w-96"
+            >
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} ({r.origin} → {r.destination})
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTraffic((v) => !v)}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+              showTraffic
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-secondary"
+            }`}
           >
-            {routes.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.origin} → {r.destination})
-              </option>
-            ))}
-          </select>
+            Traffic {showTraffic ? "on" : "off"}
+          </button>
         </div>
+
+        {jammedTripIds.size > 0 && (
+          <div className="inline-flex w-fit items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive">
+            <span className="size-2 rounded-full bg-destructive" />
+            Heavy traffic ahead of{" "}
+            {jammedTripIds.size === 1 ? "one matatu" : `${jammedTripIds.size} matatus`} on this
+            route
+          </div>
+        )}
 
         <RouteMap
           stages={mapStages}
           vehicles={mapVehicles}
           selfPosition={selfLoc}
+          showTraffic={showTraffic}
           className="h-[420px] w-full rounded-2xl border border-border"
         />
 
