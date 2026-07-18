@@ -63,7 +63,7 @@ function TrackPage() {
         settled = true;
         setCheckingMyBooking(false);
       }
-    }, 6000);
+    }, 12000);
 
     (async () => {
       try {
@@ -77,13 +77,17 @@ function TrackPage() {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        if (settled) return; // the 6s fallback already took over
+        // Even if the 6s fallback already fired and flipped the screen to the
+        // generic picker, a booking that turns up a moment later should still
+        // send the passenger to their trip — a slow network is not a reason
+        // to throw away a correct result once it arrives.
         if (data) {
           settled = true;
           clearTimeout(fallback);
           navigateRef.current({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
           return;
         }
+        if (settled) return; // fallback already showed the picker, and there's no booking anyway
       } catch {
         // Network error, offline, whatever — fall through to the picker below
         // rather than leaving the passenger stuck on the loading screen.
