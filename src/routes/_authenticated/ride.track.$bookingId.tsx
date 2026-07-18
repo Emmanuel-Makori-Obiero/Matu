@@ -1,226 +1,177 @@
-// FILE: src/routes/_authenticated/ride.track.tsx
-// Standalone tracking page — deliberately separate from the booking flow (ride/$routeId).
-// A passenger who hasn't booked (or doesn't want to) can still: pick a route, see every
-// active vehicle on it moving live on the map, and "ping" a stage to tell the driver
-// they're waiting there — reuses the same stage_pings mechanism the booking page uses.
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+// FILE: src/routes/_authenticated/ride.track.$bookingId.tsx
+// Per-booking tracking screen — shown after ride.track.tsx finds an active
+// booking and redirects here. Unlike the generic ride/track picker, this page
+// is about ONE specific trip: it shows only that vehicle on the map, the
+// live "remaining route" line from the vehicle to the passenger's pickup or
+// dropoff stage (whichever hasn't happened yet), and the booking's own status.
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
-import { Bell, MapPin, Radio } from "lucide-react";
+import { ArrowLeft, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 
+type Booking = {
+  id: string;
+  trip_id: string;
+  status: string;
+  pickup_stage_id: string | null;
+  dropoff_stage_id: string | null;
+};
+type Trip = { id: string; route_id: string; vehicle_id: string; status: string };
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
-type Trip = { id: string; vehicle_id: string; status: string };
 type Vehicle = { id: string; plate_number: string; nickname: string | null };
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
-export const Route = createFileRoute("/_authenticated/ride/track")({
-  component: TrackPage,
+const STATUS_LABEL: Record<string, string> = {
+  reserved: "Reserved — pay to confirm your seat",
+  confirmed: "Confirmed — matatu is on the way",
+  boarded: "You're on board",
+  alighted: "Trip complete",
+  cancelled: "Booking cancelled",
+};
+
+export const Route = createFileRoute("/_authenticated/ride/track/$bookingId")({
+  component: BookingTrackPage,
 });
 
-function TrackPage() {
-  const navigate = useNavigate();
-  const [routes, setRoutes] = useState<RouteRow[]>([]);
-  const [routeId, setRouteId] = useState<string>("");
+function BookingTrackPage() {
+  const { bookingId } = Route.useParams();
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [trip, setTrip] = useState<Trip | null>(null);
+  const [routeInfo, setRouteInfo] = useState<RouteRow | null>(null);
   const [stages, setStages] = useState<Stage[]>([]);
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
-  const [tripLocs, setTripLocs] = useState<Record<string, TripLoc>>({});
-  const [pingCounts, setPingCounts] = useState<Record<string, number>>({});
-  const [myPingStageId, setMyPingStageId] = useState<string | null>(null);
-  const [pinging, setPinging] = useState<string | null>(null);
+  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  const [tripLoc, setTripLoc] = useState<TripLoc | null>(null);
   const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
-  // While this checks, hold off rendering the generic multi-route picker at all —
-  // otherwise a passenger who did book sees the wrong screen flash for a moment.
-  const [checkingMyBooking, setCheckingMyBooking] = useState(true);
 
-  // If the passenger has an active booking (reserved, confirmed, or already boarded)
-  // on ANY route, "Track" should mean *their* trip, not a generic picker across every
-  // route in the system. Redirect straight to the dedicated per-booking screen, which
-  // shows only their route with the live remaining-route line. Only passengers with
-  // no active booking ever see the route-picker UI below.
+  // Load the booking → trip → route → stages → vehicle chain once. RLS on
+  // "bookings" already scopes this to rows the signed-in passenger (or the
+  // trip's driver, or a platform admin) is allowed to see, so a stranger's
+  // bookingId in the URL just comes back empty rather than leaking data.
   useEffect(() => {
-    (async () => {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) {
-        setCheckingMyBooking(false);
-        return;
-      }
-      const { data } = await supabase
-        .from("bookings")
-        .select("id,created_at")
-        .eq("passenger_id", u.user.id)
-        .in("status", ["reserved", "confirmed", "boarded"])
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (data) {
-        navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
-        return;
-      }
-      setCheckingMyBooking(false);
-    })();
-  }, [navigate]);
-
-  // Same as the per-booking tracking screen — starts automatically, no button,
-  // so the red "you" dot just appears if location is available/granted.
-  useEffect(() => {
-    if (!("geolocation" in navigator)) return;
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => setSelfLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => console.warn("[ride.track] geolocation unavailable:", err.message),
-      { enableHighAccuracy: true, maximumAge: 10_000 },
-    );
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
-
-  // Load every route once, for the picker.
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("routes")
-        .select("id,name,origin,destination")
-        .order("name");
-      const r = (data ?? []) as RouteRow[];
-      setRoutes(r);
-      if (r.length > 0) setRouteId(r[0].id);
-    })();
-  }, []);
-
-  // Stages for the selected route.
-  useEffect(() => {
-    if (!routeId) return;
-    (async () => {
-      const { data } = await supabase
-        .from("stages")
-        .select("id,name,lat,lng,order_index")
-        .eq("route_id", routeId)
-        .order("order_index");
-      setStages((data ?? []) as Stage[]);
-    })();
-  }, [routeId]);
-
-  // Active trips (+ vehicles) on the selected route, kept live via realtime.
-  async function loadTrips() {
-    if (!routeId) return;
-    const { data } = await supabase
-      .from("trips")
-      .select("id,vehicle_id,status")
-      .eq("route_id", routeId)
-      .in("status", ["boarding", "in_transit"]);
-    const t = (data ?? []) as Trip[];
-    setTrips(t);
-    const ids = [...new Set(t.map((x) => x.vehicle_id))];
-    if (ids.length) {
-      const { data: v } = await supabase
-        .from("vehicles")
-        .select("id,plate_number,nickname")
-        .in("id", ids);
-      const map: Record<string, Vehicle> = {};
-      (v ?? []).forEach((x: Vehicle) => (map[x.id] = x));
-      setVehicles(map);
-    } else {
-      setVehicles({});
-    }
-  }
-
-  useEffect(() => {
-    if (!routeId) return;
-    loadTrips();
-    const ch = supabase
-      .channel(`track-trips-${routeId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "trips", filter: `route_id=eq.${routeId}` },
-        () => loadTrips(),
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(ch);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeId]);
-
-  // Poll live positions for every active trip on this route.
-  useEffect(() => {
-    if (trips.length === 0) {
-      setTripLocs({});
-      return;
-    }
     let cancelled = false;
-    const fetchAll = async () => {
-      const entries = await Promise.all(
-        trips.map(async (t) => {
-          const { data } = await supabase.rpc("get_trip_location", { _trip_id: t.id });
-          const row = Array.isArray(data) ? data[0] : null;
-          if (row?.current_lat != null && row?.current_lng != null) {
-            return [
-              t.id,
-              { lat: row.current_lat, lng: row.current_lng, heading: row.current_heading ?? null },
-            ] as const;
-          }
-          return null;
-        }),
-      );
+    (async () => {
+      setLoading(true);
+      setNotFound(false);
+      const { data: b } = await supabase
+        .from("bookings")
+        .select("id,trip_id,status,pickup_stage_id,dropoff_stage_id")
+        .eq("id", bookingId)
+        .maybeSingle();
       if (cancelled) return;
-      const next: Record<string, TripLoc> = {};
-      entries.forEach((e) => {
-        if (e) next[e[0]] = e[1];
-      });
-      setTripLocs(next);
+      if (!b) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
+      setBooking(b as Booking);
+
+      const { data: t } = await supabase
+        .from("trips")
+        .select("id,route_id,vehicle_id,status")
+        .eq("id", b.trip_id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!t) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
+      setTrip(t as Trip);
+
+      const [{ data: r }, { data: s }, { data: v }] = await Promise.all([
+        supabase
+          .from("routes")
+          .select("id,name,origin,destination")
+          .eq("id", t.route_id)
+          .maybeSingle(),
+        supabase
+          .from("stages")
+          .select("id,name,lat,lng,order_index")
+          .eq("route_id", t.route_id)
+          .order("order_index"),
+        supabase
+          .from("vehicles")
+          .select("id,plate_number,nickname")
+          .eq("id", t.vehicle_id)
+          .maybeSingle(),
+      ]);
+      if (cancelled) return;
+      setRouteInfo((r ?? null) as RouteRow | null);
+      setStages((s ?? []) as Stage[]);
+      setVehicle((v ?? null) as Vehicle | null);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
     };
-    fetchAll();
-    const iv = setInterval(fetchAll, 5000);
+  }, [bookingId]);
+
+  // Live vehicle position, refreshed on an interval — same cadence as the
+  // generic track page and the booking flow's live map.
+  useEffect(() => {
+    if (!trip) return;
+    let cancelled = false;
+    const fetchLoc = async () => {
+      const { data } = await supabase.rpc("get_trip_location", { _trip_id: trip.id });
+      if (cancelled) return;
+      const row = Array.isArray(data) ? data[0] : null;
+      if (row?.current_lat != null && row?.current_lng != null) {
+        setTripLoc({
+          lat: row.current_lat,
+          lng: row.current_lng,
+          heading: row.current_heading ?? null,
+        });
+      }
+    };
+    fetchLoc();
+    const iv = setInterval(fetchLoc, 5000);
     return () => {
       cancelled = true;
       clearInterval(iv);
     };
-  }, [trips]);
+  }, [trip]);
 
-  // Demand signal: same stage_pings mechanism as the booking page — lets the driver
-  // see people waiting even though nobody here has booked a seat.
-  async function loadPingCounts() {
-    if (!routeId) return;
-    const { data } = await supabase.rpc("get_stage_ping_counts", { _route_id: routeId });
-    const counts: Record<string, number> = {};
-    (data ?? []).forEach((r: { stage_id: string; waiting_count: number }) => {
-      counts[r.stage_id] = Number(r.waiting_count);
-    });
-    setPingCounts(counts);
-  }
-
+  // Keep the trip and booking rows fresh via realtime — e.g. the status
+  // banner should flip to "You're on board" the moment the driver marks it,
+  // without the passenger needing to reload.
   useEffect(() => {
-    if (!routeId) return;
-    setMyPingStageId(null);
-    loadPingCounts();
+    if (!trip) return;
     const ch = supabase
-      .channel(`track-stage-pings-${routeId}`)
+      .channel(`track-booking-${bookingId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "stage_pings", filter: `route_id=eq.${routeId}` },
-        () => loadPingCounts(),
+        { event: "UPDATE", schema: "public", table: "trips", filter: `id=eq.${trip.id}` },
+        (payload) =>
+          setTrip((prev) => (prev ? { ...prev, ...(payload.new as Partial<Trip>) } : prev)),
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "bookings", filter: `id=eq.${bookingId}` },
+        (payload) =>
+          setBooking((prev) => (prev ? { ...prev, ...(payload.new as Partial<Booking>) } : prev)),
       )
       .subscribe();
-    const iv = setInterval(loadPingCounts, 20_000);
     return () => {
       supabase.removeChannel(ch);
-      clearInterval(iv);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeId]);
+  }, [trip?.id, bookingId]);
 
-  async function notifyDriver(stageId: string) {
-    setPinging(stageId);
-    const { error } = await supabase.rpc("ping_stage", { _stage_id: stageId });
-    setPinging(null);
-    if (error) return toast.error(error.message);
-    setMyPingStageId(stageId);
-    toast.success("Driver notified. You're marked as waiting here.");
-    loadPingCounts();
-  }
+  // The passenger's own live position, same red dot as the generic track page.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setSelfLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => console.warn("[ride.track.$bookingId] geolocation unavailable:", err.message),
+      { enableHighAccuracy: true, maximumAge: 10_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   const mapStages: MapStage[] = stages.map((s) => ({
     id: s.id,
@@ -228,119 +179,112 @@ function TrackPage() {
     lat: s.lat,
     lng: s.lng,
   }));
-  const mapVehicles: MapVehicle[] = trips
-    .map((t) => {
-      const loc = tripLocs[t.id];
-      if (!loc) return null;
-      const v = vehicles[t.vehicle_id];
-      return {
-        id: t.id,
-        lat: loc.lat,
-        lng: loc.lng,
-        heading: loc.heading,
-        label: v ? `${v.plate_number}${v.nickname ? ` · ${v.nickname}` : ""}` : "Matatu",
-      } as MapVehicle;
-    })
-    .filter((v): v is MapVehicle => v != null);
+  const mapVehicles: MapVehicle[] = tripLoc
+    ? [
+        {
+          id: trip?.id ?? "trip",
+          lat: tripLoc.lat,
+          lng: tripLoc.lng,
+          heading: tripLoc.heading,
+          label: vehicle
+            ? `${vehicle.plate_number}${vehicle.nickname ? ` · ${vehicle.nickname}` : ""}`
+            : "Matatu",
+        },
+      ]
+    : [];
 
-  if (checkingMyBooking) {
+  // Before boarding: show the remaining route to the pickup stage. Once
+  // boarded: switch it to the dropoff stage instead. After that, no more
+  // live route line — the trip's over.
+  const targetStageId =
+    booking?.status === "boarded" ? booking.dropoff_stage_id : booking?.pickup_stage_id;
+  const targetStage = stages.find((s) => s.id === targetStageId) ?? null;
+  const liveRoute =
+    tripLoc && targetStage && booking?.status !== "alighted" && booking?.status !== "cancelled"
+      ? {
+          origin: { lat: tripLoc.lat, lng: tripLoc.lng },
+          destination: { lat: targetStage.lat, lng: targetStage.lng },
+        }
+      : null;
+
+  const tabs = [
+    { to: "/ride", label: "Find a ride" },
+    { to: "/ride/track", label: "Track" },
+    { to: "/ride/history", label: "My bookings" },
+  ];
+
+  if (loading) {
     return (
       <AppShell
         title="Track"
-        subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
-        tabs={[
-          { to: "/ride", label: "Find a ride" },
-          { to: "/ride/track", label: "Track" },
-          { to: "/ride/history", label: "My bookings" },
-        ]}
+        subtitle="Loading your trip…"
+        tabs={tabs}
         assistantContext={{ page: "passenger_tracking" }}
       >
-        <p className="text-sm text-muted-foreground">Checking for your booking…</p>
+        <p className="text-sm text-muted-foreground">Loading your trip…</p>
+      </AppShell>
+    );
+  }
+
+  if (notFound || !booking || !trip) {
+    return (
+      <AppShell
+        title="Track"
+        subtitle="We couldn't find that booking."
+        tabs={tabs}
+        assistantContext={{ page: "passenger_tracking" }}
+      >
+        <p className="text-sm text-muted-foreground">
+          We couldn't find that booking, or it's no longer yours to view.
+        </p>
+        <Link
+          to="/ride/track"
+          className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary underline"
+        >
+          <ArrowLeft className="size-3" /> Back to Track
+        </Link>
       </AppShell>
     );
   }
 
   return (
     <AppShell
-      title="Track"
-      subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
-      tabs={[
-        { to: "/ride", label: "Find a ride" },
-        { to: "/ride/track", label: "Track" },
-        { to: "/ride/history", label: "My bookings" },
-      ]}
-      assistantContext={{ page: "passenger_tracking" }}
+      title={routeInfo ? routeInfo.name : "Track"}
+      subtitle={routeInfo ? `${routeInfo.origin} → ${routeInfo.destination}` : "Your trip"}
+      tabs={tabs}
+      assistantContext={{ page: "passenger_tracking", details: `Tracking booking ${bookingId}` }}
     >
       <div className="grid gap-4">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Route</label>
-          <select
-            value={routeId}
-            onChange={(e) => setRouteId(e.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm sm:w-96"
-          >
-            {routes.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.origin} → {r.destination})
-              </option>
-            ))}
-          </select>
+        <div className="rounded-xl border border-border bg-surface p-3">
+          <p className="text-sm font-medium">{STATUS_LABEL[booking.status] ?? booking.status}</p>
+          {targetStage && booking.status !== "alighted" && booking.status !== "cancelled" && (
+            <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+              <MapPin className="size-3" />
+              {booking.status === "boarded" ? "Heading to" : "Picking you up at"} {targetStage.name}
+            </p>
+          )}
         </div>
 
         <RouteMap
           stages={mapStages}
           vehicles={mapVehicles}
           selfPosition={selfLoc}
+          liveRoute={liveRoute}
           className="h-[420px] w-full rounded-2xl border border-border"
         />
 
         {mapVehicles.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            No matatus are currently active on this route.
+            Waiting for the matatu's live location to come through.
           </p>
         )}
 
-        <div>
-          <h2 className="font-display text-sm font-semibold">Notify the driver you're waiting</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Tap your stage so drivers on this route can see demand building, even without a booking.
-          </p>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {stages.map((s) => {
-              const waiting = pingCounts[s.id] ?? 0;
-              const isMine = myPingStageId === s.id;
-              return (
-                <li
-                  key={s.id}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-border bg-surface p-3"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1 text-sm font-medium">
-                      <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{s.name}</span>
-                    </div>
-                    {waiting > 0 && (
-                      <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Radio className="size-3" /> {waiting} waiting here
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => notifyDriver(s.id)}
-                    disabled={pinging === s.id}
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium disabled:opacity-60 ${
-                      isMine
-                        ? "bg-primary/15 text-primary"
-                        : "border border-border hover:bg-secondary"
-                    }`}
-                  >
-                    <Bell className="size-3" /> {isMine ? "Notified" : "I'm here"}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <Link
+          to="/ride/track"
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary underline"
+        >
+          <ArrowLeft className="size-3" /> Not your trip? See all routes
+        </Link>
       </div>
     </AppShell>
   );
