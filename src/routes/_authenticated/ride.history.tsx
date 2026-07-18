@@ -172,7 +172,10 @@ function BookingHistory() {
     const trackableTripIds = Object.values(trips)
       .filter((t) => t.status === "in_transit" || t.status === "boarding")
       .map((t) => t.id);
-    if (!trackableTripIds.length) return;
+    if (!trackableTripIds.length) {
+      setTripLocs({});
+      return;
+    }
 
     let cancelled = false;
     const fetchLocs = async () => {

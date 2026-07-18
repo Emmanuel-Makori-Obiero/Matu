@@ -176,6 +176,54 @@ export type Database = {
           },
         ];
       };
+      reviews: {
+        Row: {
+          booking_id: string;
+          comment: string | null;
+          created_at: string;
+          driver_id: string;
+          id: string;
+          passenger_id: string;
+          rating: number;
+          trip_id: string;
+        };
+        Insert: {
+          booking_id: string;
+          comment?: string | null;
+          created_at?: string;
+          driver_id: string;
+          id?: string;
+          passenger_id: string;
+          rating: number;
+          trip_id: string;
+        };
+        Update: {
+          booking_id?: string;
+          comment?: string | null;
+          created_at?: string;
+          driver_id?: string;
+          id?: string;
+          passenger_id?: string;
+          rating?: number;
+          trip_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "reviews_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: true;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reviews_trip_id_fkey";
+            columns: ["trip_id"];
+            isOneToOne: false;
+            referencedRelation: "trips";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       driver_join_requests: {
         Row: {
           brings_own_vehicle: boolean;
