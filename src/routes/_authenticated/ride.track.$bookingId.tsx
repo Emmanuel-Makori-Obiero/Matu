@@ -305,6 +305,7 @@ function BookingTrackPage() {
         </p>
         <Link
           to="/ride/track"
+          search={{ skip: true }}
           className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary underline"
         >
           <ArrowLeft className="size-3" /> Back to Track
@@ -376,6 +377,7 @@ function BookingTrackPage() {
 
         <Link
           to="/ride/track"
+          search={{ skip: true }}
           className="inline-flex items-center gap-1 text-xs font-medium text-primary underline"
         >
           <ArrowLeft className="size-3" /> Not your trip? See all routes

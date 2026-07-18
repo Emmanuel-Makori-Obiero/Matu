@@ -3,7 +3,7 @@
 // A passenger who hasn't booked (or doesn't want to) can still: pick a route, see every
 // active vehicle on it moving live on the map, and "ping" a stage to tell the driver
 // they're waiting there — reuses the same stage_pings mechanism the booking page uses.
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Bell, MapPin, Radio } from "lucide-react";
@@ -25,10 +25,25 @@ type Vehicle = {
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
 export const Route = createFileRoute("/_authenticated/ride/track")({
+  // ?skip=1 arrives from the per-booking screen's "see all routes" link —
+  // it means the passenger has already chosen to browse manually, so the
+  // active-booking check below shouldn't just bounce them straight back.
+  // Kept optional (omitted entirely when false) rather than always-present,
+  // so links elsewhere into this route subtree — e.g. /ride/track/$bookingId
+  // — aren't forced to also pass a `skip` value they don't care about.
+  validateSearch: (search: Record<string, unknown>): { skip?: boolean } => {
+    const skip = search.skip === "1" || search.skip === true;
+    return skip ? { skip: true } : {};
+  },
   component: TrackPage,
 });
 
 function TrackPage() {
+  const navigate = useNavigate();
+  const { skip } = Route.useSearch();
+  // Starts true so the route picker doesn't flash on screen for the split
+  // second before we know whether there's an active booking to jump into.
+  const [checkingBooking, setCheckingBooking] = useState(!skip);
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [routeId, setRouteId] = useState<string>("");
   const [stages, setStages] = useState<Stage[]>([]);
@@ -52,6 +67,43 @@ function TrackPage() {
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
+
+  // If the passenger already has a matatu confirmed or boarded, don't make
+  // them pick a route at all — go straight to that trip's own tracking
+  // screen (same map, just pre-scoped to their booking). Skipped entirely if
+  // they arrived via "see all routes" (skip=1) from that very screen, so
+  // there's no bounce-back loop.
+  useEffect(() => {
+    if (skip) {
+      setCheckingBooking(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) {
+        if (!cancelled) setCheckingBooking(false);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("id")
+        .eq("passenger_id", u.user.id)
+        .in("status", ["confirmed", "boarded"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!error && data) {
+        navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id }, replace: true });
+        return;
+      }
+      setCheckingBooking(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [skip, navigate]);
 
   // Load every route once, for the picker.
   useEffect(() => {
@@ -271,18 +323,45 @@ function TrackPage() {
     })
     .filter((v): v is MapVehicle => v != null);
 
+  const tabs = [
+    { to: "/ride", label: "Find a ride" },
+    { to: "/ride/track", label: "Track" },
+    { to: "/ride/history", label: "My bookings" },
+  ];
+
+  if (checkingBooking) {
+    return (
+      <AppShell
+        title="Track"
+        subtitle="Checking your bookings…"
+        tabs={tabs}
+        assistantContext={{ page: "passenger_tracking" }}
+      >
+        <p className="text-sm text-muted-foreground">Checking your bookings…</p>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       title="Track"
       subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
-      tabs={[
-        { to: "/ride", label: "Find a ride" },
-        { to: "/ride/track", label: "Track" },
-        { to: "/ride/history", label: "My bookings" },
-      ]}
+      tabs={tabs}
       assistantContext={{ page: "passenger_tracking" }}
     >
       <div className="grid gap-4">
+        {skip && (
+          <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+            Browsing all routes.{" "}
+            <button
+              type="button"
+              onClick={() => navigate({ to: "/ride/track", search: {}, replace: true })}
+              className="font-medium text-primary underline"
+            >
+              Check my active booking instead
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2">
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Route</label>
