@@ -9,12 +9,19 @@ export type MapStage = {
   lng: number;
   passengerCount?: number;
 };
+// Broad category derived from the vehicles.vehicle_type enum
+// ('matatu_14' | 'matatu_25' | 'bus_33' | 'bus_51') — the map only needs to
+// know "draw this as a matatu" vs "draw this as a bus", not the exact seat
+// count, so every matatu_* value should map to "matatu" and every bus_*
+// value to "bus" before reaching this component.
+export type VehicleKind = "matatu" | "bus";
 export type MapVehicle = {
   id: string;
   lat: number;
   lng: number;
   heading?: number | null;
   label?: string;
+  kind?: VehicleKind;
 };
 // A single waiting passenger, positioned near their pickup stage (bookings
 // only store a pickup_stage_id, not a live per-passenger GPS fix, so callers
@@ -73,24 +80,60 @@ async function fetchRoadRoute(
   }
 }
 
-// Directional wedge icon (rotates to face travel direction) — mirrors the old
-// Google FORWARD_CLOSED_ARROW look using a rotated div + CSS triangle.
-function vehicleDivIcon(hasHeading: boolean, heading: number | null | undefined) {
-  const html = hasHeading
-    ? `<div style="
-        width:0;height:0;
-        border-left:7px solid transparent;
-        border-right:7px solid transparent;
-        border-bottom:16px solid #f4c430;
-        filter:drop-shadow(0 0 1px #0a5f3d) drop-shadow(0 0 1px #0a5f3d);
-        transform:rotate(${heading}deg);
-        transform-origin:center;
-      "></div>`
-    : `<div style="
-        width:18px;height:18px;border-radius:50%;
-        background:#f4c430;border:2px solid #0a5f3d;
-      "></div>`;
-  return L.divIcon({ html, className: "", iconSize: [18, 18], iconAnchor: [9, 9] });
+// Every vehicle on the map is drawn as one of exactly two silhouettes — a
+// matatu (minibus) icon or a bus icon — regardless of which specific
+// vehicle_type ('matatu_14', 'bus_51', etc.) it is. Riders scanning the map
+// should be able to tell "that's a bus" vs "that's a matatu" at a glance,
+// the same way Uber renders every car as one common car icon and every
+// two-wheeler as one common bike icon, rather than a different shape per
+// make/model. Both icons rotate to face the direction of travel when a
+// heading is known, and fall back to a plain colored dot when it isn't.
+const MATATU_BODY_SVG = `
+  <path d="M4 16 L4 9 Q4 6 8 6 L26 6 Q30 6 30 9 L30 16 L30 20 Q30 22 28 22 L6 22 Q4 22 4 20 Z" 
+    fill="#f4c430" stroke="#0a5f3d" stroke-width="1.5"/>
+  <rect x="6.5" y="8.5" width="5" height="5" rx="1" fill="#0a5f3d" opacity="0.85"/>
+  <rect x="14.5" y="8.5" width="5" height="5" rx="1" fill="#0a5f3d" opacity="0.85"/>
+  <rect x="22.5" y="8.5" width="5" height="5" rx="1" fill="#0a5f3d" opacity="0.85"/>
+  <circle cx="9" cy="23" r="2.4" fill="#1f2937" stroke="#fff" stroke-width="0.8"/>
+  <circle cx="25" cy="23" r="2.4" fill="#1f2937" stroke="#fff" stroke-width="0.8"/>
+`;
+const BUS_BODY_SVG = `
+  <path d="M2 18 L2 8 Q2 4 6 4 L28 4 Q32 4 32 8 L32 18 L32 24 Q32 26 30 26 L4 26 Q2 26 2 24 Z"
+    fill="#1a73e8" stroke="#0a2f6b" stroke-width="1.5"/>
+  <rect x="4.5" y="6.5" width="4.5" height="5" rx="0.8" fill="#dbeafe"/>
+  <rect x="10.5" y="6.5" width="4.5" height="5" rx="0.8" fill="#dbeafe"/>
+  <rect x="16.5" y="6.5" width="4.5" height="5" rx="0.8" fill="#dbeafe"/>
+  <rect x="22.5" y="6.5" width="4.5" height="5" rx="0.8" fill="#dbeafe"/>
+  <rect x="4.5" y="13" width="24.5" height="3" fill="#0a2f6b" opacity="0.5"/>
+  <circle cx="9" cy="27" r="2.6" fill="#1f2937" stroke="#fff" stroke-width="0.8"/>
+  <circle cx="25" cy="27" r="2.6" fill="#1f2937" stroke="#fff" stroke-width="0.8"/>
+`;
+
+function vehicleDivIcon(
+  hasHeading: boolean,
+  heading: number | null | undefined,
+  kind: VehicleKind = "matatu",
+) {
+  const isBus = kind === "bus";
+  const size = isBus ? 34 : 32;
+  const bodySvg = isBus ? BUS_BODY_SVG : MATATU_BODY_SVG;
+  const rotation = hasHeading ? heading : 0;
+  const html = `<div style="
+      width:${size}px;height:${size}px;
+      transform:rotate(${rotation}deg);
+      transform-origin:center;
+      filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+    ">
+      <svg width="${size}" height="${size}" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg">
+        ${bodySvg}
+      </svg>
+    </div>`;
+  return L.divIcon({
+    html,
+    className: "",
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
 }
 
 function pinDivIcon() {
@@ -334,7 +377,7 @@ export function RouteMap({
     vehicles.forEach((v) => {
       seen.add(v.id);
       const hasHeading = v.heading != null && !Number.isNaN(v.heading);
-      const icon = vehicleDivIcon(hasHeading, v.heading);
+      const icon = vehicleDivIcon(hasHeading, v.heading, v.kind ?? "matatu");
       const label = etaLabelByVehicleId?.[v.id];
       const existing = vehicleMarkers.current[v.id];
       if (existing) {

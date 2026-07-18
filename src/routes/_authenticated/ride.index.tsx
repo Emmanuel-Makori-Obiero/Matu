@@ -13,6 +13,7 @@ import {
 } from "@/lib/stage-match";
 import { OnboardingGuide, useOnboardingSeen } from "@/components/matu/OnboardingGuide";
 import { cacheGetAll, cacheReplaceAll, setLastSynced } from "@/lib/offline-cache";
+import { vehicleKindFromType } from "@/lib/vehicle-kind";
 
 type RouteRow = {
   id: string;
@@ -710,8 +711,11 @@ function PassengerHome() {
                             },
                           })
                         }
-                        className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
+                        className="flex w-full items-center gap-3 rounded-xl border border-border bg-background p-3 pr-10 text-left transition hover:border-primary"
                       >
+                        <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary text-2xl">
+                          {vehicleKindFromType(v.vehicleType) === "bus" ? "🚌" : "🚐"}
+                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-display text-sm font-semibold">
                             {v.plate}{" "}

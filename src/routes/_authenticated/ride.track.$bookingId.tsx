@@ -11,6 +11,7 @@ import { ArrowLeft, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
+import { vehicleKindFromType } from "@/lib/vehicle-kind";
 import { useLiveTrafficEta } from "@/lib/traffic-eta";
 import { fetchCongestionRoute, type CongestionSegment } from "@/lib/route-congestion";
 
@@ -24,7 +25,12 @@ type Booking = {
 type Trip = { id: string; route_id: string; vehicle_id: string; status: string };
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
-type Vehicle = { id: string; plate_number: string; nickname: string | null };
+type Vehicle = {
+  id: string;
+  plate_number: string;
+  nickname: string | null;
+  vehicle_type: string | null;
+};
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -101,7 +107,7 @@ function BookingTrackPage() {
           .order("order_index"),
         supabase
           .from("vehicles")
-          .select("id,plate_number,nickname")
+          .select("id,plate_number,nickname,vehicle_type")
           .eq("id", t.vehicle_id)
           .maybeSingle(),
       ]);
@@ -251,6 +257,7 @@ function BookingTrackPage() {
           label: vehicle
             ? `${vehicle.plate_number}${vehicle.nickname ? ` · ${vehicle.nickname}` : ""}`
             : "Matatu",
+          kind: vehicleKindFromType(vehicle?.vehicle_type),
         },
       ]
     : [];

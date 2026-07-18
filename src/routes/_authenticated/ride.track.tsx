@@ -11,11 +11,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { osrmDurationSeconds, mapboxTrafficDurationSeconds } from "@/lib/traffic-eta";
+import { vehicleKindFromType } from "@/lib/vehicle-kind";
 
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type Trip = { id: string; vehicle_id: string; status: string; current_stage_id: string | null };
-type Vehicle = { id: string; plate_number: string; nickname: string | null };
+type Vehicle = {
+  id: string;
+  plate_number: string;
+  nickname: string | null;
+  vehicle_type: string | null;
+};
 type TripLoc = { lat: number; lng: number; heading: number | null };
 
 export const Route = createFileRoute("/_authenticated/ride/track")({
@@ -87,7 +93,7 @@ function TrackPage() {
     if (ids.length) {
       const { data: v } = await supabase
         .from("vehicles")
-        .select("id,plate_number,nickname")
+        .select("id,plate_number,nickname,vehicle_type")
         .in("id", ids);
       const map: Record<string, Vehicle> = {};
       (v ?? []).forEach((x: Vehicle) => (map[x.id] = x));
@@ -260,6 +266,7 @@ function TrackPage() {
         lng: loc.lng,
         heading: loc.heading,
         label: jammedTripIds.has(t.id) ? `${baseLabel} · ⚠ Jam ahead` : baseLabel,
+        kind: vehicleKindFromType(v?.vehicle_type),
       } as MapVehicle;
     })
     .filter((v): v is MapVehicle => v != null);
