@@ -44,5 +44,25 @@ export async function fetchPrimaryRole(userId: string): Promise<AppRole> {
 
 export async function homePathForUser(userId: string) {
   const role = await fetchPrimaryRole(userId);
+
+  // A passenger mid-trip shouldn't land on the search/dashboard screen —
+  // drop them straight into the live tracking view for that booking, same
+  // map the driver is looking at. "Active" = the matatu is actually moving
+  // toward them or they're on it (confirmed/boarded); a merely "reserved"
+  // (unpaid) booking isn't worth hijacking the login redirect for.
+  if (role === "passenger") {
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("id")
+      .eq("passenger_id", userId)
+      .in("status", ["confirmed", "boarded"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) {
+      return `/ride/track/${data.id}`;
+    }
+  }
+
   return ROLE_HOME[role];
 }
