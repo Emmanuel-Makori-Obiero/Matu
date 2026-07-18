@@ -3,8 +3,8 @@
 // A passenger who hasn't booked (or doesn't want to) can still: pick a route, see every
 // active vehicle on it moving live on the map, and "ping" a stage to tell the driver
 // they're waiting there — reuses the same stage_pings mechanism the booking page uses.
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Bell, MapPin, Radio } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,7 +23,6 @@ export const Route = createFileRoute("/_authenticated/ride/track")({
 });
 
 function TrackPage() {
-  const navigate = useNavigate();
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [routeId, setRouteId] = useState<string>("");
   const [stages, setStages] = useState<Stage[]>([]);
@@ -35,79 +34,6 @@ function TrackPage() {
   const [pinging, setPinging] = useState<string | null>(null);
   const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
   const [showTraffic, setShowTraffic] = useState(true);
-  // While this checks, hold off rendering the generic multi-route picker at all —
-  // otherwise a passenger who did book sees the wrong screen flash for a moment.
-  const [checkingMyBooking, setCheckingMyBooking] = useState(true);
-
-  // If the passenger has an active booking (reserved, confirmed, or already boarded)
-  // on ANY route, "Track" should mean *their* trip, not a generic picker across every
-  // route in the system. Redirect straight to the dedicated per-booking screen, which
-  // shows only their route with the live remaining-route line. Only passengers with
-  // no active booking ever see the route-picker UI below.
-  //
-  // This has a hard timeout and always falls back to the picker on any error — a
-  // flaky connection failing (or just hanging) this check must never leave the
-  // passenger stuck on "Checking for your booking…" forever.
-  // navigate's identity isn't guaranteed stable across renders. Reading it
-  // through a ref (rather than depending on it directly) means this effect
-  // runs exactly once on mount instead of tearing down and restarting every
-  // time `navigate` changes — which was silently clearing and re-arming the
-  // 6s fallback timer on every re-render, so it never survived long enough
-  // to fire and the passenger got stuck on "Checking for your booking…"
-  // forever despite the timeout existing in the code.
-  const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
-
-  useEffect(() => {
-    let settled = false;
-    const fallback = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        setCheckingMyBooking(false);
-      }
-    }, 12000);
-
-    (async () => {
-      try {
-        const { data: u } = await supabase.auth.getUser();
-        if (!u.user) return;
-        const { data } = await supabase
-          .from("bookings")
-          .select("id,created_at")
-          .eq("passenger_id", u.user.id)
-          .in("status", ["reserved", "confirmed", "boarded"])
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        // Even if the 6s fallback already fired and flipped the screen to the
-        // generic picker, a booking that turns up a moment later should still
-        // send the passenger to their trip — a slow network is not a reason
-        // to throw away a correct result once it arrives.
-        if (data) {
-          settled = true;
-          clearTimeout(fallback);
-          navigateRef.current({ to: "/ride/track/$bookingId", params: { bookingId: data.id } });
-          return;
-        }
-        if (settled) return; // fallback already showed the picker, and there's no booking anyway
-      } catch {
-        // Network error, offline, whatever — fall through to the picker below
-        // rather than leaving the passenger stuck on the loading screen.
-      } finally {
-        if (!settled) {
-          settled = true;
-          clearTimeout(fallback);
-          setCheckingMyBooking(false);
-        }
-      }
-    })();
-
-    return () => {
-      settled = true;
-      clearTimeout(fallback);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Same as the per-booking tracking screen — starts automatically, no button,
   // so the red "you" dot just appears if location is available/granted.
@@ -337,29 +263,6 @@ function TrackPage() {
       } as MapVehicle;
     })
     .filter((v): v is MapVehicle => v != null);
-
-  if (checkingMyBooking) {
-    return (
-      <AppShell
-        title="Track"
-        subtitle="See live matatus on a route and let the driver know you're waiting. No booking needed."
-        tabs={[
-          { to: "/ride", label: "Find a ride" },
-          { to: "/ride/track", label: "Track" },
-          { to: "/ride/history", label: "My bookings" },
-        ]}
-        assistantContext={{ page: "passenger_tracking" }}
-      >
-        <p className="text-sm text-muted-foreground">Checking for your booking…</p>
-        <button
-          onClick={() => setCheckingMyBooking(false)}
-          className="mt-3 text-xs font-medium text-primary underline"
-        >
-          Skip — show all routes instead
-        </button>
-      </AppShell>
-    );
-  }
 
   return (
     <AppShell
