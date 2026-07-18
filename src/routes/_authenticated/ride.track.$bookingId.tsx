@@ -1,15 +1,18 @@
 // FILE: src/routes/_authenticated/ride.track.$bookingId.tsx
 // Per-booking tracking screen — shown after ride.track.tsx finds an active
-// booking and redirects here. Unlike the generic ride/track picker, this page
-// is about ONE specific trip: it shows only that vehicle on the map, the
-// live "remaining route" line from the vehicle to the passenger's pickup or
-// dropoff stage (whichever hasn't happened yet), and the booking's own status.
+// booking and redirects here. Mirrors what the driver sees on drive.trip.tsx:
+// the vehicle's live position, the actual road-snapped remaining route
+// (colored red/amber/green by real congestion, not just a straight line),
+// and a jam banner with a traffic-aware ETA — just from the passenger's seat
+// instead of the driver's.
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
+import { useLiveTrafficEta } from "@/lib/traffic-eta";
+import { fetchCongestionRoute, type CongestionSegment } from "@/lib/route-congestion";
 
 type Booking = {
   id: string;
@@ -47,6 +50,8 @@ function BookingTrackPage() {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [tripLoc, setTripLoc] = useState<TripLoc | null>(null);
   const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [showTraffic, setShowTraffic] = useState(true);
+  const [congestionRoute, setCongestionRoute] = useState<CongestionSegment[] | null>(null);
 
   // Load the booking → trip → route → stages → vehicle chain once. RLS on
   // "bookings" already scopes this to rows the signed-in passenger (or the
@@ -112,7 +117,7 @@ function BookingTrackPage() {
   }, [bookingId]);
 
   // Live vehicle position, refreshed on an interval — same cadence as the
-  // generic track page and the booking flow's live map.
+  // driver's own broadcast and the generic track page.
   useEffect(() => {
     if (!trip) return;
     let cancelled = false;
@@ -162,7 +167,8 @@ function BookingTrackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip?.id, bookingId]);
 
-  // The passenger's own live position, same red dot as the generic track page.
+  // The passenger's own live position, same red dot as the driver sees for
+  // waiting passengers and as the generic track page shows.
   useEffect(() => {
     if (!("geolocation" in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
@@ -172,6 +178,62 @@ function BookingTrackPage() {
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
+
+  // Before boarding: track toward the pickup stage. Once boarded: switch to
+  // the dropoff stage. After alighting/cancelling: nothing left to track.
+  const targetStage = useMemo(() => {
+    if (!booking) return null;
+    const targetId =
+      booking.status === "boarded" ? booking.dropoff_stage_id : booking.pickup_stage_id;
+    return stages.find((s) => s.id === targetId) ?? null;
+  }, [booking, stages]);
+
+  const tripActive = !!booking && booking.status !== "alighted" && booking.status !== "cancelled";
+
+  // Same traffic-aware ETA the driver's own jam banner is built on, just
+  // computed toward *this passenger's* next stop rather than the driver's
+  // next stage generally — so "delayed" means "your leg specifically".
+  const { minutes: etaMinutes, delayed: isJammed } = useLiveTrafficEta(
+    tripActive && tripLoc ? { lat: tripLoc.lat, lng: tripLoc.lng } : null,
+    tripActive && targetStage ? { lat: targetStage.lat, lng: targetStage.lng } : null,
+  );
+
+  // The actual road-snapped, congestion-colored route line — identical
+  // mechanism to the driver's map, refreshed on the same cadence via
+  // fetchCongestionRoute's own internal interval semantics (called here on a
+  // 10s poll to match TRAFFIC_ETA_REFRESH_MS's cadence).
+  useEffect(() => {
+    if (!tripActive || !tripLoc || !targetStage || !showTraffic) {
+      setCongestionRoute(null);
+      return;
+    }
+    let cancelled = false;
+    let consecutiveFailures = 0;
+    async function refresh() {
+      const segments = await fetchCongestionRoute(
+        { lat: tripLoc!.lat, lng: tripLoc!.lng },
+        { lat: targetStage!.lat, lng: targetStage!.lng },
+      );
+      if (cancelled) return;
+      if (!segments) {
+        // Keep the last known-good segments on a single failed refresh so the
+        // map doesn't flicker between colored and plain every hiccup.
+        consecutiveFailures += 1;
+        return;
+      }
+      consecutiveFailures = 0;
+      setCongestionRoute(segments);
+    }
+    refresh();
+    const iv = setInterval(refresh, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+    // Coordinates (not object identity) are what should restart this —
+    // tripLoc changes every 5s and would otherwise thrash the interval.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripActive, tripLoc?.lat, tripLoc?.lng, targetStage?.lat, targetStage?.lng, showTraffic]);
 
   const mapStages: MapStage[] = stages.map((s) => ({
     id: s.id,
@@ -193,14 +255,11 @@ function BookingTrackPage() {
       ]
     : [];
 
-  // Before boarding: show the remaining route to the pickup stage. Once
-  // boarded: switch it to the dropoff stage instead. After that, no more
-  // live route line — the trip's over.
-  const targetStageId =
-    booking?.status === "boarded" ? booking.dropoff_stage_id : booking?.pickup_stage_id;
-  const targetStage = stages.find((s) => s.id === targetStageId) ?? null;
+  // Straight-line fallback (what liveRoute draws) is still useful the moment
+  // congestionRoute hasn't loaded yet, or if Mapbox has no reading, so the
+  // map never looks "empty" while the real, road-snapped line catches up.
   const liveRoute =
-    tripLoc && targetStage && booking?.status !== "alighted" && booking?.status !== "cancelled"
+    tripLoc && targetStage && tripActive
       ? {
           origin: { lat: tripLoc.lat, lng: tripLoc.lng },
           destination: { lat: targetStage.lat, lng: targetStage.lng },
@@ -257,19 +316,48 @@ function BookingTrackPage() {
       <div className="grid gap-4">
         <div className="rounded-xl border border-border bg-surface p-3">
           <p className="text-sm font-medium">{STATUS_LABEL[booking.status] ?? booking.status}</p>
-          {targetStage && booking.status !== "alighted" && booking.status !== "cancelled" && (
+          {targetStage && tripActive && (
             <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
               <MapPin className="size-3" />
               {booking.status === "boarded" ? "Heading to" : "Picking you up at"} {targetStage.name}
+              {etaMinutes != null && ` · ~${etaMinutes} min away`}
             </p>
           )}
         </div>
+
+        {tripActive && (
+          <div className="flex items-center justify-between gap-2">
+            {isJammed ? (
+              <div className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive">
+                <span className="size-2 rounded-full bg-destructive" />
+                Heavy traffic ahead{targetStage ? ` near ${targetStage.name}` : ""} — route shown in
+                red
+              </div>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={() => setShowTraffic((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+                showTraffic
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              Traffic {showTraffic ? "on" : "off"}
+            </button>
+          </div>
+        )}
 
         <RouteMap
           stages={mapStages}
           vehicles={mapVehicles}
           selfPosition={selfLoc}
           liveRoute={liveRoute}
+          showTraffic={showTraffic}
+          jammed={isJammed}
+          congestionRoute={congestionRoute}
           className="h-[420px] w-full rounded-2xl border border-border"
         />
 
