@@ -10,6 +10,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { TripSummary } from "@/components/matu/TripSummary";
 import { vehicleKindFromType } from "@/lib/vehicle-kind";
@@ -72,6 +79,7 @@ function BookingTrackPage() {
   const [selfLoc, setSelfLoc] = useState<{ lat: number; lng: number } | null>(null);
   const [showTraffic, setShowTraffic] = useState(true);
   const [congestionRoute, setCongestionRoute] = useState<CongestionSegment[] | null>(null);
+  const [showEndedPopup, setShowEndedPopup] = useState(false);
 
   // Load the booking → trip → route → stages → vehicle chain once. RLS on
   // "bookings" already scopes this to rows the signed-in passenger (or the
@@ -257,6 +265,19 @@ function BookingTrackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripActive, tripLoc?.lat, tripLoc?.lng, targetStage?.lat, targetStage?.lng, showTraffic]);
 
+  // Surface a one-time popup the moment this booking reaches a terminal
+  // state, rather than silently swapping the live map out for TripSummary.
+  // sessionStorage keeps it from reopening every time the passenger
+  // navigates back to this page within the same session/tab.
+  useEffect(() => {
+    if (!booking) return;
+    if (booking.status !== "alighted" && booking.status !== "cancelled") return;
+    const key = `trip-ended-popup-shown:${booking.id}`;
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    setShowEndedPopup(true);
+  }, [booking?.status, booking?.id]);
+
   const mapStages: MapStage[] = stages.map((s) => ({
     id: s.id,
     name: s.name,
@@ -416,6 +437,32 @@ function BookingTrackPage() {
           <ArrowLeft className="size-3" /> Not your trip? See all routes
         </Link>
       </div>
+
+      <Dialog open={showEndedPopup} onOpenChange={setShowEndedPopup}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {booking.status === "cancelled"
+                ? "Your booking was cancelled"
+                : "Your driver has ended the trip"}
+            </DialogTitle>
+            <DialogDescription>
+              {booking.status === "cancelled"
+                ? "Here's what happened with this booking."
+                : "Rate your driver if you'd like — it's optional, and other passengers can see it."}
+            </DialogDescription>
+          </DialogHeader>
+          {trip && (
+            <TripSummary
+              booking={booking}
+              trip={trip}
+              route={routeInfo}
+              stages={stages}
+              vehicle={vehicle}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }
