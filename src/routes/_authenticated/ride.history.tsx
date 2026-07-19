@@ -210,14 +210,19 @@ function BookingHistory() {
   async function cancelBooking(bookingId: string) {
     setCancelling(bookingId);
     const reason = cancelReason.trim() || null;
-    const { error } = await supabase
-      .from("bookings")
-      .update({ status: "cancelled", cancellation_reason: reason })
-      .eq("id", bookingId);
+    // Goes through a SECURITY DEFINER RPC rather than a direct table write —
+    // see the migration comment on cancel_booking for why a plain
+    // .update() here can hit "permission denied for table bookings" as the
+    // live DB's write lockdown tightens.
+    const { data: ok, error } = await supabase.rpc("cancel_booking", {
+      _booking_id: bookingId,
+      _reason: reason,
+    });
     setCancelling(null);
     setConfirmingCancel(null);
     setCancelReason("");
     if (error) return toast.error(error.message || "Could not cancel booking");
+    if (!ok) return toast.error("This booking can no longer be cancelled");
     toast.success("Booking cancelled");
     setBookings((prev) =>
       prev.map((b) =>
