@@ -280,15 +280,19 @@ function DriverTrip() {
             setTracedPath((prev) => [...prev, [pos.coords.latitude, pos.coords.longitude]]);
           }
         }
-        await supabase
-          .from("trips")
-          .update({
-            current_lat: pos.coords.latitude,
-            current_lng: pos.coords.longitude,
-            current_heading: pos.coords.heading,
-            current_stage_id: currentStageId,
-          })
-          .eq("id", trip.id);
+        // Goes through a SECURITY DEFINER RPC rather than updating
+        // trips.current_lat/current_lng directly — those columns have a
+        // column-level SELECT revoke (to keep live GPS private pre-boarding)
+        // which was silently breaking Realtime's postgres_changes delivery
+        // for the whole trips table. See the migration comment on
+        // update_trip_location for the full story.
+        await supabase.rpc("update_trip_location", {
+          _trip_id: trip.id,
+          _lat: pos.coords.latitude,
+          _lng: pos.coords.longitude,
+          _heading: pos.coords.heading,
+          _current_stage_id: currentStageId,
+        });
         // Also stamp the vehicle's last-known location so it still shows up on the
         // SACCO's fleet map after this trip ends (not just while actively boarding).
         await supabase

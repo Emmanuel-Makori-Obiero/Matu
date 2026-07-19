@@ -72,8 +72,6 @@ type LiveTrip = {
   status: string;
   vehicle_id: string;
   route_id: string;
-  current_lat: number | null;
-  current_lng: number | null;
   vehicles: { plate_number: string } | null;
   routes: { name: string } | null;
 };
@@ -96,6 +94,9 @@ function FleetDetail() {
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [driverEmail, setDriverEmail] = useState("");
   const [liveTrips, setLiveTrips] = useState<LiveTrip[]>([]);
+  const [liveLocations, setLiveLocations] = useState<Record<string, { lat: number; lng: number }>>(
+    {},
+  );
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
   const [routes, setRoutes] = useState<SaccoRoute[]>([]);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
@@ -114,12 +115,29 @@ function FleetDetail() {
     if (vehicleIds.length === 0) return setLiveTrips([]);
     const { data } = await supabase
       .from("trips")
-      .select(
-        "id,fare,status,vehicle_id,route_id,current_lat,current_lng,vehicles(plate_number),routes(name)",
-      )
+      .select("id,fare,status,vehicle_id,route_id,vehicles(plate_number),routes(name)")
       .in("vehicle_id", vehicleIds)
       .in("status", ["boarding", "in_transit"]);
-    setLiveTrips((data ?? []) as unknown as LiveTrip[]);
+    const trips = (data ?? []) as unknown as LiveTrip[];
+    setLiveTrips(trips);
+    // current_lat/current_lng are column-locked on trips (RPC-only, see
+    // update_trip_location/get_trip_location) — fetch each live trip's
+    // position separately rather than selecting those columns directly.
+    const entries = await Promise.all(
+      trips.map(async (t) => {
+        const { data: loc } = await supabase.rpc("get_trip_location", { _trip_id: t.id });
+        const row = Array.isArray(loc) ? loc[0] : null;
+        if (row?.current_lat != null && row?.current_lng != null) {
+          return [t.id, { lat: row.current_lat, lng: row.current_lng }] as const;
+        }
+        return null;
+      }),
+    );
+    const locMap: Record<string, { lat: number; lng: number }> = {};
+    entries.forEach((e) => {
+      if (e) locMap[e[0]] = e[1];
+    });
+    setLiveLocations(locMap);
   }
 
   async function load() {
@@ -329,7 +347,7 @@ function FleetDetail() {
 
   const liveByVehicleId: Record<string, LiveTrip> = {};
   for (const t of liveTrips) {
-    if (t.current_lat && t.current_lng) liveByVehicleId[t.vehicle_id] = t;
+    if (liveLocations[t.id]) liveByVehicleId[t.vehicle_id] = t;
   }
   // Every vehicle appears on the map if we have any location for it: a live trip
   // position takes priority; otherwise fall back to its last-known GPS stamp (from
@@ -339,10 +357,11 @@ function FleetDetail() {
     .map((v) => {
       const live = liveByVehicleId[v.id];
       if (live) {
+        const loc = liveLocations[live.id];
         return {
           id: v.id,
-          lat: live.current_lat!,
-          lng: live.current_lng!,
+          lat: loc.lat,
+          lng: loc.lng,
           label: `${v.plate_number} · live`,
         };
       }
