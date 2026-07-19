@@ -515,26 +515,16 @@ function DriverTrip() {
     if (drawingRoute && tracedPath.length >= 2) {
       await persistTracedPath(tracedPath);
     }
-    await supabase
-      .from("trips")
-      .update({ status: "completed", ended_at: new Date().toISOString() })
-      .eq("id", trip.id);
-    // Ending the trip only ever touched the trips row — passengers' own
-    // booking rows never moved off "boarded"/"reserved"/"confirmed", so their
-    // tracking screen (which keys off booking.status, not trip.status) was
-    // stuck showing the ride as still in progress. Bring bookings in line:
-    // anyone actually on board is now dropped off, and anyone who booked but
-    // never boarded missed the trip.
-    await supabase
-      .from("bookings")
-      .update({ status: "alighted", alighted_at: new Date().toISOString() })
-      .eq("trip_id", trip.id)
-      .eq("status", "boarded");
-    await supabase
-      .from("bookings")
-      .update({ status: "cancelled", cancellation_reason: "Trip ended before boarding" })
-      .eq("trip_id", trip.id)
-      .in("status", ["reserved", "confirmed"]);
+    // Goes through a single SECURITY DEFINER RPC — trips status + the
+    // booking sweep (boarded->alighted, reserved/confirmed->cancelled) all
+    // happen atomically, sidestepping whatever write lockdown is currently
+    // in effect on these tables (see the migration comment on end_trip;
+    // the previous three separate raw .update() calls here were silently
+    // failing on the bookings writes, leaving passengers stuck seeing the
+    // trip as still upcoming/trackable after the driver had ended it).
+    const { data: ok, error } = await supabase.rpc("end_trip", { _trip_id: trip.id });
+    if (error) return toast.error(error.message || "Could not end trip");
+    if (!ok) return toast.error("Could not end trip — try again");
     toast.success("Trip ended");
     setDrawingRoute(false);
     setTracedPath([]);
