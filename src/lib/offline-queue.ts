@@ -23,7 +23,7 @@ async function replay(action: QueuedAction): Promise<boolean> {
   if (action.type === "mark_alighted") {
     const { error } = await supabase
       .from("bookings")
-      .update({ status: "alighted" })
+      .update({ status: "alighted", alighted_at: new Date(action.createdAt).toISOString() })
       .eq("id", action.bookingId);
     return !error;
   }

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Ban, CheckCircle2, Clock, MapPin, Navigation2, QrCode, Star, XCircle } from "lucide-react";
+import { Ban, CheckCircle2, Clock, MapPin, Navigation2, QrCode, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
@@ -14,6 +14,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { TripSummary } from "@/components/matu/TripSummary";
 
 type BookingRow = {
   id: string;
@@ -25,6 +26,8 @@ type BookingRow = {
   fare_paid: number | null;
   created_at: string;
   cancellation_reason: string | null;
+  boarded_at: string | null;
+  alighted_at: string | null;
 };
 type TripRow = {
   id: string;
@@ -33,6 +36,8 @@ type TripRow = {
   route_id: string;
   vehicle_id: string;
   driver_id: string;
+  started_at: string | null;
+  ended_at: string | null;
 };
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type VehicleRow = { id: string; plate_number: string; nickname: string | null };
@@ -73,11 +78,7 @@ function BookingHistory() {
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [ticketBooking, setTicketBooking] = useState<BookingRow | null>(null);
-  const [reviewedBookingIds, setReviewedBookingIds] = useState<Set<string>>(new Set());
-  const [reviewBooking, setReviewBooking] = useState<BookingRow | null>(null);
-  const [reviewRating, setReviewRating] = useState(0);
-  const [reviewComment, setReviewComment] = useState("");
-  const [submittingReview, setSubmittingReview] = useState(false);
+  const [summaryBooking, setSummaryBooking] = useState<BookingRow | null>(null);
 
   async function load() {
     setLoading(true);
@@ -89,7 +90,7 @@ function BookingHistory() {
     const { data: b } = await supabase
       .from("bookings")
       .select(
-        "id,trip_id,seat_number,pickup_stage_id,dropoff_stage_id,status,fare_paid,created_at,cancellation_reason",
+        "id,trip_id,seat_number,pickup_stage_id,dropoff_stage_id,status,fare_paid,created_at,cancellation_reason,boarded_at,alighted_at",
       )
       .eq("passenger_id", u.user.id)
       .order("created_at", { ascending: false });
@@ -108,20 +109,13 @@ function BookingHistory() {
         if (x.booking_id) paymentMap[x.booking_id] = x;
       });
       setPaymentByBooking(paymentMap);
-
-      const { data: rv } = await supabase
-        .from("reviews")
-        .select("booking_id")
-        .in("booking_id", bookingIds)
-        .eq("passenger_id", u.user.id);
-      setReviewedBookingIds(new Set((rv ?? []).map((x: { booking_id: string }) => x.booking_id)));
     }
 
     const tripIds = [...new Set(bookingRows.map((r) => r.trip_id))];
     if (tripIds.length) {
       const { data: t } = await supabase
         .from("trips")
-        .select("id,fare,status,route_id,vehicle_id,driver_id")
+        .select("id,fare,status,route_id,vehicle_id,driver_id,started_at,ended_at")
         .in("id", tripIds);
       const tripMap: Record<string, TripRow> = {};
       (t ?? []).forEach((x: TripRow) => (tripMap[x.id] = x));
@@ -232,30 +226,6 @@ function BookingHistory() {
           : b,
       ),
     );
-  }
-
-  async function submitReview() {
-    if (!reviewBooking || reviewRating < 1) return;
-    const trip = trips[reviewBooking.trip_id];
-    if (!trip) return;
-    const { data: u } = await supabase.auth.getUser();
-    if (!u.user) return;
-    setSubmittingReview(true);
-    const { error } = await supabase.from("reviews").insert({
-      trip_id: trip.id,
-      booking_id: reviewBooking.id,
-      passenger_id: u.user.id,
-      driver_id: trip.driver_id,
-      rating: reviewRating,
-      comment: reviewComment.trim() || null,
-    });
-    setSubmittingReview(false);
-    if (error) return toast.error(error.message || "Could not submit review");
-    toast.success("Thanks for your review!");
-    setReviewedBookingIds((prev) => new Set(prev).add(reviewBooking.id));
-    setReviewBooking(null);
-    setReviewRating(0);
-    setReviewComment("");
   }
 
   const upcoming = bookings.filter((b) => UPCOMING_STATUSES.has(b.status));
@@ -465,16 +435,13 @@ function BookingHistory() {
                   const route = trip ? routes[trip.route_id] : undefined;
                   const pickup = b.pickup_stage_id ? stages[b.pickup_stage_id] : undefined;
                   const dropoff = b.dropoff_stage_id ? stages[b.dropoff_stage_id] : undefined;
-                  // Only trips the driver has actually ended, and where the passenger
-                  // actually rode, are eligible for a review.
-                  const canReview =
-                    trip?.status === "completed" &&
-                    (b.status === "boarded" || b.status === "alighted");
-                  const alreadyReviewed = reviewedBookingIds.has(b.id);
                   return (
                     <li
                       key={b.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-3 opacity-80"
+                      onClick={() => trip && setSummaryBooking(b)}
+                      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-3 opacity-80 ${
+                        trip ? "cursor-pointer hover:opacity-100" : ""
+                      }`}
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{route?.name ?? "Route"}</div>
@@ -503,23 +470,11 @@ function BookingHistory() {
                             </span>
                           )}
                         </div>
-                        {canReview &&
-                          (alreadyReviewed ? (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground">
-                              <Star className="size-3 fill-accent text-accent" /> Reviewed
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setReviewBooking(b);
-                                setReviewRating(0);
-                                setReviewComment("");
-                              }}
-                              className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground"
-                            >
-                              <Star className="size-3" /> Leave a review
-                            </button>
-                          ))}
+                        {trip && (
+                          <span className="text-[11px] text-muted-foreground underline">
+                            View trip
+                          </span>
+                        )}
                       </div>
                     </li>
                   );
@@ -569,47 +524,28 @@ function BookingHistory() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!reviewBooking} onOpenChange={(open) => !open && setReviewBooking(null)}>
-        <DialogContent className="max-w-sm">
+      <Dialog open={!!summaryBooking} onOpenChange={(open) => !open && setSummaryBooking(null)}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>How was your trip?</DialogTitle>
-            <DialogDescription>
-              Your rating helps other passengers and the driver improve. Only takes a second.
-            </DialogDescription>
+            <DialogTitle>Trip summary</DialogTitle>
+            <DialogDescription>The receipt for this ride.</DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-4 py-2">
-            <div className="flex justify-center gap-1">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setReviewRating(n)}
-                  className="p-1"
-                  aria-label={`${n} star${n > 1 ? "s" : ""}`}
-                >
-                  <Star
-                    className={`size-8 ${
-                      n <= reviewRating ? "fill-accent text-accent" : "text-muted-foreground"
-                    }`}
-                  />
-                </button>
-              ))}
-            </div>
-            <textarea
-              value={reviewComment}
-              onChange={(e) => setReviewComment(e.target.value)}
-              placeholder="Anything you want the driver or Matu to know? (optional)"
-              rows={3}
-              className="w-full rounded-lg border border-border bg-background p-3 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-            />
-            <button
-              onClick={submitReview}
-              disabled={reviewRating < 1 || submittingReview}
-              className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              {submittingReview ? "Submitting…" : "Submit review"}
-            </button>
-          </div>
+          {summaryBooking &&
+            (() => {
+              const summaryTrip = trips[summaryBooking.trip_id];
+              if (!summaryTrip) return null;
+              const summaryRoute = routes[summaryTrip.route_id] ?? null;
+              const summaryVehicle = vehicles[summaryTrip.vehicle_id] ?? null;
+              return (
+                <TripSummary
+                  booking={summaryBooking}
+                  trip={summaryTrip}
+                  route={summaryRoute}
+                  stages={Object.values(stages)}
+                  vehicle={summaryVehicle}
+                />
+              );
+            })()}
         </DialogContent>
       </Dialog>
     </AppShell>

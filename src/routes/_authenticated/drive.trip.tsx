@@ -523,7 +523,7 @@ function DriverTrip() {
     // never boarded missed the trip.
     await supabase
       .from("bookings")
-      .update({ status: "alighted" })
+      .update({ status: "alighted", alighted_at: new Date().toISOString() })
       .eq("trip_id", trip.id)
       .eq("status", "boarded");
     await supabase
@@ -737,7 +737,7 @@ function DriverTrip() {
     }
     const { error } = await supabase
       .from("bookings")
-      .update({ status: "alighted" })
+      .update({ status: "alighted", alighted_at: new Date().toISOString() })
       .eq("id", bookingId);
     if (error) {
       await enqueueAction({

@@ -129,7 +129,7 @@ export function TicketScanner({ tripId, onBoarded }: { tripId: string; onBoarded
     setMarking(true);
     const { error } = await supabase
       .from("bookings")
-      .update({ status: "boarded" })
+      .update({ status: "boarded", boarded_at: new Date().toISOString() })
       .eq("id", bookingId);
     setMarking(false);
     if (error) return toast.error(error.message || "Could not update booking");

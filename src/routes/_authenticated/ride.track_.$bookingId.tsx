@@ -7,11 +7,11 @@
 // instead of the driver's.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, MapPin, Star } from "lucide-react";
-import { toast } from "sonner";
+import { ArrowLeft, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
+import { TripSummary } from "@/components/matu/TripSummary";
 import { vehicleKindFromType } from "@/lib/vehicle-kind";
 import { useLiveTrafficEta } from "@/lib/traffic-eta";
 import { fetchCongestionRoute, type CongestionSegment } from "@/lib/route-congestion";
@@ -23,8 +23,20 @@ type Booking = {
   pickup_stage_id: string | null;
   dropoff_stage_id: string | null;
   cancellation_reason: string | null;
+  boarded_at: string | null;
+  alighted_at: string | null;
+  fare_paid: number | null;
 };
-type Trip = { id: string; route_id: string; vehicle_id: string; status: string; driver_id: string };
+type Trip = {
+  id: string;
+  route_id: string;
+  vehicle_id: string;
+  status: string;
+  driver_id: string;
+  fare: number;
+  started_at: string | null;
+  ended_at: string | null;
+};
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type Vehicle = {
@@ -72,7 +84,9 @@ function BookingTrackPage() {
       setNotFound(false);
       const { data: b } = await supabase
         .from("bookings")
-        .select("id,trip_id,status,pickup_stage_id,dropoff_stage_id,cancellation_reason")
+        .select(
+          "id,trip_id,status,pickup_stage_id,dropoff_stage_id,cancellation_reason,boarded_at,alighted_at,fare_paid",
+        )
         .eq("id", bookingId)
         .maybeSingle();
       if (cancelled) return;
@@ -85,7 +99,7 @@ function BookingTrackPage() {
 
       const { data: t } = await supabase
         .from("trips")
-        .select("id,route_id,vehicle_id,status,driver_id")
+        .select("id,route_id,vehicle_id,status,driver_id,fare,started_at,ended_at")
         .eq("id", b.trip_id)
         .maybeSingle();
       if (cancelled) return;
@@ -340,50 +354,58 @@ function BookingTrackPage() {
           )}
         </div>
 
-        {booking.status === "alighted" && trip && (
-          <ReviewPrompt bookingId={booking.id} tripId={trip.id} driverId={trip.driver_id} />
-        )}
-
-        {tripActive && (
-          <div className="flex items-center justify-between gap-2">
-            {isJammed ? (
-              <div className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive">
-                <span className="size-2 rounded-full bg-destructive" />
-                Heavy traffic ahead{targetStage ? ` near ${targetStage.name}` : ""} — route shown in
-                red
+        {booking.status === "alighted" || booking.status === "cancelled" ? (
+          <TripSummary
+            booking={booking}
+            trip={trip}
+            route={routeInfo}
+            stages={stages}
+            vehicle={vehicle}
+          />
+        ) : (
+          <>
+            {tripActive && (
+              <div className="flex items-center justify-between gap-2">
+                {isJammed ? (
+                  <div className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-medium text-destructive">
+                    <span className="size-2 rounded-full bg-destructive" />
+                    Heavy traffic ahead{targetStage ? ` near ${targetStage.name}` : ""} — route
+                    shown in red
+                  </div>
+                ) : (
+                  <span />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowTraffic((v) => !v)}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+                    showTraffic
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  Traffic {showTraffic ? "on" : "off"}
+                </button>
               </div>
-            ) : (
-              <span />
             )}
-            <button
-              type="button"
-              onClick={() => setShowTraffic((v) => !v)}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${
-                showTraffic
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:bg-secondary"
-              }`}
-            >
-              Traffic {showTraffic ? "on" : "off"}
-            </button>
-          </div>
-        )}
 
-        <RouteMap
-          stages={mapStages}
-          vehicles={mapVehicles}
-          selfPosition={selfLoc}
-          liveRoute={liveRoute}
-          showTraffic={showTraffic}
-          jammed={isJammed}
-          congestionRoute={congestionRoute}
-          className="h-[420px] w-full rounded-2xl border border-border"
-        />
+            <RouteMap
+              stages={mapStages}
+              vehicles={mapVehicles}
+              selfPosition={selfLoc}
+              liveRoute={liveRoute}
+              showTraffic={showTraffic}
+              jammed={isJammed}
+              congestionRoute={congestionRoute}
+              className="h-[420px] w-full rounded-2xl border border-border"
+            />
 
-        {mapVehicles.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Waiting for the matatu's live location to come through.
-          </p>
+            {mapVehicles.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Waiting for the matatu's live location to come through.
+              </p>
+            )}
+          </>
         )}
 
         <Link
@@ -395,108 +417,5 @@ function BookingTrackPage() {
         </Link>
       </div>
     </AppShell>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Shown once a booking reaches 'alighted' — one review per booking (enforced
-// both by the unique constraint on trip_reviews.booking_id and the RLS policy
-// checking the booking is actually the reviewer's own and actually alighted).
-// Reviews are visible to every passenger, driver, and sacco admin, not just
-// the two people on this specific trip — see reviews.$driverId.tsx.
-// ---------------------------------------------------------------------------
-function ReviewPrompt({
-  bookingId,
-  tripId,
-  driverId,
-}: {
-  bookingId: string;
-  tripId: string;
-  driverId: string;
-}) {
-  const [checked, setChecked] = useState(false);
-  const [alreadyReviewed, setAlreadyReviewed] = useState(false);
-  const [rating, setRating] = useState(0);
-  const [hoverRating, setHoverRating] = useState(0);
-  const [comment, setComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("trip_reviews")
-        .select("id")
-        .eq("booking_id", bookingId)
-        .maybeSingle();
-      setAlreadyReviewed(!!data);
-      setChecked(true);
-    })();
-  }, [bookingId]);
-
-  async function submit() {
-    if (rating < 1) return toast.error("Tap a star to rate your trip");
-    setSubmitting(true);
-    try {
-      const { data: u } = await supabase.auth.getUser();
-      if (!u.user) throw new Error("Not signed in");
-      const { error } = await supabase.from("trip_reviews").insert({
-        booking_id: bookingId,
-        trip_id: tripId,
-        passenger_id: u.user.id,
-        driver_id: driverId,
-        rating,
-        comment: comment.trim() || null,
-      });
-      if (error) throw error;
-      setSubmitted(true);
-      toast.success("Thanks for your review!");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't submit your review");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  if (!checked || alreadyReviewed || submitted) return null;
-
-  return (
-    <div className="rounded-xl border border-border bg-surface p-4">
-      <p className="text-sm font-semibold">How was your trip?</p>
-      <div className="mt-2 flex gap-1">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => setRating(n)}
-            onMouseEnter={() => setHoverRating(n)}
-            onMouseLeave={() => setHoverRating(0)}
-            aria-label={`${n} star${n === 1 ? "" : "s"}`}
-          >
-            <Star
-              className={`size-7 ${
-                n <= (hoverRating || rating)
-                  ? "fill-amber-400 text-amber-400"
-                  : "fill-transparent text-muted-foreground"
-              }`}
-            />
-          </button>
-        ))}
-      </div>
-      <textarea
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="Write a review (optional) — other passengers, this driver, and their SACCO can see it"
-        rows={2}
-        className="mt-3 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-      />
-      <button
-        onClick={submit}
-        disabled={submitting}
-        className="mt-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-      >
-        {submitting ? "Submitting…" : "Submit review"}
-      </button>
-    </div>
   );
 }
