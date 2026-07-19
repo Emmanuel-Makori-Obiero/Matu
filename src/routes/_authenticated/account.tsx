@@ -330,7 +330,7 @@ function AccountSettings() {
     <AppShell title="Account settings" subtitle="Manage your profile, roles, and sign-in details.">
       <div className="grid gap-6 md:max-w-2xl">
         {/* Appearance */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="font-display text-lg font-semibold">Appearance</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Choose how Matu looks on this device.
@@ -341,7 +341,7 @@ function AccountSettings() {
         </section>
 
         {/* Profile */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="font-display text-lg font-semibold">Profile</h2>
           <form onSubmit={saveProfile} className="mt-4 space-y-3">
             <Field label="Email">
@@ -390,7 +390,7 @@ function AccountSettings() {
         {/* How drivers get paid — manual mobile money (no STK Push), shown to
             passengers booking any trip this driver runs */}
         {heldDriverRole && (
-          <section className="rounded-2xl border border-border bg-surface p-6">
+          <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
             <h2 className="font-display text-lg font-semibold">How you get paid</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Passengers pay you directly from their own M-Pesa app using these details. Matu
@@ -455,7 +455,7 @@ function AccountSettings() {
             </form>
           </section>
         )}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="font-display text-lg font-semibold">Roles</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Register for another role to unlock its dashboard. You can hold more than one. Use the
@@ -467,10 +467,10 @@ function AccountSettings() {
               return (
                 <div
                   key={opt.value}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
+                  className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
                       <opt.icon className="size-4" />
                     </span>
                     <div>
@@ -479,7 +479,7 @@ function AccountSettings() {
                     </div>
                   </div>
                   {held ? (
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                       <Link
                         to={ROLE_HOME[opt.value]}
                         className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/20"
@@ -521,7 +521,7 @@ function AccountSettings() {
         </section>
 
         {/* Password */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="font-display text-lg font-semibold">Password</h2>
           <form onSubmit={savePassword} className="mt-4 space-y-3">
             <Field label="New password">
@@ -552,7 +552,7 @@ function AccountSettings() {
             tap. Turning it off only stops Matu from asking again; it doesn't revoke
             permission already granted at the browser level (only the browser's own
             site settings can do that). */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
             <Bell className="size-5" /> Notifications
           </h2>
@@ -608,7 +608,7 @@ function AccountSettings() {
         {/* Alert sound — available to everyone. Drivers hear it for new passenger alerts
             (seat reserved, boarding request, approaching stage) on the trip screen;
             passengers hear it when their matatu gets close to their pickup or drop-off. */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
             <Volume2 className="size-5" /> Alert sound
           </h2>
@@ -651,7 +651,7 @@ function AccountSettings() {
         </section>
 
         {/* Support */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="font-display text-lg font-semibold">Support</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Report an app problem or something that happened on a trip.
@@ -673,7 +673,7 @@ function AccountSettings() {
         </section>
 
         {isPlatformAdmin && (
-          <section className="rounded-2xl border border-border bg-surface p-6">
+          <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
             <h2 className="font-display text-lg font-semibold">Platform admin</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Cross-SACCO oversight: view and suspend vehicles platform-wide.
@@ -688,7 +688,7 @@ function AccountSettings() {
         )}
 
         {/* Sign out */}
-        <section className="rounded-2xl border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <button
             onClick={signOut}
             className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-secondary"
@@ -698,7 +698,7 @@ function AccountSettings() {
         </section>
 
         {/* Danger zone */}
-        <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
+        <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 sm:p-6">
           <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-destructive">
             <AlertTriangle className="size-5" /> Delete account
           </h2>

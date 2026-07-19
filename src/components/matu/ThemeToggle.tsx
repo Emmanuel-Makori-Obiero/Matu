@@ -8,6 +8,30 @@ const OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: "pink", label: "Pink", icon: Sparkles },
 ];
 
+// Lives in AppShell's header — every page, always visible, one tap to cycle
+// light -> dark -> pink -> light. The full 3-way picker below still lives on
+// the Account page for anyone who wants to pick a specific mode deliberately
+// rather than cycle to it.
+export function ThemeToggleCompact() {
+  const { theme, setTheme } = useTheme();
+  const currentIndex = OPTIONS.findIndex((o) => o.value === theme);
+  const current = OPTIONS[currentIndex];
+  const next = OPTIONS[(currentIndex + 1) % OPTIONS.length];
+  const Icon = current.icon;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(next.value)}
+      aria-label={`Appearance: ${current.label}. Tap for ${next.label}.`}
+      title={`Appearance: ${current.label} — tap for ${next.label}`}
+      className="inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
+    >
+      <Icon className="size-4" /> <span className="hidden sm:inline">{current.label}</span>
+    </button>
+  );
+}
+
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
 

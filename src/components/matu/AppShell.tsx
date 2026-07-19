@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AIAssistant, type AssistantContext } from "@/components/matu/AIAssistant";
+import { ThemeToggleCompact } from "@/components/matu/ThemeToggle";
 
 // Every authenticated page renders through AppShell, so mounting the assistant here once
 // means it's on every page automatically — no per-page wiring needed. The context is
@@ -88,6 +89,7 @@ export function AppShell({
             <span className="font-display text-xl font-bold">Matu</span>
           </Link>
           <div className="flex items-center gap-1">
+            <ThemeToggleCompact />
             <Link
               to="/help"
               className="inline-flex items-center gap-1.5 rounded-md bg-surface/15 px-3 py-1.5 text-sm font-medium hover:bg-surface/25"
