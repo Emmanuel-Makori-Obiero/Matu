@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PlaceSearch, type PlaceResult } from "@/components/matu/PlaceSearch";
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Bus, LocateFixed, Navigation, Star, MapPinned, Package } from "lucide-react";
+import { MapPin, Bus, LocateFixed, Navigation, Star, MapPinned, Package, Car } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
@@ -433,6 +433,7 @@ function PassengerHome() {
         { to: "/ride/track", label: "Track" },
         { to: "/ride/history", label: "My bookings" },
         { to: "/parcel", label: "Send Parcel" },
+        { to: "/roadtrip", label: "Road Trip" },
       ]}
     >
       {showOnboarding && <OnboardingGuide onClose={() => setShowOnboarding(false)} />}
@@ -556,10 +557,11 @@ function PassengerHome() {
         </section>
 
         {/* Other services — quick, Bolt-style shortcuts below the main search. */}
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-5 gap-2">
           <QuickAction icon={<Navigation className="size-5" />} label="Track" to="/ride/track" />
           <QuickAction icon={<MapPin className="size-5" />} label="Bookings" to="/ride/history" />
           <QuickAction icon={<Package className="size-5" />} label="Parcel" to="/parcel" />
+          <QuickAction icon={<Car className="size-5" />} label="Road Trip" to="/roadtrip" />
           <QuickAction
             icon={<MapPinned className="size-5" />}
             label={showMap ? "Hide map" : "View map"}
