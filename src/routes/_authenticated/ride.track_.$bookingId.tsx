@@ -22,6 +22,7 @@ type Booking = {
   status: string;
   pickup_stage_id: string | null;
   dropoff_stage_id: string | null;
+  cancellation_reason: string | null;
 };
 type Trip = { id: string; route_id: string; vehicle_id: string; status: string; driver_id: string };
 type RouteRow = { id: string; name: string; origin: string; destination: string };
@@ -71,7 +72,7 @@ function BookingTrackPage() {
       setNotFound(false);
       const { data: b } = await supabase
         .from("bookings")
-        .select("id,trip_id,status,pickup_stage_id,dropoff_stage_id")
+        .select("id,trip_id,status,pickup_stage_id,dropoff_stage_id,cancellation_reason")
         .eq("id", bookingId)
         .maybeSingle();
       if (cancelled) return;
@@ -325,6 +326,11 @@ function BookingTrackPage() {
       <div className="grid gap-4">
         <div className="rounded-xl border border-border bg-surface p-3">
           <p className="text-sm font-medium">{STATUS_LABEL[booking.status] ?? booking.status}</p>
+          {booking.status === "cancelled" && booking.cancellation_reason && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Reason: {booking.cancellation_reason}
+            </p>
+          )}
           {targetStage && tripActive && (
             <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
               <MapPin className="size-3" />

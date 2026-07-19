@@ -515,6 +515,22 @@ function DriverTrip() {
       .from("trips")
       .update({ status: "completed", ended_at: new Date().toISOString() })
       .eq("id", trip.id);
+    // Ending the trip only ever touched the trips row — passengers' own
+    // booking rows never moved off "boarded"/"reserved"/"confirmed", so their
+    // tracking screen (which keys off booking.status, not trip.status) was
+    // stuck showing the ride as still in progress. Bring bookings in line:
+    // anyone actually on board is now dropped off, and anyone who booked but
+    // never boarded missed the trip.
+    await supabase
+      .from("bookings")
+      .update({ status: "alighted" })
+      .eq("trip_id", trip.id)
+      .eq("status", "boarded");
+    await supabase
+      .from("bookings")
+      .update({ status: "cancelled", cancellation_reason: "Trip ended before boarding" })
+      .eq("trip_id", trip.id)
+      .in("status", ["reserved", "confirmed"]);
     toast.success("Trip ended");
     setDrawingRoute(false);
     setTracedPath([]);

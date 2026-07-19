@@ -13,6 +13,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 type BookingRow = {
   id: string;
@@ -23,6 +24,7 @@ type BookingRow = {
   status: "reserved" | "confirmed" | "boarded" | "alighted" | "cancelled";
   fare_paid: number | null;
   created_at: string;
+  cancellation_reason: string | null;
 };
 type TripRow = {
   id: string;
@@ -69,6 +71,7 @@ function BookingHistory() {
   const [tripLocs, setTripLocs] = useState<Record<string, LatLng>>({});
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const [ticketBooking, setTicketBooking] = useState<BookingRow | null>(null);
   const [reviewedBookingIds, setReviewedBookingIds] = useState<Set<string>>(new Set());
   const [reviewBooking, setReviewBooking] = useState<BookingRow | null>(null);
@@ -85,7 +88,9 @@ function BookingHistory() {
     }
     const { data: b } = await supabase
       .from("bookings")
-      .select("id,trip_id,seat_number,pickup_stage_id,dropoff_stage_id,status,fare_paid,created_at")
+      .select(
+        "id,trip_id,seat_number,pickup_stage_id,dropoff_stage_id,status,fare_paid,created_at,cancellation_reason",
+      )
       .eq("passenger_id", u.user.id)
       .order("created_at", { ascending: false });
     const bookingRows = (b ?? []) as BookingRow[];
@@ -210,16 +215,22 @@ function BookingHistory() {
 
   async function cancelBooking(bookingId: string) {
     setCancelling(bookingId);
+    const reason = cancelReason.trim() || null;
     const { error } = await supabase
       .from("bookings")
-      .update({ status: "cancelled" })
+      .update({ status: "cancelled", cancellation_reason: reason })
       .eq("id", bookingId);
     setCancelling(null);
     setConfirmingCancel(null);
+    setCancelReason("");
     if (error) return toast.error(error.message || "Could not cancel booking");
     toast.success("Booking cancelled");
     setBookings((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, status: "cancelled" as const } : b)),
+      prev.map((b) =>
+        b.id === bookingId
+          ? { ...b, status: "cancelled" as const, cancellation_reason: reason }
+          : b,
+      ),
     );
   }
 
@@ -391,31 +402,44 @@ function BookingHistory() {
                         {canCancel &&
                           (confirmingCancel === b.id ? (
                             <div
-                              className="flex items-center gap-2"
+                              className="flex w-full flex-col gap-2 sm:w-64"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <span className="text-xs text-muted-foreground">
-                                Cancel this booking?
+                                Cancel this booking? Let us know why (optional):
                               </span>
-                              <button
-                                onClick={() => cancelBooking(b.id)}
-                                disabled={cancelling === b.id}
-                                className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground disabled:opacity-60"
-                              >
-                                {cancelling === b.id ? "Cancelling…" : "Yes, cancel"}
-                              </button>
-                              <button
-                                onClick={() => setConfirmingCancel(null)}
-                                className="rounded-md border border-border px-3 py-1.5 text-xs"
-                              >
-                                Keep booking
-                              </button>
+                              <Textarea
+                                value={cancelReason}
+                                onChange={(e) => setCancelReason(e.target.value)}
+                                placeholder="e.g. Plans changed, found another matatu…"
+                                className="min-h-16 text-xs"
+                                maxLength={280}
+                              />
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => cancelBooking(b.id)}
+                                  disabled={cancelling === b.id}
+                                  className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground disabled:opacity-60"
+                                >
+                                  {cancelling === b.id ? "Cancelling…" : "Yes, cancel"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setConfirmingCancel(null);
+                                    setCancelReason("");
+                                  }}
+                                  className="rounded-md border border-border px-3 py-1.5 text-xs"
+                                >
+                                  Keep booking
+                                </button>
+                              </div>
                             </div>
                           ) : (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setConfirmingCancel(b.id);
+                                setCancelReason("");
                               }}
                               className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
                             >
@@ -464,13 +488,20 @@ function BookingHistory() {
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <div className="flex items-center gap-1 text-xs">
-                          {b.status === "cancelled" ? (
-                            <XCircle className="size-3.5 text-destructive" />
-                          ) : (
-                            <CheckCircle2 className="size-3.5 text-primary" />
+                        <div className="flex flex-col items-end gap-0.5 text-xs">
+                          <div className="flex items-center gap-1">
+                            {b.status === "cancelled" ? (
+                              <XCircle className="size-3.5 text-destructive" />
+                            ) : (
+                              <CheckCircle2 className="size-3.5 text-primary" />
+                            )}
+                            {STATUS_LABEL[b.status]}
+                          </div>
+                          {b.status === "cancelled" && b.cancellation_reason && (
+                            <span className="max-w-[16rem] truncate text-[11px] text-muted-foreground">
+                              “{b.cancellation_reason}”
+                            </span>
                           )}
-                          {STATUS_LABEL[b.status]}
                         </div>
                         {canReview &&
                           (alreadyReviewed ? (

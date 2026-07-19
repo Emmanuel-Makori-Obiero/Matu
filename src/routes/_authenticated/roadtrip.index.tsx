@@ -13,7 +13,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Car, MapPin, Phone, Plus, Check } from "lucide-react";
+import { Car, MapPin, Phone, Plus, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 
@@ -388,14 +388,27 @@ function MyRequests({ userId }: { userId: string | null }) {
 // driver profile can list a car exactly the same way a sacco-affiliated
 // driver can.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// My listings: an owner can list multiple vehicles (e.g. leasing several
+// cars) — each with its own photos, active/paused toggle, and its own
+// incoming requests to quote or decline. Deliberately no role check — a
+// private car owner with no driver profile can list exactly the same way a
+// sacco-affiliated driver can.
+// ---------------------------------------------------------------------------
 function MyListing({ userId }: { userId: string | null }) {
-  const [listing, setListing] = useState<Listing | null>(null);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [requestsByListing, setRequestsByListing] = useState<Record<string, HireRequest[]>>({});
   const [loading, setLoading] = useState(true);
-  const [requests, setRequests] = useState<HireRequest[]>([]);
   const [saving, setSaving] = useState(false);
   const [quotingId, setQuotingId] = useState<string | null>(null);
   const [quoteInputs, setQuoteInputs] = useState<Record<string, string>>({});
+  const [busyListingId, setBusyListingId] = useState<string | null>(null);
 
+  // Form state, shared between "add a new vehicle" and "edit an existing
+  // one" — editingId is null for a fresh listing, or the listing's id when
+  // editing it in place.
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saccoName, setSaccoName] = useState("");
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
@@ -403,8 +416,6 @@ function MyListing({ userId }: { userId: string | null }) {
   const [seats, setSeats] = useState(4);
   const [location, setLocation] = useState("");
   const [phone, setPhone] = useState("");
-  // Existing uploaded photo URLs (kept unless the owner removes one) plus new
-  // files picked this session — merged into one <=5 array on save.
   const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
   const [newPhotoFiles, setNewPhotoFiles] = useState<File[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
@@ -415,25 +426,26 @@ function MyListing({ userId }: { userId: string | null }) {
       .from("hire_listings")
       .select(LISTING_SELECT)
       .eq("owner_id", userId)
-      .maybeSingle();
-    const l = (data ?? null) as Listing | null;
-    setListing(l);
-    if (l) {
-      setSaccoName(l.sacco_name ?? "");
-      setMake(l.vehicle_make);
-      setModel(l.vehicle_model ?? "");
-      setPlate(l.plate_number);
-      setSeats(l.seats);
-      setLocation(l.location_name);
-      setPhone(l.contact_phone);
-      setExistingPhotos(l.photo_urls ?? []);
+      .order("created_at", { ascending: false });
+    const rows = (data ?? []) as Listing[];
+    setListings(rows);
 
+    if (rows.length > 0) {
       const { data: reqs } = await supabase
         .from("hire_requests")
         .select(REQUEST_SELECT)
-        .eq("listing_id", l.id)
+        .in(
+          "listing_id",
+          rows.map((l) => l.id),
+        )
         .order("created_at", { ascending: false });
-      setRequests((reqs ?? []) as HireRequest[]);
+      const grouped: Record<string, HireRequest[]> = {};
+      (reqs ?? []).forEach((r: HireRequest) => {
+        (grouped[r.listing_id] ??= []).push(r);
+      });
+      setRequestsByListing(grouped);
+    } else {
+      setRequestsByListing({});
     }
     setLoading(false);
   }
@@ -442,6 +454,38 @@ function MyListing({ userId }: { userId: string | null }) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  function resetForm() {
+    setEditingId(null);
+    setSaccoName("");
+    setMake("");
+    setModel("");
+    setPlate("");
+    setSeats(4);
+    setLocation("");
+    setPhone("");
+    setExistingPhotos([]);
+    setNewPhotoFiles([]);
+  }
+
+  function openAddForm() {
+    resetForm();
+    setFormOpen(true);
+  }
+
+  function openEditForm(l: Listing) {
+    setEditingId(l.id);
+    setSaccoName(l.sacco_name ?? "");
+    setMake(l.vehicle_make);
+    setModel(l.vehicle_model ?? "");
+    setPlate(l.plate_number);
+    setSeats(l.seats);
+    setLocation(l.location_name);
+    setPhone(l.contact_phone);
+    setExistingPhotos(l.photo_urls ?? []);
+    setNewPhotoFiles([]);
+    setFormOpen(true);
+  }
 
   async function saveListing() {
     if (!make.trim() || !plate.trim() || !location.trim() || !phone.trim()) {
@@ -484,12 +528,13 @@ function MyListing({ userId }: { userId: string | null }) {
         contact_phone: phone.trim(),
         photo_urls: photoUrls,
       };
-      const { error } = listing
-        ? await supabase.from("hire_listings").update(payload).eq("id", listing.id)
+      const { error } = editingId
+        ? await supabase.from("hire_listings").update(payload).eq("id", editingId)
         : await supabase.from("hire_listings").insert(payload);
       if (error) throw error;
-      toast.success(listing ? "Listing updated" : "Vehicle listed for hire");
-      setNewPhotoFiles([]);
+      toast.success(editingId ? "Listing updated" : "Vehicle listed for hire");
+      setFormOpen(false);
+      resetForm();
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't save listing");
@@ -514,14 +559,40 @@ function MyListing({ userId }: { userId: string | null }) {
     setNewPhotoFiles((prev) => [...prev, ...picked]);
   }
 
-  async function toggleActive() {
-    if (!listing) return;
+  async function toggleActive(l: Listing) {
+    setBusyListingId(l.id);
     const { error } = await supabase
       .from("hire_listings")
-      .update({ is_active: !listing.is_active })
-      .eq("id", listing.id);
+      .update({ is_active: !l.is_active })
+      .eq("id", l.id);
+    setBusyListingId(null);
     if (error) return toast.error(error.message);
     load();
+  }
+
+  async function deleteListing(l: Listing) {
+    const activeRequests = (requestsByListing[l.id] ?? []).filter((r) =>
+      ["requested", "quoted", "confirmed"].includes(r.status),
+    );
+    if (activeRequests.length > 0) {
+      toast.error(
+        "This vehicle has an active or pending request. Decline or complete it before removing.",
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `Remove ${l.vehicle_make} ${l.vehicle_model ?? ""} (${l.plate_number})? This can't be undone.`,
+      )
+    ) {
+      return;
+    }
+    setBusyListingId(l.id);
+    const { error } = await supabase.from("hire_listings").delete().eq("id", l.id);
+    setBusyListingId(null);
+    if (error) return toast.error(error.message);
+    toast.success("Listing removed");
+    setListings((prev) => prev.filter((x) => x.id !== l.id));
   }
 
   async function submitQuote(requestId: string) {
@@ -554,206 +625,289 @@ function MyListing({ userId }: { userId: string | null }) {
 
   return (
     <div className="grid gap-6">
-      <div className="grid gap-3 rounded-2xl border border-border bg-surface p-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Plus className="size-4 text-primary" />{" "}
-            {listing ? "Your listing" : "List your vehicle"}
-          </div>
-          {listing && (
-            <button
-              onClick={toggleActive}
-              className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
-                listing.is_active
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground"
-              }`}
-            >
-              {listing.is_active ? "Active — tap to pause" : "Paused — tap to activate"}
-            </button>
-          )}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <input
-            value={make}
-            onChange={(e) => setMake(e.target.value)}
-            placeholder="Vehicle make (e.g. Toyota)"
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-          <input
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="Model (optional, e.g. Noah)"
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <input
-            value={plate}
-            onChange={(e) => setPlate(e.target.value)}
-            placeholder="Plate number"
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-          <input
-            type="number"
-            min={1}
-            value={seats}
-            onChange={(e) => setSeats(Math.max(1, Number(e.target.value)))}
-            placeholder="Seats"
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-        </div>
-        <input
-          value={saccoName}
-          onChange={(e) => setSaccoName(e.target.value)}
-          placeholder="Sacco name (optional — leave blank for a private car)"
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-        />
-        <input
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder="Where's the vehicle based (e.g. Nairobi CBD)"
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-        />
-        <input
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="Contact phone"
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-        />
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            Photos of the vehicle (optional, up to 5)
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {existingPhotos.map((url) => (
-              <div key={url} className="relative">
-                <img
-                  src={url}
-                  alt="Vehicle"
-                  className="h-20 w-24 rounded-lg border border-border object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeExistingPhoto(url)}
-                  className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            {newPhotoFiles.map((file, i) => (
-              <div key={i} className="relative">
-                <img
-                  src={URL.createObjectURL(file)}
-                  alt="New upload"
-                  className="h-20 w-24 rounded-lg border border-border object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => setNewPhotoFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            {existingPhotos.length + newPhotoFiles.length < 5 && (
-              <label className="flex h-20 w-24 cursor-pointer items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-secondary">
-                + Add
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => handlePhotoPick(e.target.files)}
-                />
-              </label>
-            )}
-          </div>
-        </div>
-
-        <button
-          onClick={saveListing}
-          disabled={saving}
-          className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-        >
-          {saving
-            ? uploadingPhotos
-              ? "Uploading photos…"
-              : "Saving…"
-            : listing
-              ? "Update listing"
-              : "List my vehicle"}
-        </button>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">
+          Your vehicles {listings.length > 0 && `(${listings.length})`}
+        </h2>
+        {!formOpen && (
+          <button
+            onClick={openAddForm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+          >
+            <Plus className="size-3.5" /> List another vehicle
+          </button>
+        )}
       </div>
 
-      {listing && (
-        <div>
-          <h2 className="mb-2 text-sm font-semibold">Requests for your vehicle</h2>
-          {requests.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No requests yet.</p>
-          ) : (
-            <div className="grid gap-3">
-              {requests.map((r) => (
-                <div key={r.id} className="rounded-xl border border-border bg-surface p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {r.pickup_location} → {r.dropoff_location}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{r.trip_date}</p>
-                      {r.notes && <p className="mt-0.5 text-xs text-muted-foreground">{r.notes}</p>}
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${STATUS_COLOR[r.status]}`}
-                    >
-                      {STATUS_LABEL[r.status]}
-                    </span>
-                  </div>
+      {formOpen && (
+        <div className="grid gap-3 rounded-2xl border border-border bg-surface p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Plus className="size-4 text-primary" />
+              {editingId ? "Edit vehicle" : "List a new vehicle"}
+            </div>
+            <button
+              onClick={() => {
+                setFormOpen(false);
+                resetForm();
+              }}
+              className="text-xs font-medium text-muted-foreground underline"
+            >
+              Cancel
+            </button>
+          </div>
 
-                  {r.status === "requested" && (
-                    <div className="mt-3 flex gap-2 border-t border-border pt-3">
-                      <input
-                        type="number"
-                        min={1}
-                        placeholder="Quote (KSh)"
-                        value={quoteInputs[r.id] ?? ""}
-                        onChange={(e) =>
-                          setQuoteInputs((prev) => ({ ...prev, [r.id]: e.target.value }))
-                        }
-                        className="w-32 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                      />
-                      <button
-                        onClick={() => submitQuote(r.id)}
-                        disabled={quotingId === r.id}
-                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
-                      >
-                        Send quote
-                      </button>
-                      <button
-                        onClick={() => declineRequest(r.id)}
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input
+              value={make}
+              onChange={(e) => setMake(e.target.value)}
+              placeholder="Vehicle make (e.g. Toyota)"
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+            <input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Model (optional, e.g. Noah)"
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input
+              value={plate}
+              onChange={(e) => setPlate(e.target.value)}
+              placeholder="Plate number"
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+            <input
+              type="number"
+              min={1}
+              value={seats}
+              onChange={(e) => setSeats(Math.max(1, Number(e.target.value)))}
+              placeholder="Seats"
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+          </div>
+          <input
+            value={saccoName}
+            onChange={(e) => setSaccoName(e.target.value)}
+            placeholder="Sacco name (optional — leave blank for a private car)"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
+          <input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Where's the vehicle based (e.g. Nairobi CBD)"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="Contact phone"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          />
 
-                  {r.status === "confirmed" && (
-                    <p className="mt-2 flex items-center gap-1 text-xs text-green-700">
-                      <Check className="size-3" /> Paid via{" "}
-                      {r.payment_method === "cash" ? "cash on the day" : "M-Pesa (verify your SMS)"}
-                    </p>
-                  )}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Photos of the vehicle (optional, up to 5)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {existingPhotos.map((url) => (
+                <div key={url} className="relative">
+                  <img
+                    src={url}
+                    alt="Vehicle"
+                    className="h-20 w-24 rounded-lg border border-border object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeExistingPhoto(url)}
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white"
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
+              {newPhotoFiles.map((file, i) => (
+                <div key={i} className="relative">
+                  <img
+                    src={URL.createObjectURL(file)}
+                    alt="New upload"
+                    className="h-20 w-24 rounded-lg border border-border object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setNewPhotoFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              {existingPhotos.length + newPhotoFiles.length < 5 && (
+                <label className="flex h-20 w-24 cursor-pointer items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-secondary">
+                  + Add
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => handlePhotoPick(e.target.files)}
+                  />
+                </label>
+              )}
             </div>
-          )}
+          </div>
+
+          <button
+            onClick={saveListing}
+            disabled={saving}
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          >
+            {saving
+              ? uploadingPhotos
+                ? "Uploading photos…"
+                : "Saving…"
+              : editingId
+                ? "Save changes"
+                : "List this vehicle"}
+          </button>
         </div>
       )}
+
+      {listings.length === 0 && !formOpen && (
+        <p className="text-sm text-muted-foreground">
+          You haven't listed any vehicles yet. Tap "List another vehicle" above to add your first
+          one.
+        </p>
+      )}
+
+      {listings.map((l) => {
+        const requests = requestsByListing[l.id] ?? [];
+        return (
+          <div key={l.id} className="rounded-2xl border border-border bg-surface p-5">
+            {l.photo_urls.length > 0 && (
+              <div className="mb-3 flex gap-2 overflow-x-auto">
+                {l.photo_urls.map((url, i) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt={`${l.vehicle_make} photo ${i + 1}`}
+                    className="h-20 w-28 shrink-0 rounded-lg border border-border object-cover"
+                  />
+                ))}
+              </div>
+            )}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">
+                  {l.vehicle_make} {l.vehicle_model ?? ""}
+                  {l.sacco_name && (
+                    <span className="font-normal text-muted-foreground"> · {l.sacco_name}</span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {l.plate_number} · {l.seats} seats · {l.location_name}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <button
+                  onClick={() => toggleActive(l)}
+                  disabled={busyListingId === l.id}
+                  className={`rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
+                    l.is_active
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground"
+                  }`}
+                >
+                  {l.is_active ? "Active" : "Paused"}
+                </button>
+                <button
+                  onClick={() => openEditForm(l)}
+                  className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteListing(l)}
+                  disabled={busyListingId === l.id}
+                  className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  <Trash2 className="size-3" /> Delete
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 border-t border-border pt-3">
+              <h3 className="text-xs font-semibold text-muted-foreground">
+                Requests for this vehicle
+              </h3>
+              {requests.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">No requests yet.</p>
+              ) : (
+                <div className="mt-2 grid gap-2">
+                  {requests.map((r) => (
+                    <div key={r.id} className="rounded-lg border border-border bg-background p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {r.pickup_location} → {r.dropoff_location}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{r.trip_date}</p>
+                          {r.notes && (
+                            <p className="mt-0.5 text-xs text-muted-foreground">{r.notes}</p>
+                          )}
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${STATUS_COLOR[r.status]}`}
+                        >
+                          {STATUS_LABEL[r.status]}
+                        </span>
+                      </div>
+
+                      {r.status === "requested" && (
+                        <div className="mt-3 flex gap-2 border-t border-border pt-3">
+                          <input
+                            type="number"
+                            min={1}
+                            placeholder="Quote (KSh)"
+                            value={quoteInputs[r.id] ?? ""}
+                            onChange={(e) =>
+                              setQuoteInputs((prev) => ({ ...prev, [r.id]: e.target.value }))
+                            }
+                            className="w-32 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                          />
+                          <button
+                            onClick={() => submitQuote(r.id)}
+                            disabled={quotingId === r.id}
+                            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-60"
+                          >
+                            Send quote
+                          </button>
+                          <button
+                            onClick={() => declineRequest(r.id)}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+
+                      {r.status === "confirmed" && (
+                        <p className="mt-2 flex items-center gap-1 text-xs text-green-700">
+                          <Check className="size-3" /> Paid via{" "}
+                          {r.payment_method === "cash"
+                            ? "cash on the day"
+                            : "M-Pesa (verify your SMS)"}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
