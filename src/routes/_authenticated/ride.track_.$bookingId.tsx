@@ -7,7 +7,8 @@
 // instead of the driver's.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, MapPin } from "lucide-react";
+import { ArrowLeft, MapPin, Star } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
@@ -22,7 +23,7 @@ type Booking = {
   pickup_stage_id: string | null;
   dropoff_stage_id: string | null;
 };
-type Trip = { id: string; route_id: string; vehicle_id: string; status: string };
+type Trip = { id: string; route_id: string; vehicle_id: string; status: string; driver_id: string };
 type RouteRow = { id: string; name: string; origin: string; destination: string };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type Vehicle = {
@@ -41,7 +42,7 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "Booking cancelled",
 };
 
-export const Route = createFileRoute("/_authenticated/ride/track/$bookingId")({
+export const Route = createFileRoute("/_authenticated/ride/track_/$bookingId")({
   component: BookingTrackPage,
 });
 
@@ -83,7 +84,7 @@ function BookingTrackPage() {
 
       const { data: t } = await supabase
         .from("trips")
-        .select("id,route_id,vehicle_id,status")
+        .select("id,route_id,vehicle_id,status,driver_id")
         .eq("id", b.trip_id)
         .maybeSingle();
       if (cancelled) return;
@@ -333,6 +334,10 @@ function BookingTrackPage() {
           )}
         </div>
 
+        {booking.status === "alighted" && trip && (
+          <ReviewPrompt bookingId={booking.id} tripId={trip.id} driverId={trip.driver_id} />
+        )}
+
         {tripActive && (
           <div className="flex items-center justify-between gap-2">
             {isJammed ? (
@@ -384,5 +389,108 @@ function BookingTrackPage() {
         </Link>
       </div>
     </AppShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shown once a booking reaches 'alighted' — one review per booking (enforced
+// both by the unique constraint on trip_reviews.booking_id and the RLS policy
+// checking the booking is actually the reviewer's own and actually alighted).
+// Reviews are visible to every passenger, driver, and sacco admin, not just
+// the two people on this specific trip — see reviews.$driverId.tsx.
+// ---------------------------------------------------------------------------
+function ReviewPrompt({
+  bookingId,
+  tripId,
+  driverId,
+}: {
+  bookingId: string;
+  tripId: string;
+  driverId: string;
+}) {
+  const [checked, setChecked] = useState(false);
+  const [alreadyReviewed, setAlreadyReviewed] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("trip_reviews")
+        .select("id")
+        .eq("booking_id", bookingId)
+        .maybeSingle();
+      setAlreadyReviewed(!!data);
+      setChecked(true);
+    })();
+  }, [bookingId]);
+
+  async function submit() {
+    if (rating < 1) return toast.error("Tap a star to rate your trip");
+    setSubmitting(true);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) throw new Error("Not signed in");
+      const { error } = await supabase.from("trip_reviews").insert({
+        booking_id: bookingId,
+        trip_id: tripId,
+        passenger_id: u.user.id,
+        driver_id: driverId,
+        rating,
+        comment: comment.trim() || null,
+      });
+      if (error) throw error;
+      setSubmitted(true);
+      toast.success("Thanks for your review!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't submit your review");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!checked || alreadyReviewed || submitted) return null;
+
+  return (
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <p className="text-sm font-semibold">How was your trip?</p>
+      <div className="mt-2 flex gap-1">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setRating(n)}
+            onMouseEnter={() => setHoverRating(n)}
+            onMouseLeave={() => setHoverRating(0)}
+            aria-label={`${n} star${n === 1 ? "" : "s"}`}
+          >
+            <Star
+              className={`size-7 ${
+                n <= (hoverRating || rating)
+                  ? "fill-amber-400 text-amber-400"
+                  : "fill-transparent text-muted-foreground"
+              }`}
+            />
+          </button>
+        ))}
+      </div>
+      <textarea
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="Write a review (optional) — other passengers, this driver, and their SACCO can see it"
+        rows={2}
+        className="mt-3 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+      />
+      <button
+        onClick={submit}
+        disabled={submitting}
+        className="mt-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+      >
+        {submitting ? "Submitting…" : "Submit review"}
+      </button>
+    </div>
   );
 }

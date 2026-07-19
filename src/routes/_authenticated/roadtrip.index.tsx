@@ -29,6 +29,7 @@ type Listing = {
   contact_phone: string;
   is_active: boolean;
   created_at: string;
+  photo_urls: string[];
 };
 
 type HireRequest = {
@@ -64,7 +65,7 @@ const STATUS_COLOR: Record<HireRequest["status"], string> = {
 };
 
 const LISTING_SELECT =
-  "id,owner_id,sacco_name,vehicle_make,vehicle_model,plate_number,seats,location_name,contact_phone,is_active,created_at";
+  "id,owner_id,sacco_name,vehicle_make,vehicle_model,plate_number,seats,location_name,contact_phone,is_active,created_at,photo_urls";
 const REQUEST_SELECT =
   "id,listing_id,passenger_id,pickup_location,dropoff_location,trip_date,notes,status,quoted_price,payment_method,created_at";
 
@@ -181,6 +182,18 @@ function BrowseListings({ userId }: { userId: string | null }) {
     <div className="grid gap-3">
       {visible.map((l) => (
         <div key={l.id} className="rounded-xl border border-border bg-surface p-4">
+          {l.photo_urls.length > 0 && (
+            <div className="mb-3 flex gap-2 overflow-x-auto">
+              {l.photo_urls.map((url, i) => (
+                <img
+                  key={url}
+                  src={url}
+                  alt={`${l.vehicle_make} ${l.vehicle_model ?? ""} photo ${i + 1}`}
+                  className="h-24 w-32 shrink-0 rounded-lg border border-border object-cover"
+                />
+              ))}
+            </div>
+          )}
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5 text-sm font-semibold">
@@ -390,6 +403,11 @@ function MyListing({ userId }: { userId: string | null }) {
   const [seats, setSeats] = useState(4);
   const [location, setLocation] = useState("");
   const [phone, setPhone] = useState("");
+  // Existing uploaded photo URLs (kept unless the owner removes one) plus new
+  // files picked this session — merged into one <=5 array on save.
+  const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
+  const [newPhotoFiles, setNewPhotoFiles] = useState<File[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
 
   async function load() {
     if (!userId) return setLoading(false);
@@ -408,6 +426,7 @@ function MyListing({ userId }: { userId: string | null }) {
       setSeats(l.seats);
       setLocation(l.location_name);
       setPhone(l.contact_phone);
+      setExistingPhotos(l.photo_urls ?? []);
 
       const { data: reqs } = await supabase
         .from("hire_requests")
@@ -428,10 +447,32 @@ function MyListing({ userId }: { userId: string | null }) {
     if (!make.trim() || !plate.trim() || !location.trim() || !phone.trim()) {
       return toast.error("Vehicle make, plate, location, and phone are required");
     }
+    if (existingPhotos.length + newPhotoFiles.length > 5) {
+      return toast.error("Only 5 photos allowed — remove one first");
+    }
     setSaving(true);
     try {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) throw new Error("Not signed in");
+
+      let photoUrls = existingPhotos;
+      if (newPhotoFiles.length > 0) {
+        setUploadingPhotos(true);
+        const uploaded: string[] = [];
+        for (const file of newPhotoFiles) {
+          const ext = file.name.split(".").pop() || "jpg";
+          const path = `${u.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const { error: uploadError } = await supabase.storage
+            .from("hire-listing-photos")
+            .upload(path, file);
+          if (uploadError) throw uploadError;
+          const { data: pub } = supabase.storage.from("hire-listing-photos").getPublicUrl(path);
+          uploaded.push(pub.publicUrl);
+        }
+        photoUrls = [...existingPhotos, ...uploaded];
+        setUploadingPhotos(false);
+      }
+
       const payload = {
         owner_id: u.user.id,
         sacco_name: saccoName.trim() || null,
@@ -441,18 +482,36 @@ function MyListing({ userId }: { userId: string | null }) {
         seats,
         location_name: location.trim(),
         contact_phone: phone.trim(),
+        photo_urls: photoUrls,
       };
       const { error } = listing
         ? await supabase.from("hire_listings").update(payload).eq("id", listing.id)
         : await supabase.from("hire_listings").insert(payload);
       if (error) throw error;
       toast.success(listing ? "Listing updated" : "Vehicle listed for hire");
+      setNewPhotoFiles([]);
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't save listing");
     } finally {
       setSaving(false);
+      setUploadingPhotos(false);
     }
+  }
+
+  function removeExistingPhoto(url: string) {
+    setExistingPhotos((prev) => prev.filter((p) => p !== url));
+  }
+
+  function handlePhotoPick(files: FileList | null) {
+    if (!files) return;
+    const picked = Array.from(files);
+    const total = existingPhotos.length + newPhotoFiles.length + picked.length;
+    if (total > 5) {
+      toast.error("Only 5 photos allowed in total");
+      return;
+    }
+    setNewPhotoFiles((prev) => [...prev, ...picked]);
   }
 
   async function toggleActive() {
@@ -563,12 +622,71 @@ function MyListing({ userId }: { userId: string | null }) {
           placeholder="Contact phone"
           className="rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            Photos of the vehicle (optional, up to 5)
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {existingPhotos.map((url) => (
+              <div key={url} className="relative">
+                <img
+                  src={url}
+                  alt="Vehicle"
+                  className="h-20 w-24 rounded-lg border border-border object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeExistingPhoto(url)}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {newPhotoFiles.map((file, i) => (
+              <div key={i} className="relative">
+                <img
+                  src={URL.createObjectURL(file)}
+                  alt="New upload"
+                  className="h-20 w-24 rounded-lg border border-border object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => setNewPhotoFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {existingPhotos.length + newPhotoFiles.length < 5 && (
+              <label className="flex h-20 w-24 cursor-pointer items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-secondary">
+                + Add
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handlePhotoPick(e.target.files)}
+                />
+              </label>
+            )}
+          </div>
+        </div>
+
         <button
           onClick={saveListing}
           disabled={saving}
           className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
         >
-          {saving ? "Saving…" : listing ? "Update listing" : "List my vehicle"}
+          {saving
+            ? uploadingPhotos
+              ? "Uploading photos…"
+              : "Saving…"
+            : listing
+              ? "Update listing"
+              : "List my vehicle"}
         </button>
       </div>
 

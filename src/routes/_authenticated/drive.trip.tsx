@@ -3,7 +3,7 @@ import { useLiveTrafficEta } from "@/lib/traffic-eta";
 import { fetchCongestionRoute, type CongestionSegment } from "@/lib/route-congestion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus } from "lucide-react";
+import { ArrowLeft, MapPin, Bell, Play, Square, DollarSign, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import {
@@ -31,7 +31,7 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
   return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 
-type Vehicle = { id: string; plate_number: string; capacity: number };
+type Vehicle = { id: string; plate_number: string; capacity: number; sacco_id: string | null };
 type RouteRow = { id: string; name: string; base_fare: number | null };
 type Stage = { id: string; name: string; lat: number; lng: number; order_index: number };
 type ActiveTrip = {
@@ -171,7 +171,10 @@ function DriverTrip() {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
       const [{ data: v }, { data: r }, { data: t }] = await Promise.all([
-        supabase.from("vehicles").select("id,plate_number,capacity").eq("driver_id", u.user.id),
+        supabase
+          .from("vehicles")
+          .select("id,plate_number,capacity,sacco_id")
+          .eq("driver_id", u.user.id),
         supabase.from("routes").select("id,name,base_fare").order("name"),
         supabase
           .from("trips")
@@ -460,6 +463,27 @@ function DriverTrip() {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [trip]);
+
+  async function removeVehicle(v: Vehicle) {
+    if (!window.confirm(`Remove ${v.plate_number}? This can't be undone.`)) return;
+    // Same active-trip guard as the SACCO fleet page — don't let a vehicle
+    // vanish out from under a trip that's actually running right now.
+    const { data: activeTrip } = await supabase
+      .from("trips")
+      .select("id")
+      .eq("vehicle_id", v.id)
+      .in("status", ["boarding", "in_transit"])
+      .maybeSingle();
+    if (activeTrip) {
+      toast.error("This vehicle has a trip in progress. End or cancel it before removing.");
+      return;
+    }
+    const { error } = await supabase.from("vehicles").delete().eq("id", v.id);
+    if (error) return toast.error(error.message);
+    toast.success(`${v.plate_number} removed`);
+    setVehicles((prev) => prev.filter((x) => x.id !== v.id));
+    if (vehicleId === v.id) setVehicleId("");
+  }
 
   async function startTrip() {
     const { data: u } = await supabase.auth.getUser();
@@ -979,6 +1003,34 @@ function DriverTrip() {
                 </option>
               ))}
             </select>
+            {vehicles.length > 0 && (
+              <ul className="mt-2 grid gap-1">
+                {vehicles.map((v) => (
+                  <li
+                    key={v.id}
+                    className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
+                  >
+                    <span>
+                      {v.plate_number} ({v.capacity} seats)
+                      {v.sacco_id && " · managed by your SACCO"}
+                    </span>
+                    {/* A SACCO-owned vehicle is that SACCO's asset — removing it
+                        here would pull it out from under the fleet without the
+                        owner's knowledge, so only independently-owned vehicles
+                        (sacco_id null) can be deleted from this screen. */}
+                    {!v.sacco_id && (
+                      <button
+                        type="button"
+                        onClick={() => removeVehicle(v)}
+                        className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="size-3" /> Remove
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
             {/* Previously this whole block only rendered when vehicles.length
                 === 0, which meant the moment a driver had one vehicle, both
                 "register another vehicle" AND "join a SACCO" silently
@@ -1774,7 +1826,7 @@ function RegisterOwnVehicle({ onCreated }: { onCreated: (v: Vehicle) => void }) 
         driver_id: u.user.id,
         sacco_id: null,
       })
-      .select("id,plate_number,capacity")
+      .select("id,plate_number,capacity,sacco_id")
       .single();
     setBusy(false);
     if (error) return toast.error(error.message);

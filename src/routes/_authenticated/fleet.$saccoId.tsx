@@ -192,6 +192,29 @@ function FleetDetail() {
     load();
   }
 
+  async function deleteVehicle(v: Vehicle) {
+    if (!window.confirm(`Remove ${v.plate_number} from your fleet? This can't be undone.`)) {
+      return;
+    }
+    // Block deleting a vehicle mid-trip rather than trusting the client to
+    // avoid clicking it — a live trip disappearing under its passengers
+    // would strand them with no vehicle to track.
+    const { data: activeTrip } = await supabase
+      .from("trips")
+      .select("id")
+      .eq("vehicle_id", v.id)
+      .in("status", ["boarding", "in_transit"])
+      .maybeSingle();
+    if (activeTrip) {
+      toast.error("This vehicle has a trip in progress. End or cancel it before removing.");
+      return;
+    }
+    const { error } = await supabase.from("vehicles").delete().eq("id", v.id);
+    if (error) return toast.error(error.message);
+    toast.success(`${v.plate_number} removed`);
+    setVehicles((prev) => prev.filter((x) => x.id !== v.id));
+  }
+
   async function assignDriver(vehicleId: string) {
     try {
       const data = await assignSaccoDriver({ data: { vehicleId, phone: driverEmail.trim() } });
@@ -454,12 +477,20 @@ function FleetDetail() {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => setAssignFor(assignFor === v.id ? null : v.id)}
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs"
-                  >
-                    <UserPlus className="size-3" /> {v.driver_id ? "Reassign" : "Assign driver"}
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => setAssignFor(assignFor === v.id ? null : v.id)}
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs"
+                    >
+                      <UserPlus className="size-3" /> {v.driver_id ? "Reassign" : "Assign driver"}
+                    </button>
+                    <button
+                      onClick={() => deleteVehicle(v)}
+                      className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="size-3" /> Delete
+                    </button>
+                  </div>
                 </div>
                 {assignFor === v.id && (
                   <div className="mt-3 flex gap-2 border-t border-border pt-3">

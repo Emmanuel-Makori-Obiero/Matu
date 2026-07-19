@@ -210,6 +210,29 @@ function AccountSettings() {
     }
   }
 
+  async function resignRole(role: AppRole) {
+    if (
+      !window.confirm(
+        `Resign as ${roleLabel(role)}? You'll lose access to that dashboard until you register again.`,
+      )
+    ) {
+      return;
+    }
+    setClaimingRole(role);
+    try {
+      const { error } = await supabase.rpc("resign_role", { _role: role });
+      if (error) throw error;
+      setMyRoles((prev) => prev.filter((r) => r !== role));
+      toast.success(`You've resigned as ${roleLabel(role)}`);
+    } catch (err) {
+      // The RPC deliberately blocks this mid-active-trip or while owning a
+      // sacco — surface that reason to the user rather than a generic error.
+      toast.error(err instanceof Error ? err.message : "Couldn't resign that role");
+    } finally {
+      setClaimingRole(null);
+    }
+  }
+
   async function deleteAccount() {
     if (confirmDelete !== "DELETE") return;
     setDeleting(true);
@@ -444,12 +467,32 @@ function AccountSettings() {
                     </div>
                   </div>
                   {held ? (
-                    <Link
-                      to={ROLE_HOME[opt.value]}
-                      className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/20"
-                    >
-                      <Check className="size-3.5" /> Go to dashboard
-                    </Link>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Link
+                        to={ROLE_HOME[opt.value]}
+                        className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/20"
+                      >
+                        <Check className="size-3.5" /> Go to dashboard
+                      </Link>
+                      {opt.value === "driver" && userId && (
+                        <Link
+                          to="/reviews/$driverId"
+                          params={{ driverId: userId }}
+                          className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-secondary"
+                        >
+                          My reviews
+                        </Link>
+                      )}
+                      {opt.value !== "passenger" && (
+                        <button
+                          onClick={() => resignRole(opt.value)}
+                          disabled={claimingRole === opt.value}
+                          className="rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
+                        >
+                          {claimingRole === opt.value ? "Resigning…" : "Resign"}
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <button
                       onClick={() => registerRole(opt.value)}
