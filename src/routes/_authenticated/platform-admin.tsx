@@ -6,7 +6,7 @@
 // filed platform-wide so nothing sits unresolved just because no SACCO admin
 // happened to look.
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ShieldAlert, ShieldCheck, ShieldX, MessageSquareWarning, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +19,7 @@ type ComplaintStatus = Database["public"]["Enums"]["complaint_status"];
 type PendingVerificationRow = {
   user_id: string;
   full_name: string | null;
+  age: number | null;
   phone: string | null;
   id_number: string | null;
   license_number: string | null;
@@ -26,10 +27,6 @@ type PendingVerificationRow = {
   roles: string[];
   sacco_name: string | null;
   sacco_registration_number: string | null;
-  id_document_path: string | null;
-  license_document_path: string | null;
-  psv_badge_path: string | null;
-  good_conduct_path: string | null;
   created_at: string;
 };
 
@@ -110,6 +107,14 @@ function PlatformAdminPage() {
 
   const [saccoOverview, setSaccoOverview] = useState<SaccoOverviewRow[]>([]);
   const [loadingSaccoOverview, setLoadingSaccoOverview] = useState(true);
+
+  // Which section of the dashboard is showing. Previously all five sections
+  // rendered stacked in one long scroll — tabs plus the stat bar below give
+  // admins an at-a-glance count and a way to jump straight to what needs
+  // attention (verifications, complaints) instead of scrolling past Users.
+  const [activeTab, setActiveTab] = useState<
+    "users" | "saccos" | "vehicles" | "verifications" | "complaints"
+  >("users");
 
   useEffect(() => {
     checkAccess();
@@ -304,21 +309,6 @@ function PlatformAdminPage() {
 
   const visibleComplaints = complaints.filter((c) => showResolved || c.status !== "resolved");
 
-  async function openDocument(path: string) {
-    // Signed, short-lived (5 min) rather than a public URL — the bucket is
-    // private specifically so only the uploader and platform admins (via the
-    // "Platform admins read verification documents" storage policy) can ever
-    // see these.
-    const { data, error } = await supabase.storage
-      .from("verification-documents")
-      .createSignedUrl(path, 300);
-    if (error || !data) {
-      toast.error(error?.message ?? "Couldn't open that document");
-      return;
-    }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-  }
-
   async function loadVerifications() {
     setLoadingVerifications(true);
     // pending_verifications is a view scoped to is_platform_admin() itself
@@ -385,401 +375,478 @@ function PlatformAdminPage() {
       title="Platform admin"
       subtitle="Cross-SACCO oversight. Suspending a vehicle here blocks it platform-wide, regardless of which SACCO owns it."
     >
-      <div className="mt-2 space-y-3">
-        <h2 className="font-display text-lg font-semibold">Users</h2>
-        <p className="text-xs opacity-70">
-          Every account on the platform, any role. Suspend blocks sign-in/booking entirely; a
-          warning just leaves a note the user sees next time they open the app.
-        </p>
-        <input
-          type="text"
-          placeholder="Search by name, phone, or email…"
-          value={userSearch}
-          onChange={(e) => setUserSearch(e.target.value)}
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+      {/* Stat bar — quick glance at what needs attention before diving into a tab */}
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <StatCard label="Users" value={users.length} />
+        <StatCard label="Saccos" value={saccoOverview.length} />
+        <StatCard label="Vehicles" value={vehicles.length} />
+        <StatCard
+          label="Pending verifications"
+          value={pendingVerifications.length}
+          highlight={pendingVerifications.length > 0}
         />
-        {loadingUsers && <p className="text-sm opacity-70">Loading users…</p>}
-        {!loadingUsers &&
-          users
-            .filter((u) => {
-              const q = userSearch.trim().toLowerCase();
-              if (!q) return true;
-              return (
-                (u.full_name ?? "").toLowerCase().includes(q) ||
-                (u.phone ?? "").toLowerCase().includes(q) ||
-                (u.email ?? "").toLowerCase().includes(q)
-              );
-            })
-            .map((u) => (
-              <div
-                key={u.user_id}
-                className={`rounded-2xl border p-4 ${
-                  u.is_suspended ? "border-red-500/50 bg-red-500/5" : "border-border bg-surface"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-semibold">{u.full_name ?? "(no name set)"}</p>
-                    <p className="text-xs opacity-70">
-                      {u.email ?? "no email"} · {u.phone ?? "no phone"} ·{" "}
-                      {u.roles.length > 0 ? u.roles.join(", ") : "no role"}
-                    </p>
-                    {u.warning_count > 0 && (
+        <StatCard
+          label="Open complaints"
+          value={complaints.filter((c) => c.status !== "resolved").length}
+          highlight={complaints.some((c) => c.status !== "resolved")}
+        />
+      </div>
+
+      {/* Tab nav */}
+      <div className="mt-4 flex flex-wrap gap-1.5 border-b border-border pb-2">
+        <TabButton active={activeTab === "users"} onClick={() => setActiveTab("users")}>
+          Users
+        </TabButton>
+        <TabButton active={activeTab === "saccos"} onClick={() => setActiveTab("saccos")}>
+          Saccos &amp; drivers
+        </TabButton>
+        <TabButton active={activeTab === "vehicles"} onClick={() => setActiveTab("vehicles")}>
+          Vehicles
+        </TabButton>
+        <TabButton
+          active={activeTab === "verifications"}
+          onClick={() => setActiveTab("verifications")}
+          badge={pendingVerifications.length || undefined}
+        >
+          Verifications
+        </TabButton>
+        <TabButton
+          active={activeTab === "complaints"}
+          onClick={() => setActiveTab("complaints")}
+          badge={complaints.filter((c) => c.status !== "resolved").length || undefined}
+        >
+          Complaints
+        </TabButton>
+      </div>
+
+      {activeTab === "users" && (
+        <div className="mt-4 space-y-3">
+          <h2 className="font-display text-lg font-semibold">Users</h2>
+          <p className="text-xs opacity-70">
+            Every account on the platform, any role. Suspend blocks sign-in/booking entirely; a
+            warning just leaves a note the user sees next time they open the app.
+          </p>
+          <input
+            type="text"
+            placeholder="Search by name, phone, or email…"
+            value={userSearch}
+            onChange={(e) => setUserSearch(e.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          />
+          {loadingUsers && <p className="text-sm opacity-70">Loading users…</p>}
+          {!loadingUsers &&
+            users
+              .filter((u) => {
+                const q = userSearch.trim().toLowerCase();
+                if (!q) return true;
+                return (
+                  (u.full_name ?? "").toLowerCase().includes(q) ||
+                  (u.phone ?? "").toLowerCase().includes(q) ||
+                  (u.email ?? "").toLowerCase().includes(q)
+                );
+              })
+              .map((u) => (
+                <div
+                  key={u.user_id}
+                  className={`rounded-2xl border p-4 ${
+                    u.is_suspended ? "border-red-500/50 bg-red-500/5" : "border-border bg-surface"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-semibold">{u.full_name ?? "(no name set)"}</p>
                       <p className="text-xs opacity-70">
-                        {u.warning_count} warning{u.warning_count === 1 ? "" : "s"} issued
+                        {u.email ?? "no email"} · {u.phone ?? "no phone"} ·{" "}
+                        {u.roles.length > 0 ? u.roles.join(", ") : "no role"}
                       </p>
-                    )}
-                    {u.is_suspended && u.suspended_reason && (
-                      <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-                        <ShieldAlert className="size-3.5" /> {u.suspended_reason}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    disabled={userBusyId === u.user_id}
-                    onClick={() => toggleUserSuspension(u)}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${
-                      u.is_suspended ? "bg-green-600" : "bg-red-600"
-                    }`}
-                  >
-                    {u.is_suspended ? (
-                      <>
-                        <ShieldCheck className="size-4" /> Reinstate
-                      </>
-                    ) : (
-                      <>
-                        <ShieldX className="size-4" /> Suspend
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {!u.is_suspended && (
-                  <input
-                    type="text"
-                    placeholder="Reason (required to suspend)"
-                    value={suspendReasonDraft[u.user_id] ?? ""}
-                    onChange={(e) =>
-                      setSuspendReasonDraft((prev) => ({ ...prev, [u.user_id]: e.target.value }))
-                    }
-                    className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  />
-                )}
-
-                <div className="mt-2 flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Send a warning message…"
-                    value={warningDraft[u.user_id] ?? ""}
-                    onChange={(e) =>
-                      setWarningDraft((prev) => ({ ...prev, [u.user_id]: e.target.value }))
-                    }
-                    className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  />
-                  <button
-                    disabled={userBusyId === u.user_id}
-                    onClick={() => sendWarning(u)}
-                    className="flex shrink-0 items-center gap-1.5 rounded-xl bg-amber-500 px-3 py-2 text-sm font-medium text-amber-950 disabled:opacity-50"
-                  >
-                    <MessageSquareWarning className="size-4" /> Warn
-                  </button>
-                </div>
-              </div>
-            ))}
-      </div>
-
-      <div className="mt-8 space-y-3">
-        <h2 className="font-display text-lg font-semibold">Saccos &amp; drivers</h2>
-        <p className="text-xs opacity-70">
-          Every SACCO, who owns it, how many drivers/vehicles it has, and the real money that's
-          moved through its wallet (commission earned, fares collected).
-        </p>
-        {loadingSaccoOverview && <p className="text-sm opacity-70">Loading saccos…</p>}
-        {!loadingSaccoOverview && saccoOverview.length === 0 && (
-          <p className="text-sm opacity-70">No saccos registered yet.</p>
-        )}
-        {!loadingSaccoOverview && saccoOverview.length > 0 && (
-          <div className="overflow-x-auto rounded-2xl border border-border">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="bg-secondary/50 text-xs uppercase opacity-70">
-                <tr>
-                  <th className="px-3 py-2">Sacco</th>
-                  <th className="px-3 py-2">Owner</th>
-                  <th className="px-3 py-2">Drivers</th>
-                  <th className="px-3 py-2">Vehicles</th>
-                  <th className="px-3 py-2">Wallet balance</th>
-                  <th className="px-3 py-2">Commission earned</th>
-                  <th className="px-3 py-2">Fares collected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {saccoOverview.map((s) => (
-                  <tr key={s.sacco_id} className="border-t border-border">
-                    <td className="px-3 py-2 font-medium">
-                      {s.sacco_name}
-                      {s.registration_number && (
-                        <span className="ml-1 opacity-60">({s.registration_number})</span>
+                      {u.warning_count > 0 && (
+                        <p className="text-xs opacity-70">
+                          {u.warning_count} warning{u.warning_count === 1 ? "" : "s"} issued
+                        </p>
                       )}
-                    </td>
-                    <td className="px-3 py-2">{s.owner_name ?? "—"}</td>
-                    <td className="px-3 py-2">{s.driver_count}</td>
-                    <td className="px-3 py-2">{s.vehicle_count}</td>
-                    <td className="px-3 py-2">KSh {s.sacco_wallet_balance.toLocaleString()}</td>
-                    <td className="px-3 py-2">KSh {s.total_commission_earned.toLocaleString()}</td>
-                    <td className="px-3 py-2">KSh {s.total_fares_collected.toLocaleString()}</td>
+                      {u.is_suspended && u.suspended_reason && (
+                        <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                          <ShieldAlert className="size-3.5" /> {u.suspended_reason}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      disabled={userBusyId === u.user_id}
+                      onClick={() => toggleUserSuspension(u)}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-white disabled:opacity-50 ${
+                        u.is_suspended ? "bg-green-600" : "bg-red-600"
+                      }`}
+                    >
+                      {u.is_suspended ? (
+                        <>
+                          <ShieldCheck className="size-4" /> Reinstate
+                        </>
+                      ) : (
+                        <>
+                          <ShieldX className="size-4" /> Suspend
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {!u.is_suspended && (
+                    <input
+                      type="text"
+                      placeholder="Reason (required to suspend)"
+                      value={suspendReasonDraft[u.user_id] ?? ""}
+                      onChange={(e) =>
+                        setSuspendReasonDraft((prev) => ({ ...prev, [u.user_id]: e.target.value }))
+                      }
+                      className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  )}
+
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Send a warning message…"
+                      value={warningDraft[u.user_id] ?? ""}
+                      onChange={(e) =>
+                        setWarningDraft((prev) => ({ ...prev, [u.user_id]: e.target.value }))
+                      }
+                      className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    />
+                    <button
+                      disabled={userBusyId === u.user_id}
+                      onClick={() => sendWarning(u)}
+                      className="flex shrink-0 items-center gap-1.5 rounded-xl bg-amber-500 px-3 py-2 text-sm font-medium text-amber-950 disabled:opacity-50"
+                    >
+                      <MessageSquareWarning className="size-4" /> Warn
+                    </button>
+                  </div>
+                </div>
+              ))}
+        </div>
+      )}
+
+      {activeTab === "saccos" && (
+        <div className="mt-4 space-y-3">
+          <h2 className="font-display text-lg font-semibold">Saccos &amp; drivers</h2>
+          <p className="text-xs opacity-70">
+            Every SACCO, who owns it, how many drivers/vehicles it has, and the real money that's
+            moved through its wallet (commission earned, fares collected).
+          </p>
+          {loadingSaccoOverview && <p className="text-sm opacity-70">Loading saccos…</p>}
+          {!loadingSaccoOverview && saccoOverview.length === 0 && (
+            <p className="text-sm opacity-70">No saccos registered yet.</p>
+          )}
+          {!loadingSaccoOverview && saccoOverview.length > 0 && (
+            <div className="overflow-x-auto rounded-2xl border border-border">
+              <table className="w-full min-w-[720px] text-left text-sm">
+                <thead className="bg-secondary/50 text-xs uppercase opacity-70">
+                  <tr>
+                    <th className="px-3 py-2">Sacco</th>
+                    <th className="px-3 py-2">Owner</th>
+                    <th className="px-3 py-2">Drivers</th>
+                    <th className="px-3 py-2">Vehicles</th>
+                    <th className="px-3 py-2">Wallet balance</th>
+                    <th className="px-3 py-2">Commission earned</th>
+                    <th className="px-3 py-2">Fares collected</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-8 space-y-3">
-        <OfflineDebugPanel />
-        <h2 className="font-display text-lg font-semibold">Vehicles</h2>
-        {loading && <p className="text-sm opacity-70">Loading vehicles…</p>}
-        {!loading && vehicles.length === 0 && (
-          <p className="text-sm opacity-70">No vehicles found across any SACCO yet.</p>
-        )}
-        {vehicles.map((v) => (
-          <div
-            key={v.id}
-            className={`rounded-2xl border p-4 ${
-              v.suspended ? "border-red-500/50 bg-red-500/5" : "border-border bg-surface"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold">
-                  {v.plate_number}
-                  {v.nickname && (
-                    <span className="ml-2 font-normal opacity-70">"{v.nickname}"</span>
-                  )}
-                </p>
-                <p className="text-xs opacity-70">{v.sacco_name ?? "No SACCO"}</p>
-                {v.suspended && v.suspended_reason && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-                    <ShieldAlert className="size-3.5" /> {v.suspended_reason}
-                  </p>
-                )}
-              </div>
-
-              {v.suspended ? (
-                <button
-                  disabled={busyId === v.id}
-                  onClick={() => toggleSuspend(v)}
-                  className="flex items-center gap-1.5 rounded-xl bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  <ShieldCheck className="size-4" /> Reinstate
-                </button>
-              ) : (
-                <button
-                  disabled={busyId === v.id}
-                  onClick={() => toggleSuspend(v)}
-                  className="flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  <ShieldX className="size-4" /> Suspend
-                </button>
-              )}
+                </thead>
+                <tbody>
+                  {saccoOverview.map((s) => (
+                    <tr key={s.sacco_id} className="border-t border-border">
+                      <td className="px-3 py-2 font-medium">
+                        {s.sacco_name}
+                        {s.registration_number && (
+                          <span className="ml-1 opacity-60">({s.registration_number})</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">{s.owner_name ?? "—"}</td>
+                      <td className="px-3 py-2">{s.driver_count}</td>
+                      <td className="px-3 py-2">{s.vehicle_count}</td>
+                      <td className="px-3 py-2">KSh {s.sacco_wallet_balance.toLocaleString()}</td>
+                      <td className="px-3 py-2">
+                        KSh {s.total_commission_earned.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2">KSh {s.total_fares_collected.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+          )}
+        </div>
+      )}
 
-            {!v.suspended && (
-              <input
-                type="text"
-                placeholder="Reason (required to suspend)"
-                value={reasonDraft[v.id] ?? ""}
-                onChange={(e) => setReasonDraft((prev) => ({ ...prev, [v.id]: e.target.value }))}
-                className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              />
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-8 space-y-3">
-        <h2 className="font-display text-lg font-semibold">Pending verifications</h2>
-        <p className="text-xs opacity-70">
-          Drivers and SACCO owners submit ID/license details at signup and can use the app
-          immediately — approving or rejecting here just updates their verified badge.
-        </p>
-
-        {loadingVerifications && <p className="text-sm opacity-70">Loading…</p>}
-        {!loadingVerifications && pendingVerifications.length === 0 && (
-          <p className="text-sm opacity-70">Nothing pending right now.</p>
-        )}
-        {pendingVerifications.map((row) => (
-          <div
-            key={row.user_id}
-            className="rounded-2xl border border-amber-500/50 bg-amber-500/5 p-4"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="flex items-center gap-1.5 font-semibold">
-                  <UserCheck className="size-4" />
-                  {row.full_name ?? "Unnamed"}
-                  <span className="font-normal opacity-70"> · {row.roles.join(", ")}</span>
-                </p>
-                <p className="text-xs opacity-70">
-                  {row.phone ?? "No phone"} · ID {row.id_number ?? "—"}
-                  {row.license_number && ` · License ${row.license_number}`}
-                </p>
-                {row.sacco_name && (
-                  <p className="text-xs opacity-70">
-                    SACCO: {row.sacco_name}
-                    {row.sacco_registration_number && ` (reg. ${row.sacco_registration_number})`}
+      {activeTab === "vehicles" && (
+        <div className="mt-4 space-y-3">
+          <OfflineDebugPanel />
+          <h2 className="font-display text-lg font-semibold">Vehicles</h2>
+          {loading && <p className="text-sm opacity-70">Loading vehicles…</p>}
+          {!loading && vehicles.length === 0 && (
+            <p className="text-sm opacity-70">No vehicles found across any SACCO yet.</p>
+          )}
+          {vehicles.map((v) => (
+            <div
+              key={v.id}
+              className={`rounded-2xl border p-4 ${
+                v.suspended ? "border-red-500/50 bg-red-500/5" : "border-border bg-surface"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="font-semibold">
+                    {v.plate_number}
+                    {v.nickname && (
+                      <span className="ml-2 font-normal opacity-70">"{v.nickname}"</span>
+                    )}
                   </p>
-                )}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {row.id_document_path && (
-                    <button
-                      onClick={() => openDocument(row.id_document_path!)}
-                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
-                    >
-                      View ID
-                    </button>
-                  )}
-                  {row.license_document_path && (
-                    <button
-                      onClick={() => openDocument(row.license_document_path!)}
-                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
-                    >
-                      View license
-                    </button>
-                  )}
-                  {row.psv_badge_path && (
-                    <button
-                      onClick={() => openDocument(row.psv_badge_path!)}
-                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
-                    >
-                      View PSV badge
-                    </button>
-                  )}
-                  {row.good_conduct_path && (
-                    <button
-                      onClick={() => openDocument(row.good_conduct_path!)}
-                      className="rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-secondary"
-                    >
-                      View good conduct cert.
-                    </button>
-                  )}
-                  {!row.id_document_path && (
-                    <span className="text-xs italic text-destructive">No ID document uploaded</span>
+                  <p className="text-xs opacity-70">{v.sacco_name ?? "No SACCO"}</p>
+                  {v.suspended && v.suspended_reason && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                      <ShieldAlert className="size-3.5" /> {v.suspended_reason}
+                    </p>
                   )}
                 </div>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  disabled={verifyBusyId === row.user_id}
-                  onClick={() => reviewVerification(row, "verified")}
-                  className="flex items-center gap-1.5 rounded-xl bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  <ShieldCheck className="size-4" /> Verify
-                </button>
-                <button
-                  disabled={verifyBusyId === row.user_id}
-                  onClick={() => reviewVerification(row, "rejected")}
-                  className="flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  <ShieldX className="size-4" /> Reject
-                </button>
-              </div>
-            </div>
-            <input
-              type="text"
-              placeholder="Rejection reason (required to reject)"
-              value={rejectReasonDraft[row.user_id] ?? ""}
-              onChange={(e) =>
-                setRejectReasonDraft((prev) => ({ ...prev, [row.user_id]: e.target.value }))
-              }
-              className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            />
-          </div>
-        ))}
-      </div>
 
-      <div className="mt-8 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold">Complaints</h2>
-          <label className="flex items-center gap-2 text-xs opacity-70">
-            <input
-              type="checkbox"
-              checked={showResolved}
-              onChange={(e) => setShowResolved(e.target.checked)}
-            />
-            Show resolved
-          </label>
-        </div>
-
-        {loadingComplaints && <p className="text-sm opacity-70">Loading complaints…</p>}
-        {!loadingComplaints && visibleComplaints.length === 0 && (
-          <p className="text-sm opacity-70">Nothing here right now.</p>
-        )}
-        {visibleComplaints.map((c) => (
-          <div
-            key={c.id}
-            className={`rounded-2xl border p-4 ${
-              c.status === "resolved"
-                ? "border-border bg-surface opacity-60"
-                : c.status === "acknowledged"
-                  ? "border-amber-500/50 bg-amber-500/5"
-                  : "border-red-500/50 bg-red-500/5"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-xs opacity-70">
-                <MessageSquareWarning className="size-3.5" />
-                {c.category === "app" ? "App issue" : "Travel issue"}
-                {c.sacco_name && <span> · {c.sacco_name}</span>}
-                <span>
-                  ·{" "}
-                  {new Date(c.created_at).toLocaleDateString("en-KE", {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                </span>
+                {v.suspended ? (
+                  <button
+                    disabled={busyId === v.id}
+                    onClick={() => toggleSuspend(v)}
+                    className="flex items-center gap-1.5 rounded-xl bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    <ShieldCheck className="size-4" /> Reinstate
+                  </button>
+                ) : (
+                  <button
+                    disabled={busyId === v.id}
+                    onClick={() => toggleSuspend(v)}
+                    className="flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    <ShieldX className="size-4" /> Suspend
+                  </button>
+                )}
               </div>
-              <span className="text-xs font-medium uppercase tracking-wide opacity-70">
-                {c.status}
-              </span>
-            </div>
-            <p className="mt-2 text-sm">{c.message}</p>
-            {c.resolution_note && (
-              <p className="mt-2 text-xs italic opacity-70">Note: {c.resolution_note}</p>
-            )}
 
-            {c.status !== "resolved" && (
-              <div className="mt-3 space-y-2">
+              {!v.suspended && (
                 <input
                   type="text"
-                  placeholder="Resolution note (optional)"
-                  value={noteDraft[c.id] ?? ""}
-                  onChange={(e) => setNoteDraft((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  placeholder="Reason (required to suspend)"
+                  value={reasonDraft[v.id] ?? ""}
+                  onChange={(e) => setReasonDraft((prev) => ({ ...prev, [v.id]: e.target.value }))}
+                  className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
                 />
-                <div className="flex gap-2">
-                  {c.status === "open" && (
-                    <button
-                      disabled={resolvingId === c.id}
-                      onClick={() => resolveComplaint(c, "acknowledged")}
-                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                    >
-                      Acknowledge
-                    </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === "verifications" && (
+        <div className="mt-4 space-y-3">
+          <h2 className="font-display text-lg font-semibold">Pending verifications</h2>
+          <p className="text-xs opacity-70">
+            Drivers and SACCO owners submit ID/license details at signup and can use the app
+            immediately — approving or rejecting here just updates their verified badge.
+          </p>
+
+          {loadingVerifications && <p className="text-sm opacity-70">Loading…</p>}
+          {!loadingVerifications && pendingVerifications.length === 0 && (
+            <p className="text-sm opacity-70">Nothing pending right now.</p>
+          )}
+          {pendingVerifications.map((row) => (
+            <div
+              key={row.user_id}
+              className="rounded-2xl border border-amber-500/50 bg-amber-500/5 p-4"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="flex items-center gap-1.5 font-semibold">
+                    <UserCheck className="size-4" />
+                    {row.full_name ?? "Unnamed"}
+                    {row.age != null && (
+                      <span className="font-normal opacity-70"> · {row.age} yrs</span>
+                    )}
+                    <span className="font-normal opacity-70"> · {row.roles.join(", ")}</span>
+                  </p>
+                  <p className="text-xs opacity-70">
+                    {row.phone ?? "No phone"} · ID {row.id_number ?? "—"}
+                    {row.license_number && ` · License ${row.license_number}`}
+                  </p>
+                  {row.sacco_name && (
+                    <p className="text-xs opacity-70">
+                      SACCO: {row.sacco_name}
+                      {row.sacco_registration_number && ` (reg. ${row.sacco_registration_number})`}
+                    </p>
                   )}
+                </div>
+                <div className="flex shrink-0 gap-2">
                   <button
-                    disabled={resolvingId === c.id}
-                    onClick={() => resolveComplaint(c, "resolved")}
-                    className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    disabled={verifyBusyId === row.user_id}
+                    onClick={() => reviewVerification(row, "verified")}
+                    className="flex items-center gap-1.5 rounded-xl bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                   >
-                    Mark resolved
+                    <ShieldCheck className="size-4" /> Verify
+                  </button>
+                  <button
+                    disabled={verifyBusyId === row.user_id}
+                    onClick={() => reviewVerification(row, "rejected")}
+                    className="flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    <ShieldX className="size-4" /> Reject
                   </button>
                 </div>
               </div>
-            )}
+              <input
+                type="text"
+                placeholder="Rejection reason (required to reject)"
+                value={rejectReasonDraft[row.user_id] ?? ""}
+                onChange={(e) =>
+                  setRejectReasonDraft((prev) => ({ ...prev, [row.user_id]: e.target.value }))
+                }
+                className="mt-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === "complaints" && (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg font-semibold">Complaints</h2>
+            <label className="flex items-center gap-2 text-xs opacity-70">
+              <input
+                type="checkbox"
+                checked={showResolved}
+                onChange={(e) => setShowResolved(e.target.checked)}
+              />
+              Show resolved
+            </label>
           </div>
-        ))}
-      </div>
+
+          {loadingComplaints && <p className="text-sm opacity-70">Loading complaints…</p>}
+          {!loadingComplaints && visibleComplaints.length === 0 && (
+            <p className="text-sm opacity-70">Nothing here right now.</p>
+          )}
+          {visibleComplaints.map((c) => (
+            <div
+              key={c.id}
+              className={`rounded-2xl border p-4 ${
+                c.status === "resolved"
+                  ? "border-border bg-surface opacity-60"
+                  : c.status === "acknowledged"
+                    ? "border-amber-500/50 bg-amber-500/5"
+                    : "border-red-500/50 bg-red-500/5"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2 text-xs opacity-70">
+                  <MessageSquareWarning className="size-3.5" />
+                  {c.category === "app" ? "App issue" : "Travel issue"}
+                  {c.sacco_name && <span> · {c.sacco_name}</span>}
+                  <span>
+                    ·{" "}
+                    {new Date(c.created_at).toLocaleDateString("en-KE", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </span>
+                </div>
+                <span className="text-xs font-medium uppercase tracking-wide opacity-70">
+                  {c.status}
+                </span>
+              </div>
+              <p className="mt-2 text-sm">{c.message}</p>
+              {c.resolution_note && (
+                <p className="mt-2 text-xs italic opacity-70">Note: {c.resolution_note}</p>
+              )}
+
+              {c.status !== "resolved" && (
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Resolution note (optional)"
+                    value={noteDraft[c.id] ?? ""}
+                    onChange={(e) => setNoteDraft((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <div className="flex gap-2">
+                    {c.status === "open" && (
+                      <button
+                        disabled={resolvingId === c.id}
+                        onClick={() => resolveComplaint(c, "acknowledged")}
+                        className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                      >
+                        Acknowledge
+                      </button>
+                    )}
+                    <button
+                      disabled={resolvingId === c.id}
+                      onClick={() => resolveComplaint(c, "resolved")}
+                      className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    >
+                      Mark resolved
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </AppShell>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-xl border p-3 ${
+        highlight ? "border-amber-500/50 bg-amber-500/10" : "border-border bg-surface"
+      }`}
+    >
+      <p className={`font-display text-2xl font-semibold ${highlight ? "text-amber-700" : ""}`}>
+        {value}
+      </p>
+      <p className="text-xs opacity-70">{label}</p>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+  badge,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  badge?: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+      }`}
+    >
+      {children}
+      {badge != null && (
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+            active ? "bg-white/25" : "bg-amber-500/20 text-amber-700"
+          }`}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
   );
 }
