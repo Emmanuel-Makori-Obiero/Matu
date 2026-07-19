@@ -6,7 +6,7 @@
 // filed platform-wide so nothing sits unresolved just because no SACCO admin
 // happened to look.
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { ShieldAlert, ShieldCheck, ShieldX, MessageSquareWarning, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,7 +19,6 @@ type ComplaintStatus = Database["public"]["Enums"]["complaint_status"];
 type PendingVerificationRow = {
   user_id: string;
   full_name: string | null;
-  age: number | null;
   phone: string | null;
   id_number: string | null;
   license_number: string | null;
@@ -108,13 +107,9 @@ function PlatformAdminPage() {
   const [saccoOverview, setSaccoOverview] = useState<SaccoOverviewRow[]>([]);
   const [loadingSaccoOverview, setLoadingSaccoOverview] = useState(true);
 
-  // Which section of the dashboard is showing. Previously all five sections
-  // rendered stacked in one long scroll — tabs plus the stat bar below give
-  // admins an at-a-glance count and a way to jump straight to what needs
-  // attention (verifications, complaints) instead of scrolling past Users.
-  const [activeTab, setActiveTab] = useState<
-    "users" | "saccos" | "vehicles" | "verifications" | "complaints"
-  >("users");
+  const [tab, setTab] = useState<
+    "overview" | "users" | "saccos" | "vehicles" | "verifications" | "complaints"
+  >("overview");
 
   useEffect(() => {
     checkAccess();
@@ -370,57 +365,75 @@ function PlatformAdminPage() {
     );
   }
 
+  const openComplaintCount = complaints.filter((c) => c.status !== "resolved").length;
+  const suspendedVehicleCount = vehicles.filter((v) => v.suspended).length;
+
   return (
     <AppShell
       title="Platform admin"
       subtitle="Cross-SACCO oversight. Suspending a vehicle here blocks it platform-wide, regardless of which SACCO owns it."
     >
-      {/* Stat bar — quick glance at what needs attention before diving into a tab */}
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <StatCard label="Users" value={users.length} />
-        <StatCard label="Saccos" value={saccoOverview.length} />
-        <StatCard label="Vehicles" value={vehicles.length} />
-        <StatCard
-          label="Pending verifications"
-          value={pendingVerifications.length}
-          highlight={pendingVerifications.length > 0}
-        />
-        <StatCard
-          label="Open complaints"
-          value={complaints.filter((c) => c.status !== "resolved").length}
-          highlight={complaints.some((c) => c.status !== "resolved")}
-        />
+      <div className="mb-5 flex flex-wrap gap-2 rounded-lg border border-border bg-surface p-1 text-sm">
+        {(
+          [
+            { id: "overview", label: "Overview" },
+            { id: "users", label: `Users${users.length ? ` (${users.length})` : ""}` },
+            { id: "saccos", label: "Saccos & drivers" },
+            {
+              id: "vehicles",
+              label: `Vehicles${suspendedVehicleCount ? ` (${suspendedVehicleCount} suspended)` : ""}`,
+            },
+            {
+              id: "verifications",
+              label: `Verifications${pendingVerifications.length ? ` (${pendingVerifications.length})` : ""}`,
+            },
+            {
+              id: "complaints",
+              label: `Complaints${openComplaintCount ? ` (${openComplaintCount})` : ""}`,
+            },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-md px-3 py-1.5 font-medium transition ${
+              tab === t.id ? "bg-primary text-primary-foreground" : "opacity-70 hover:bg-secondary"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Tab nav */}
-      <div className="mt-4 flex flex-wrap gap-1.5 border-b border-border pb-2">
-        <TabButton active={activeTab === "users"} onClick={() => setActiveTab("users")}>
-          Users
-        </TabButton>
-        <TabButton active={activeTab === "saccos"} onClick={() => setActiveTab("saccos")}>
-          Saccos &amp; drivers
-        </TabButton>
-        <TabButton active={activeTab === "vehicles"} onClick={() => setActiveTab("vehicles")}>
-          Vehicles
-        </TabButton>
-        <TabButton
-          active={activeTab === "verifications"}
-          onClick={() => setActiveTab("verifications")}
-          badge={pendingVerifications.length || undefined}
-        >
-          Verifications
-        </TabButton>
-        <TabButton
-          active={activeTab === "complaints"}
-          onClick={() => setActiveTab("complaints")}
-          badge={complaints.filter((c) => c.status !== "resolved").length || undefined}
-        >
-          Complaints
-        </TabButton>
-      </div>
+      {tab === "overview" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Total users" value={users.length} onClick={() => setTab("users")} />
+            <StatCard
+              label="Suspended vehicles"
+              value={suspendedVehicleCount}
+              alert={suspendedVehicleCount > 0}
+              onClick={() => setTab("vehicles")}
+            />
+            <StatCard
+              label="Pending verifications"
+              value={pendingVerifications.length}
+              alert={pendingVerifications.length > 0}
+              onClick={() => setTab("verifications")}
+            />
+            <StatCard
+              label="Open complaints"
+              value={openComplaintCount}
+              alert={openComplaintCount > 0}
+              onClick={() => setTab("complaints")}
+            />
+          </div>
+          <OfflineDebugPanel />
+        </div>
+      )}
 
-      {activeTab === "users" && (
-        <div className="mt-4 space-y-3">
+      {tab === "users" && (
+        <div className="space-y-3">
           <h2 className="font-display text-lg font-semibold">Users</h2>
           <p className="text-xs opacity-70">
             Every account on the platform, any role. Suspend blocks sign-in/booking entirely; a
@@ -524,8 +537,8 @@ function PlatformAdminPage() {
         </div>
       )}
 
-      {activeTab === "saccos" && (
-        <div className="mt-4 space-y-3">
+      {tab === "saccos" && (
+        <div className="space-y-3">
           <h2 className="font-display text-lg font-semibold">Saccos &amp; drivers</h2>
           <p className="text-xs opacity-70">
             Every SACCO, who owns it, how many drivers/vehicles it has, and the real money that's
@@ -575,9 +588,8 @@ function PlatformAdminPage() {
         </div>
       )}
 
-      {activeTab === "vehicles" && (
-        <div className="mt-4 space-y-3">
-          <OfflineDebugPanel />
+      {tab === "vehicles" && (
+        <div className="space-y-3">
           <h2 className="font-display text-lg font-semibold">Vehicles</h2>
           {loading && <p className="text-sm opacity-70">Loading vehicles…</p>}
           {!loading && vehicles.length === 0 && (
@@ -639,12 +651,13 @@ function PlatformAdminPage() {
         </div>
       )}
 
-      {activeTab === "verifications" && (
-        <div className="mt-4 space-y-3">
+      {tab === "verifications" && (
+        <div className="space-y-3">
           <h2 className="font-display text-lg font-semibold">Pending verifications</h2>
           <p className="text-xs opacity-70">
-            Drivers and SACCO owners submit ID/license details at signup and can use the app
-            immediately — approving or rejecting here just updates their verified badge.
+            Just an ID number (everyone) and driving license number (drivers) — no documents to
+            review. Approving or rejecting here just updates their verified badge; drivers and SACCO
+            owners can use the app immediately regardless.
           </p>
 
           {loadingVerifications && <p className="text-sm opacity-70">Loading…</p>}
@@ -661,9 +674,6 @@ function PlatformAdminPage() {
                   <p className="flex items-center gap-1.5 font-semibold">
                     <UserCheck className="size-4" />
                     {row.full_name ?? "Unnamed"}
-                    {row.age != null && (
-                      <span className="font-normal opacity-70"> · {row.age} yrs</span>
-                    )}
                     <span className="font-normal opacity-70"> · {row.roles.join(", ")}</span>
                   </p>
                   <p className="text-xs opacity-70">
@@ -708,8 +718,8 @@ function PlatformAdminPage() {
         </div>
       )}
 
-      {activeTab === "complaints" && (
-        <div className="mt-4 space-y-3">
+      {tab === "complaints" && (
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg font-semibold">Complaints</h2>
             <label className="flex items-center gap-2 text-xs opacity-70">
@@ -799,54 +809,23 @@ function PlatformAdminPage() {
 function StatCard({
   label,
   value,
-  highlight,
+  alert,
+  onClick,
 }: {
   label: string;
   value: number;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-xl border p-3 ${
-        highlight ? "border-amber-500/50 bg-amber-500/10" : "border-border bg-surface"
-      }`}
-    >
-      <p className={`font-display text-2xl font-semibold ${highlight ? "text-amber-700" : ""}`}>
-        {value}
-      </p>
-      <p className="text-xs opacity-70">{label}</p>
-    </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-  badge,
-}: {
-  active: boolean;
+  alert?: boolean;
   onClick: () => void;
-  children: ReactNode;
-  badge?: number;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+      className={`rounded-2xl border p-4 text-left transition hover:opacity-90 ${
+        alert ? "border-amber-500/50 bg-amber-500/10" : "border-border bg-surface"
       }`}
     >
-      {children}
-      {badge != null && (
-        <span
-          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-            active ? "bg-white/25" : "bg-amber-500/20 text-amber-700"
-          }`}
-        >
-          {badge}
-        </span>
-      )}
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="mt-0.5 text-xs opacity-70">{label}</p>
     </button>
   );
 }

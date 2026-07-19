@@ -58,6 +58,7 @@ function AccountSettings() {
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
+  const [age, setAge] = useState("");
   const [phone, setPhone] = useState("");
   const [myRoles, setMyRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,7 +92,9 @@ function AccountSettings() {
       const [{ data: profile }, { data: roles }, { data: platformAdmin }] = await Promise.all([
         supabase
           .from("profiles")
-          .select("full_name,phone,driver_payment_method,driver_payment_target,driver_payment_name")
+          .select(
+            "full_name,age,phone,driver_payment_method,driver_payment_target,driver_payment_name",
+          )
           .eq("id", user.id)
           .maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", user.id),
@@ -100,6 +103,7 @@ function AccountSettings() {
 
       if (profile) {
         setFullName(profile.full_name ?? "");
+        setAge(profile.age != null ? String(profile.age) : "");
         setPhone(profile.phone ?? "");
         setPayMethod(profile.driver_payment_method ?? "");
         setPayTarget(profile.driver_payment_target ?? "");
@@ -119,11 +123,16 @@ function AccountSettings() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     if (!userId) return;
+    if (!fullName.trim()) return toast.error("Enter your full name");
+    const ageNum = age.trim() ? Number(age) : null;
+    if (age.trim() && (Number.isNaN(ageNum) || ageNum! < 16 || ageNum! > 120)) {
+      return toast.error("Enter a valid age (16 or older)");
+    }
     setSavingProfile(true);
     try {
       const { error } = await supabase
         .from("profiles")
-        .update({ full_name: fullName.trim(), phone: phone.trim() })
+        .update({ full_name: fullName.trim(), age: ageNum, phone: phone.trim() })
         .eq("id", userId);
       if (error) throw error;
       toast.success("Profile updated");
@@ -311,6 +320,17 @@ function AccountSettings() {
               <input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
+              />
+            </Field>
+            <Field label="Age">
+              <input
+                type="number"
+                min={16}
+                max={120}
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+                placeholder="e.g. 28"
                 className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none ring-ring focus:ring-2"
               />
             </Field>
