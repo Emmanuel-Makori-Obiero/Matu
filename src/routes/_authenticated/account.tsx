@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { ROLE_HOME, type AppRole } from "@/lib/matu-auth";
 import { AppShell } from "@/components/matu/AppShell";
+import { ThemeToggle } from "@/components/matu/ThemeToggle";
 import {
   SOUND_PROFILES,
   getSelectedSoundId,
@@ -328,6 +329,17 @@ function AccountSettings() {
   return (
     <AppShell title="Account settings" subtitle="Manage your profile, roles, and sign-in details.">
       <div className="grid gap-6 md:max-w-2xl">
+        {/* Appearance */}
+        <section className="rounded-2xl border border-border bg-surface p-6">
+          <h2 className="font-display text-lg font-semibold">Appearance</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose how Matu looks on this device.
+          </p>
+          <div className="mt-4">
+            <ThemeToggle />
+          </div>
+        </section>
+
         {/* Profile */}
         <section className="rounded-2xl border border-border bg-surface p-6">
           <h2 className="font-display text-lg font-semibold">Profile</h2>

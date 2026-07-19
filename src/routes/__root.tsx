@@ -22,6 +22,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { OfflineBanner } from "@/components/matu/OfflineBanner";
 import { initQueueSync } from "@/lib/offline-queue";
 import { cacheSupabaseConfig } from "@/lib/offline-cache";
+import { ThemeProvider, THEME_INIT_SCRIPT } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -142,6 +143,9 @@ function RootShell({ children }: { children: ReactNode }) {
           name="google-site-verification"
           content="ACb3I6z-tGggIBYWUW_D1LM8Y2qgoya-R0HjvuPjcqM"
         />
+        {/* Applies a saved dark/pink preference to <html> before first paint —
+            without this, every load would flash the light theme first. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
       <body>
@@ -197,10 +201,12 @@ function RootComponent() {
   }, [router, queryClient]);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <OfflineBanner />
-      <Outlet />
-      <Toaster richColors position="top-center" />
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <OfflineBanner />
+        <Outlet />
+        <Toaster richColors position="top-center" />
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

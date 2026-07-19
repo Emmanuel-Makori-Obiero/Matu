@@ -113,6 +113,32 @@
   --ring: oklch(0.85 0.17 90);
 }
 
+.pink {
+  --background: oklch(0.97 0.02 15); /* soft blush */
+  --foreground: oklch(0.3 0.08 350); /* deep plum */
+  --surface: oklch(1 0 0);
+  --surface-foreground: oklch(0.3 0.08 350);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.3 0.08 350);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.3 0.08 350);
+  --primary: oklch(0.62 0.22 355); /* vivid pink */
+  --primary-foreground: oklch(0.99 0.01 15);
+  --secondary: oklch(0.94 0.03 20);
+  --secondary-foreground: oklch(0.4 0.08 350);
+  --muted: oklch(0.93 0.025 20);
+  --muted-foreground: oklch(0.55 0.05 350);
+  --accent: oklch(0.8 0.15 60); /* warm coral-gold, keeps the matatu-stripe legible */
+  --accent-foreground: oklch(0.25 0.06 60);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.99 0.01 15);
+  --success: oklch(0.65 0.14 155);
+  --success-foreground: oklch(0.99 0.01 15);
+  --border: oklch(0.88 0.03 20);
+  --input: oklch(0.9 0.03 20);
+  --ring: oklch(0.62 0.22 355);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
