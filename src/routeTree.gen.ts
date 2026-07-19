@@ -29,7 +29,7 @@ import { Route as AuthenticatedRideHistoryRouteImport } from './routes/_authenti
 import { Route as AuthenticatedRideRouteIdRouteImport } from './routes/_authenticated/ride.$routeId'
 import { Route as AuthenticatedFleetSaccoIdRouteImport } from './routes/_authenticated/fleet.$saccoId'
 import { Route as AuthenticatedDriveTripRouteImport } from './routes/_authenticated/drive.trip'
-import { Route as AuthenticatedRideTrackBookingIdRouteImport } from './routes/_authenticated/ride.track.$bookingId'
+import { Route as AuthenticatedRideTrackBookingIdRouteImport } from './routes/_authenticated/ride.track_.$bookingId.tsx'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
