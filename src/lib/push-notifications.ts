@@ -99,9 +99,49 @@ export async function enableTripPushNotifications(): Promise<
       { onConflict: "endpoint" },
     );
     if (error) return { ok: false, reason: error.message };
+    setNotificationsPreference(true);
     return { ok: true };
   } catch (err) {
     console.error("[push-notifications] subscribe failed:", err);
     return { ok: false, reason: err instanceof Error ? err.message : "Subscription failed" };
+  }
+}
+
+// The missing counterpart to enableTripPushNotifications: unsubscribes this
+// browser from push and deletes its row from push_subscriptions, so
+// send-trip-push stops trying to notify a device the passenger turned off.
+// Without this, "disable notifications" in Account settings could only ever
+// hide the in-app toggle — the OS-level subscription and DB row would keep
+// silently receiving/being sent pushes forever.
+export async function disableTripPushNotifications(): Promise<
+  { ok: true } | { ok: false; reason: string }
+> {
+  setNotificationsPreference(false);
+
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    // Nothing to unsubscribe from — preference is still saved above.
+    return { ok: true };
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return { ok: true };
+
+    const endpoint = subscription.endpoint;
+    await subscription.unsubscribe();
+
+    const { error } = await supabase.from("push_subscriptions").delete().eq("endpoint", endpoint);
+    if (error) {
+      // The browser-side unsubscribe already succeeded, so this device won't
+      // receive pushes either way — but flag it so a stray DB row doesn't
+      // linger unexplained.
+      console.error("[push-notifications] failed to delete subscription row:", error);
+      return { ok: false, reason: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error("[push-notifications] unsubscribe failed:", err);
+    return { ok: false, reason: err instanceof Error ? err.message : "Unsubscribe failed" };
   }
 }
