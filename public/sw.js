@@ -8,7 +8,14 @@
 // so on those the Phase 2 fallback — flush on load / on 'online' — is what
 // actually does the work).
 
-const STATIC_CACHE = "matu-static-v1";
+// __BUILD_ID__ is a placeholder that gets swapped for the real deploy id
+// (git SHA / timestamp) by scripts/inject-build-id.mjs as a postbuild step.
+// This guarantees STATIC_CACHE changes on every deploy automatically, so
+// the "delete any cache that isn't STATIC_CACHE" step in activate() below
+// always actually does something instead of relying on someone remembering
+// to hand-bump a "v1" -> "v2" literal.
+const BUILD_ID = "__BUILD_ID__";
+const STATIC_CACHE = `matu-static-${BUILD_ID}`;
 const PRECACHE_URLS = [
   "/offline.html",
   "/icons/icon-192.png",

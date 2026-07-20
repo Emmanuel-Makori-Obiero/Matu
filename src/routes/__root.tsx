@@ -15,6 +15,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import appCss from "../styles.css?url";
 import { supabase } from "@/integrations/supabase/client";
@@ -161,11 +162,45 @@ function RootComponent() {
   const router = useRouter();
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch((err) => {
+    if (!("serviceWorker" in navigator)) return;
+
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => {
+        // A new sw.js has finished installing while an older one is still
+        // controlling this tab. sw.js calls skipWaiting()+clients.claim(),
+        // so it'll take control shortly regardless — but that alone never
+        // reloads an already-open tab, which is what let stale JS keep
+        // running silently after a deploy. Prompt instead of forcing a
+        // reload, since someone could be mid-trip when this fires.
+        reg.addEventListener("updatefound", () => {
+          const installing = reg.installing;
+          if (!installing) return;
+          installing.addEventListener("statechange", () => {
+            if (installing.state === "installed" && navigator.serviceWorker.controller) {
+              toast("A new version of Matu is available", {
+                duration: Infinity,
+                action: {
+                  label: "Refresh",
+                  onClick: () => window.location.reload(),
+                },
+              });
+            }
+          });
+        });
+
+        // Catches the update on tabs that were already open before this
+        // effect ran (e.g. reg already has a waiting worker from an earlier
+        // visit) and on periodic re-checks — browsers only check for a new
+        // sw.js on navigation by default, so nudge it on regained focus too.
+        const checkForUpdate = () => reg.update().catch(() => {});
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") checkForUpdate();
+        });
+      })
+      .catch((err) => {
         console.error("Service worker registration failed:", err);
       });
-    }
   }, []);
 
   useEffect(() => initQueueSync(), []);
