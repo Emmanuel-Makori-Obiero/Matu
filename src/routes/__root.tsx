@@ -250,3 +250,10 @@ function RootComponent() {
     </ThemeProvider>
   );
 }
+<button
+  onClick={() => {
+    throw new Error("Sentry test error");
+  }}
+>
+  Test Sentry
+</button>;
