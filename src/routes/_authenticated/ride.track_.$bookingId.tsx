@@ -197,6 +197,30 @@ function BookingTrackPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip?.id, bookingId]);
 
+  // Belt-and-suspenders fallback: poll the booking's own status every few
+  // seconds regardless of whether realtime is delivering events. Realtime
+  // requires the table to be added to the supabase_realtime publication
+  // (see the accompanying migration) — if that's ever missing, misconfigured,
+  // or just slow to reconnect, this polling loop still catches the status
+  // flip within a few seconds instead of requiring a manual reload. Stops
+  // once the booking reaches a terminal state, so it doesn't poll forever
+  // after the trip summary is already showing.
+  useEffect(() => {
+    if (!booking) return;
+    if (booking.status === "alighted" || booking.status === "cancelled") return;
+    const iv = setInterval(async () => {
+      const { data } = await supabase
+        .from("bookings")
+        .select(
+          "id,trip_id,status,pickup_stage_id,dropoff_stage_id,cancellation_reason,boarded_at,alighted_at,fare_paid",
+        )
+        .eq("id", bookingId)
+        .maybeSingle();
+      if (data) setBooking(data as Booking);
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [bookingId, booking?.status]);
+
   // The passenger's own live position, same red dot as the driver sees for
   // waiting passengers and as the generic track page shows.
   useEffect(() => {

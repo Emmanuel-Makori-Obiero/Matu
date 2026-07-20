@@ -87,16 +87,34 @@ function TrackPage() {
       }
       const { data, error } = await supabase
         .from("bookings")
-        .select("id")
+        .select("id,status,alighted_at,updated_at")
         .eq("passenger_id", u.user.id)
-        .in("status", ["confirmed", "boarded"])
+        // Include alighted/cancelled here too — not just confirmed/boarded.
+        // Without this, the moment a driver ends or cancels a trip, this
+        // query stops matching that booking at all, and a passenger who
+        // reloads (or opens /ride/track fresh) gets silently bounced to the
+        // generic "browse routes" view instead of the per-booking screen
+        // that shows the trip summary + rating popup — exactly the bug
+        // where nothing seems to happen except a bare status word.
+        .in("status", ["confirmed", "boarded", "alighted", "cancelled"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (cancelled) return;
       if (!error && data) {
-        navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id }, replace: true });
-        return;
+        const isActive = data.status === "confirmed" || data.status === "boarded";
+        // For a terminal booking, only redirect if it turned terminal
+        // recently — otherwise a passenger visiting /ride/track days after
+        // an old trip would keep getting bounced into a stale summary
+        // screen instead of the route browser they actually opened this
+        // page for.
+        const terminalAt = data.alighted_at ?? data.updated_at;
+        const recentlyTerminal =
+          !isActive && !!terminalAt && Date.now() - new Date(terminalAt).getTime() < 15 * 60 * 1000;
+        if (isActive || recentlyTerminal) {
+          navigate({ to: "/ride/track/$bookingId", params: { bookingId: data.id }, replace: true });
+          return;
+        }
       }
       setCheckingBooking(false);
     })();
