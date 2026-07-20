@@ -24,6 +24,11 @@ import { OfflineBanner } from "@/components/matu/OfflineBanner";
 import { initQueueSync } from "@/lib/offline-queue";
 import { cacheSupabaseConfig } from "@/lib/offline-cache";
 import { ThemeProvider, THEME_INIT_SCRIPT } from "@/lib/theme";
+import { initMonitoring, captureError } from "@/lib/monitoring";
+
+// Runs once, immediately, before anything renders — not inside a component
+// or useEffect — so errors thrown during initial render are still caught.
+initMonitoring();
 
 function NotFoundComponent() {
   return (
@@ -48,7 +53,7 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
+  captureError(error, { route: "root-error-boundary" });
   const router = useRouter();
 
   return (

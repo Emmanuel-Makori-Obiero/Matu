@@ -31,6 +31,7 @@ import {
   notificationPermission,
   pushNotificationsSupported,
   enableTripPushNotifications,
+  disableTripPushNotifications,
 } from "@/lib/push-notifications";
 
 export const Route = createFileRoute("/_authenticated/account")({
@@ -274,11 +275,17 @@ function AccountSettings() {
   async function toggleNotifications() {
     const next = !notificationsEnabled;
 
-    // Turning it off never needs the browser — just stop offering/using push.
     if (!next) {
       setNotificationsEnabled(false);
-      setNotificationsPreference(false);
-      toast.success("Notifications off. Matu won't prompt you to enable trip alerts.");
+      const result = await disableTripPushNotifications();
+      if (result.ok) {
+        toast.success("Notifications off. Matu won't send you trip alerts on this device.");
+      } else {
+        // Local preference is still saved even if deleting the server-side
+        // row failed — this device just won't be offered push again until
+        // the delete succeeds on a later attempt.
+        toast.success("Notifications off.");
+      }
       return;
     }
 
