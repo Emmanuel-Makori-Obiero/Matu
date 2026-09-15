@@ -16,6 +16,9 @@ src/
   routes/
     auth.tsx                        sign in / sign up
     index.tsx                       landing page
+    cookies.tsx                     cookie policy + manage preferences
+    privacy.tsx                     privacy policy
+    terms.tsx                       terms of service
     _authenticated/
       route.tsx                     auth guard — redirects signed-out users to /auth
       ride.index.tsx                passenger: browse routes, book a seat
@@ -32,9 +35,9 @@ src/
       platform-admin.tsx            platform_admin only: cross-sacco vehicle suspension,
                                      complaint resolution queue
       account.tsx                   profile + role management, alert sound picker
-  components/matu/                  app-specific UI (maps, AI assistant, etc.)
+  components/matu/                  app-specific UI (maps, AI assistant, cookie banner, etc.)
   integrations/supabase/            Supabase client + generated types
-  lib/                              ETA/traffic helpers, utilities
+  lib/                              ETA/traffic helpers, cookie consent state, utilities
 
 supabase/
   migrations/                       every schema change, in order, timestamped
@@ -320,7 +323,7 @@ appears on the Account page, leading to `/platform-admin`, which currently suppo
 window counter (backed by `rate_limit_hits`) that any RPC or trigger can call. It's
 currently wired into one place: an `alerts` insert trigger capping passengers at 10
 "I'm near pickup" / "let me off" alerts per 5 minutes. Other high-frequency actions
-(`ping_stage`, booking creation) aren't rate-limited yet — see section 6.
+(`ping_stage`, booking creation) aren't rate-limited yet — see section 7.
 
 ### 4.3 Complaints
 
@@ -344,7 +347,7 @@ Resolution workflow: `status` moves `open` → `acknowledged` → `resolved` via
 in the complaint, the owning SACCO admin, or a platform admin. The platform admin
 panel (`/platform-admin`) is currently the only UI surfacing this queue — SACCO admins
 and drivers can see complaints about them via RLS but don't yet have a dedicated
-in-app view to act on them (see section 6).
+in-app view to act on them (see section 7).
 
 ---
 
@@ -376,11 +379,40 @@ in-app view to act on them (see section 6).
     any existing SACCO admin/driver/passenger access.
   - **Not yet wired up:** account suspension is recorded and queryable, but no login/booking
     path checks `profiles.is_suspended` yet (a helper, `assert_not_suspended()`, exists for
-    this — see section 6) — enforcing it everywhere real money/bookings happen is next.
+    this — see section 7) — enforcing it everywhere real money/bookings happen is next.
 
 ---
 
-## 6. Known gaps / next steps
+## 6. Cookies
+
+Matu shows a cookie consent banner on first visit (`src/components/matu/CookieConsentBanner.tsx`),
+backed by consent state in `src/lib/cookie-consent.ts` and stored via the existing
+cookie helpers in `src/lib/cookies.ts` — no new dependency.
+
+Consent categories:
+
+- **Necessary** — keeps the user signed in, remembers role view. Always on, not
+  user-toggleable.
+- **Preferences** — theme and similar UI settings.
+- **Analytics** — usage data to fix issues and improve the app.
+- **Marketing** — reserved for future use; nothing runs on this today.
+
+From the banner, users can **Accept all**, **Reject non-essential**, or **Customize**
+each category individually. Consent is stored in the `matu_cookie_consent` cookie for
+180 days. Users can revisit and change their choice anytime from the "Manage cookie
+preferences" button on `/cookies` (`src/routes/cookies.tsx`), which resets the cookie
+and re-shows the banner.
+
+The `/cookies` route is linked from the footers of `/privacy` and `/terms`.
+
+**Setup note:** the banner is rendered from `src/routes/__root.tsx`, alongside
+`OfflineBanner`, inside `RootComponent`'s return — that's the one place to check if the
+banner ever needs to be hidden on specific routes (e.g. an embedded/kiosk view) in the
+future.
+
+---
+
+## 7. Known gaps / next steps
 
 - **`send-complaint-email` is on Resend's free/test tier**, sending from the shared
   `onboarding@resend.dev` address. Verify your own domain in Resend and swap
@@ -401,7 +433,4 @@ in-app view to act on them (see section 6).
   priority before opening this to real users.
 - **No error monitoring** (Sentry or equivalent) — bugs are currently discovered from
   users describing symptoms, not from a dashboard.
-- **No privacy policy / ToS page**, despite collecting live GPS, ID numbers, phone
-  numbers, and payment info — a real compliance gap under Kenya's Data Protection Act
-  2019, not just a nice-to-have.
 - **Both M-Pesa flows are sandbox-only** — see section 3.3 before launch.
