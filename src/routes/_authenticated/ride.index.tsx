@@ -9,6 +9,7 @@ import { RouteMap, type MapStage } from "@/components/matu/RouteMap";
 import {
   findNearestStage,
   findNearestStageByCoords,
+  findNearbyStages,
   type NearestStageResult,
 } from "@/lib/stage-match";
 import { OnboardingGuide, useOnboardingSeen } from "@/components/matu/OnboardingGuide";
@@ -79,6 +80,13 @@ function PassengerHome() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [myLoc, setMyLoc] = useState<{ lat: number; lng: number } | null>(null);
+  // Route IDs with a stage within walking distance of the passenger's live GPS
+  // fix — kept separate from `from`/`to` text matching so a passenger standing
+  // near a route boundary (e.g. two routes both passing through the same part
+  // of Kasarani, one via "Kasarani Stage" and another via "Kwa mafuta") sees
+  // matatus from every nearby route, not just whichever route owns the single
+  // closest named stage.
+  const [nearbyRouteIds, setNearbyRouteIds] = useState<Set<string>>(new Set());
   const [nearestSuggestions, setNearestSuggestions] = useState<NearestStageResult[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [pickTarget, setPickTarget] = useState<"from" | "to">("from");
@@ -277,7 +285,11 @@ function PassengerHome() {
   // that could get you there.
   useEffect(() => {
     if (!searched) return;
-    const routeIds = filtered.map((r) => r.id);
+    // Union of routes matched by the From/To text search AND routes with a
+    // stage physically near the passenger's live location (if they used
+    // "Use my location") — see nearbyRouteIds above for why the latter
+    // matters even when it's a different route than the single nearest stage.
+    const routeIds = [...new Set([...filtered.map((r) => r.id), ...nearbyRouteIds])];
     if (routeIds.length === 0) {
       setAvailableVehicles([]);
       return;
@@ -338,7 +350,7 @@ function PassengerHome() {
     return () => {
       cancelled = true;
     };
-  }, [searched, filtered, routes]);
+  }, [searched, filtered, routes, nearbyRouteIds]);
 
   // Typing a new destination/pickup after already searching invalidates the old
   // result set — close the sheet and require another explicit tap of Search
@@ -358,7 +370,7 @@ function PassengerHome() {
     if (!("geolocation" in navigator)) return toast.error("Location not available");
     toast.loading("Getting your location…", { id: "geo" });
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setMyLoc(p);
         // Find nearest stage name to prefill From
@@ -375,6 +387,12 @@ function PassengerHome() {
             bestDistanceMeters = Math.sqrt(d) * 111_000;
           }
         });
+        // Also pull in every OTHER route with a stage within walking distance —
+        // "From" only ever shows one stage name, but the vehicle search below
+        // uses this wider set so a route sharing the same area under a
+        // different stage name still shows its matatus.
+        const nearby = await findNearbyStages(p.lat, p.lng);
+        setNearbyRouteIds(new Set(nearby.map((m) => m.stage.route_id)));
         if (bestName) {
           setFrom(bestName);
           // If GPS accuracy is poor (common indoors, or on desktop browsers that

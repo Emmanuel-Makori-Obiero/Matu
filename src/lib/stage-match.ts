@@ -74,6 +74,31 @@ async function geocode(query: string): Promise<{ lat: number; lng: number } | nu
   return (await geocodeWithMapbox(query)) ?? (await geocodeWithNominatim(query));
 }
 
+// Given raw coordinates, returns every stage within `radiusKm` (default 1.2km —
+// roughly a comfortable walk), across ALL routes, nearest-first. Unlike
+// findNearestStageByCoords (which only ever returns the single closest stage,
+// even if it belongs to a different route than the one actually running
+// nearby), this is what live-location search uses so a passenger standing near
+// a route boundary sees matatus from every route that genuinely passes close
+// by — not just whichever route happens to own the single nearest named stage.
+export async function findNearbyStages(
+  lat: number,
+  lng: number,
+  radiusKm = 1.2,
+): Promise<NearestStageResult[]> {
+  const { data: stages, error } = await supabase.from("stages").select("id,route_id,name,lat,lng");
+  if (error || !stages) return [];
+
+  return (stages as StageRow[])
+    .map((stage) => ({
+      stage,
+      distanceKm: haversineKm(lat, lng, stage.lat, stage.lng),
+      exactNameMatch: false,
+    }))
+    .filter((m) => m.distanceKm <= radiusKm)
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
 // Given raw coordinates (e.g. from a map click/tap), returns the closest stage(s) on
 // file — no geocoding needed since we already have a lat/lng. Used by the "tap the map
 // to set pickup/destination" flow.
