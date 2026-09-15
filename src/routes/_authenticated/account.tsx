@@ -462,6 +462,24 @@ function AccountSettings() {
             </form>
           </section>
         )}
+
+        <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
+          <h2 className="font-display text-lg font-semibold">Wallet</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {heldSaccoRole
+              ? "Top up your passenger balance, or withdraw your SACCO's commission earnings to M-Pesa."
+              : heldDriverRole
+                ? "Top up your passenger balance, or withdraw your driving earnings to M-Pesa."
+                : "Top up your balance so you can pay fares instantly, no M-Pesa prompt needed."}
+          </p>
+          <Link
+            to="/wallet"
+            className="mt-4 inline-block rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+          >
+            Open wallet
+          </Link>
+        </section>
+
         <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="font-display text-lg font-semibold">Roles</h2>
           <p className="mt-1 text-sm text-muted-foreground">
