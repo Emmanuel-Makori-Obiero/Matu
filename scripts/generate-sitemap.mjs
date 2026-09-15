@@ -27,7 +27,7 @@ const PUBLIC_ROUTES = {
   "/privacy": { priority: "0.3", changefreq: "yearly" },
 };
 
-const CANDIDATE_OUTPUT_DIRS = [".output/public", "dist", "dist/client"];
+const CANDIDATE_OUTPUT_DIRS = [".vercel/output/static", ".output/public", "dist", "dist/client"];
 
 function lastModFor(routeFile) {
   try {

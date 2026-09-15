@@ -14,7 +14,12 @@ import { join } from "node:path";
 
 // Adjust this if your build output directory differs (check vite.config.ts
 // / nitro output — commonly "dist", ".output/public", or similar).
-const CANDIDATE_OUTPUT_DIRS = [".output/public", "dist", "dist/client"];
+const CANDIDATE_OUTPUT_DIRS = [
+  ".vercel/output/static",
+  ".output/public",
+  "dist",
+  "dist/client",
+];
 
 const buildId =
   process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || Date.now().toString();
