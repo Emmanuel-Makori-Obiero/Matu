@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Bus,
+  FileDown,
+  Loader2,
   Map,
   MapPinned,
   Plus,
@@ -17,6 +19,7 @@ import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { PlaceSearch } from "@/components/matu/PlaceSearch";
 import { assignSaccoDriver } from "@/lib/fleet.functions";
+import { generateSaccoFullReportPdf, type ReportTxn } from "@/lib/pdf-report";
 
 type Vehicle = {
   id: string;
@@ -110,6 +113,111 @@ function FleetDetail() {
   const [pendingStagePin, setPendingStagePin] = useState<{ lat: number; lng: number } | null>(null);
   const [newStageName, setNewStageName] = useState("");
   const [savingStage, setSavingStage] = useState(false);
+
+  // Full SACCO report (cashflow + fleet performance + commissions + complaints)
+  // over a custom date range, downloaded as one PDF from src/lib/pdf-report.ts.
+  const today = new Date().toISOString().slice(0, 10);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [reportFrom, setReportFrom] = useState(thirtyDaysAgo);
+  const [reportTo, setReportTo] = useState(today);
+  const [generatingReport, setGeneratingReport] = useState(false);
+
+  async function downloadSaccoReport() {
+    if (!sacco) return;
+    if (reportFrom > reportTo) {
+      toast.error("Start date must be before end date");
+      return;
+    }
+    setGeneratingReport(true);
+    try {
+      // Range is inclusive of the whole "to" day.
+      const fromIso = new Date(`${reportFrom}T00:00:00`).toISOString();
+      const toIso = new Date(`${reportTo}T23:59:59.999`).toISOString();
+      const rangeLabel = `${new Date(reportFrom).toLocaleDateString()} – ${new Date(
+        reportTo,
+      ).toLocaleDateString()}`;
+
+      // Commission wallet for this SACCO.
+      const { data: wallet, error: walletErr } = await supabase
+        .from("wallets")
+        .select("id, balance")
+        .eq("owner_type", "sacco")
+        .eq("owner_id", sacco.id)
+        .maybeSingle();
+      if (walletErr) throw walletErr;
+
+      let cashflowTxns: ReportTxn[] = [];
+      if (wallet) {
+        const { data: txns, error: txnErr } = await supabase
+          .from("wallet_transactions")
+          .select("id, type, status, amount, balance_after, created_at, mpesa_receipt, phone")
+          .eq("wallet_id", wallet.id)
+          .gte("created_at", fromIso)
+          .lte("created_at", toIso)
+          .order("created_at", { ascending: true });
+        if (txnErr) throw txnErr;
+        cashflowTxns = txns ?? [];
+      }
+
+      // Fleet performance: completed trips per vehicle in this SACCO, in range.
+      const vehicleIds = vehicles.map((v) => v.id);
+      let fleetStats: {
+        plateNumber: string;
+        nickname: string | null;
+        trips: number;
+        revenue: number;
+      }[] = [];
+      if (vehicleIds.length > 0) {
+        const { data: rangeTrips, error: tripsErr } = await supabase
+          .from("trips")
+          .select("vehicle_id, fare, status, created_at")
+          .in("vehicle_id", vehicleIds)
+          .eq("status", "completed")
+          .gte("created_at", fromIso)
+          .lte("created_at", toIso);
+        if (tripsErr) throw tripsErr;
+        const byVehicle: Record<string, { trips: number; revenue: number }> = {};
+        (rangeTrips ?? []).forEach((t) => {
+          const cur = byVehicle[t.vehicle_id] ?? { trips: 0, revenue: 0 };
+          cur.trips += 1;
+          cur.revenue += Number(t.fare ?? 0);
+          byVehicle[t.vehicle_id] = cur;
+        });
+        fleetStats = vehicles
+          .filter((v) => byVehicle[v.id])
+          .map((v) => ({
+            plateNumber: v.plate_number,
+            nickname: v.nickname,
+            trips: byVehicle[v.id].trips,
+            revenue: byVehicle[v.id].revenue,
+          }));
+      }
+
+      // Complaints raised against this SACCO in range.
+      const { data: complaintRows, error: complaintsErr } = await supabase
+        .from("complaints")
+        .select("category, status, recipient, created_at, resolved_at")
+        .eq("sacco_id", sacco.id)
+        .gte("created_at", fromIso)
+        .lte("created_at", toIso)
+        .order("created_at", { ascending: true });
+      if (complaintsErr) throw complaintsErr;
+
+      generateSaccoFullReportPdf({
+        saccoName: sacco.name,
+        rangeLabel,
+        currentBalance: wallet?.balance ?? 0,
+        cashflowTxns,
+        fleet: fleetStats,
+        complaints: complaintRows ?? [],
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error("Couldn't build the report — try a narrower date range");
+    } finally {
+      setGeneratingReport(false);
+    }
+  }
 
   async function loadLive(vehicleIds: string[]) {
     if (vehicleIds.length === 0) return setLiveTrips([]);
@@ -396,6 +504,48 @@ function FleetDetail() {
         <Summary icon={<Radio />} label="Live trips" value={liveTrips.length} />
         <Summary icon={<Wallet />} label="Live fares" value={`KSh ${todayRevenue}`} />
       </div>
+
+      <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
+        <h2 className="font-display text-xl font-semibold">SACCO report</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Cashflow, fleet performance, commissions, and complaints for a date range — one PDF.
+        </p>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">From</span>
+            <input
+              type="date"
+              value={reportFrom}
+              max={reportTo}
+              onChange={(e) => setReportFrom(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">To</span>
+            <input
+              type="date"
+              value={reportTo}
+              min={reportFrom}
+              max={today}
+              onChange={(e) => setReportTo(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+            />
+          </label>
+          <button
+            onClick={downloadSaccoReport}
+            disabled={generatingReport}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          >
+            {generatingReport ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <FileDown className="size-4" />
+            )}
+            Download full report (PDF)
+          </button>
+        </div>
+      </section>
 
       <section className="mt-5 rounded-2xl border border-border bg-surface p-5">
         <div className="flex items-center justify-between">

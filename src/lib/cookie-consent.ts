@@ -1,5 +1,6 @@
 // FILE: src/lib/cookie-consent.ts
 import { getCookie, setCookie } from "@/lib/cookies";
+import { setMonitoringEnabled } from "@/lib/monitoring";
 
 export type CookieCategory = "necessary" | "preferences" | "analytics" | "marketing";
 
@@ -33,6 +34,9 @@ export function getConsent(): CookieConsent | null {
 export function saveConsent(consent: Omit<CookieConsent, "necessary">): void {
   const full: CookieConsent = { necessary: true, ...consent };
   setCookie(CONSENT_KEY, JSON.stringify(full), { days: CONSENT_DAYS });
+  // Flip Sentry live immediately on a fresh "accept" — no reload needed,
+  // and it stays off immediately on a "reject".
+  setMonitoringEnabled(full.analytics);
 }
 
 export function resetConsent(): void {
