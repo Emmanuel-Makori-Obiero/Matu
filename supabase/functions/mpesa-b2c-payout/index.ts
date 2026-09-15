@@ -10,9 +10,15 @@ const MPESA_INITIATOR_NAME = Deno.env.get("MPESA_INITIATOR_NAME")!; // API opera
 const MPESA_INITIATOR_PASSWORD_ENCRYPTED = Deno.env.get("MPESA_INITIATOR_PASSWORD_ENCRYPTED")!; // see README: generate with Safaricom's public cert
 const MPESA_B2C_SHORTCODE = Deno.env.get("MPESA_B2C_SHORTCODE")!; // your B2C-enabled shortcode (separate application from the Paybill used for STK push)
 
-// SANDBOX ONLY — same caveat as mpesa-stk-push. See README "Going to production" section
-// for the full B2C go-live checklist (separate from the STK Push go-live).
-const MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"; // -> https://api.safaricom.co.ke in production
+// Driven by the same MPESA_ENV secret as mpesa-stk-push — set MPESA_ENV=production in
+// Supabase secrets once B2C go-live is approved (separate approval from STK Push). See
+// README "Going to production" section for the full B2C go-live checklist. The
+// MPESA_INITIATOR_NAME / MPESA_INITIATOR_PASSWORD_ENCRYPTED / MPESA_B2C_SHORTCODE
+// secrets above already have no sandbox fallback (they throw if unset) — swap their
+// values to production ones as part of the same go-live step.
+const MPESA_ENV = Deno.env.get("MPESA_ENV") ?? "sandbox";
+const MPESA_BASE_URL =
+  MPESA_ENV === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
 
 const RESULT_URL = `${SUPABASE_URL}/functions/v1/mpesa-b2c-result`;
 const TIMEOUT_URL = RESULT_URL; // Safaricom requires both; same handler covers both cases
@@ -32,7 +38,10 @@ Deno.serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing auth" }), { status: 401, headers: cors() });
+      return new Response(JSON.stringify({ error: "Missing auth" }), {
+        status: 401,
+        headers: cors(),
+      });
     }
 
     const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -40,7 +49,10 @@ Deno.serve(async (req) => {
     });
     const { data: userData, error: userError } = await userClient.auth.getUser();
     if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: cors() });
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: cors(),
+      });
     }
 
     // owner_type: 'driver' withdraws to their own phone. 'sacco' withdraws to the
@@ -88,7 +100,10 @@ Deno.serve(async (req) => {
       .eq("owner_id", ownerId)
       .single();
     if (walletError || !wallet) {
-      return new Response(JSON.stringify({ error: "Wallet not found" }), { status: 404, headers: cors() });
+      return new Response(JSON.stringify({ error: "Wallet not found" }), {
+        status: 404,
+        headers: cors(),
+      });
     }
     if (Number(wallet.balance) < Number(amount)) {
       return new Response(JSON.stringify({ error: "Insufficient wallet balance" }), {
@@ -126,13 +141,27 @@ Deno.serve(async (req) => {
     }
     await admin.from("wallet_transactions").update({ status: "pending" }).eq("id", txnId);
 
-    const authRes = await fetch(`${MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
-      headers: { Authorization: "Basic " + btoa(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`) },
-    });
+    const authRes = await fetch(
+      `${MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`,
+      {
+        headers: {
+          Authorization: "Basic " + btoa(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`),
+        },
+      },
+    );
     const authJson = await authRes.json();
     if (!authRes.ok || !authJson.access_token) {
-      await reverseWithdrawal(admin, wallet.id, amount, txnId, "Could not authenticate with M-Pesa");
-      return new Response(JSON.stringify({ error: "Could not reach M-Pesa" }), { status: 502, headers: cors() });
+      await reverseWithdrawal(
+        admin,
+        wallet.id,
+        amount,
+        txnId,
+        "Could not authenticate with M-Pesa",
+      );
+      return new Response(JSON.stringify({ error: "Could not reach M-Pesa" }), {
+        status: 502,
+        headers: cors(),
+      });
     }
 
     const b2cRes = await fetch(`${MPESA_BASE_URL}/mpesa/b2c/v3/paymentrequest`, {
@@ -159,8 +188,17 @@ Deno.serve(async (req) => {
 
     if (!b2cRes.ok || b2cJson.ResponseCode !== "0") {
       console.error("B2C request failed", b2cJson);
-      await reverseWithdrawal(admin, wallet.id, amount, txnId, b2cJson.errorMessage ?? "B2C request rejected");
-      return new Response(JSON.stringify({ error: "Withdrawal request failed" }), { status: 502, headers: cors() });
+      await reverseWithdrawal(
+        admin,
+        wallet.id,
+        amount,
+        txnId,
+        b2cJson.errorMessage ?? "B2C request rejected",
+      );
+      return new Response(JSON.stringify({ error: "Withdrawal request failed" }), {
+        status: 502,
+        headers: cors(),
+      });
     }
 
     await admin
@@ -173,7 +211,10 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error(err);
-    return new Response(JSON.stringify({ error: "Unexpected error" }), { status: 500, headers: cors() });
+    return new Response(JSON.stringify({ error: "Unexpected error" }), {
+      status: 500,
+      headers: cors(),
+    });
   }
 });
 

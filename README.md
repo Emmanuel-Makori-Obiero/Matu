@@ -213,21 +213,29 @@ the current balance can always be explained by replaying the ledger, and any dis
   Safaricom's public certificate (see Daraja docs: "Encrypting the Security Credential")
 - `MPESA_B2C_SHORTCODE` — your B2C-enabled shortcode
 
-### 3.3 Going to production (both flows are sandbox-only right now)
+### 3.3 Going to production (both flows are sandbox by default)
 
-**Neither STK Push nor B2C should be trusted with real money yet** — both currently
-point at `sandbox.safaricom.co.ke` and use Safaricom's public test shortcode/passkey.
-The sandbox commonly fires a "success" callback on its own with no real payment
-happening, so testing in sandbox will make bookings/top-ups/withdrawals look like they
-work even though no money moves.
+**Neither STK Push nor B2C should be trusted with real money until `MPESA_ENV` is set
+to `production`.** By default both point at `sandbox.safaricom.co.ke` and fall back to
+Safaricom's public test shortcode/passkey when the production secrets aren't set. The
+sandbox commonly fires a "success" callback on its own with no real payment happening,
+so testing in sandbox will make bookings/top-ups/withdrawals look like they work even
+though no money moves.
+
+Both flows now read every environment-specific value from Supabase Edge Function
+secrets — **going live is a secrets change, not a code change.**
 
 **STK Push go-live:**
 
 1. Complete Safaricom Daraja's "Go Live" process for Lipa na M-Pesa Online — requires a
    registered Paybill or Till.
 2. Get production `Consumer Key`/`Consumer Secret`, shortcode, and passkey.
-3. In `mpesa-stk-push/index.ts`: replace `SHORTCODE`/`PASSKEY`, change
-   `sandbox.safaricom.co.ke` → `api.safaricom.co.ke`. Update the two secrets.
+3. Set these secrets on the `mpesa-stk-push` function:
+   `MPESA_ENV=production`, `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`,
+   `MPESA_SHORTCODE`, `MPESA_PASSKEY`.
+4. Redeploy the function. It refuses to start with `MPESA_ENV=production` if
+   `MPESA_SHORTCODE`/`MPESA_PASSKEY` aren't set, rather than silently falling back to
+   sandbox values.
 
 **B2C go-live** (separate approval, do this after STK Push works in production):
 
@@ -235,8 +243,9 @@ work even though no money moves.
    business, different product) and an initiator account.
 2. Generate the encrypted security credential using Safaricom's production public
    certificate (different certificate than the sandbox one).
-3. In `mpesa-b2c-payout/index.ts`: change `sandbox.safaricom.co.ke` →
-   `api.safaricom.co.ke`, set the three B2C secrets to production values.
+3. Set these secrets on the `mpesa-b2c-payout` function: `MPESA_ENV=production`,
+   `MPESA_INITIATOR_NAME`, `MPESA_INITIATOR_PASSWORD_ENCRYPTED`, `MPESA_B2C_SHORTCODE`.
+4. Redeploy the function.
 
 Test both thoroughly with small real amounts before opening withdrawals up to real
 drivers/saccos — a bug here means real money either gets stuck or double-paid.

@@ -7,21 +7,42 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 // ---- Safaricom Daraja environment ----
-// SANDBOX ONLY RIGHT NOW. Sandbox STK pushes never reach a real phone (only Safaricom's
-// official test MSISDN 254708374149), and Safaricom's sandbox commonly fires back a
-// success callback on its own without any real payment happening — which is why
-// bookings have been confirming as "paid" with no money actually changing hands.
+// Driven entirely by secrets now — no code edit needed to go live. Defaults below are
+// Safaricom's PUBLIC SANDBOX values (safe, well-known, checked into git deliberately),
+// used only when the corresponding secret hasn't been set yet.
 //
-// TO GO LIVE:
+// Sandbox STK pushes never reach a real phone (only Safaricom's official test MSISDN
+// 254708374149), and Safaricom's sandbox commonly fires back a success callback on its
+// own without any real payment happening — so bookings will confirm as "paid" with no
+// money actually moving until this is switched to production.
+//
+// TO GO LIVE (no code changes, secrets only):
 //   1. Complete Safaricom Daraja's "Go Live" process to get PRODUCTION credentials:
 //      a production Consumer Key/Secret, a production shortcode, and a production
-//      passkey (NOT the public sandbox passkey hardcoded below).
-//   2. Set MPESA_CONSUMER_KEY / MPESA_CONSUMER_SECRET secrets to the production values.
-//   3. Replace SHORTCODE and PASSKEY below with your real production values.
-//   4. Change both "sandbox.safaricom.co.ke" URLs below to "api.safaricom.co.ke".
-const MPESA_BASE_URL = "https://sandbox.safaricom.co.ke"; // -> https://api.safaricom.co.ke in production
-const SHORTCODE = "174379"; // -> your real production shortcode
-const PASSKEY = "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"; // -> your real production passkey
+//      passkey (NOT the public sandbox passkey used as the default below).
+//   2. Set these Supabase Edge Function secrets:
+//        MPESA_ENV=production
+//        MPESA_CONSUMER_KEY=<production consumer key>
+//        MPESA_CONSUMER_SECRET=<production consumer secret>
+//        MPESA_SHORTCODE=<production shortcode>
+//        MPESA_PASSKEY=<production passkey>
+//   3. Redeploy this function (secret changes require a redeploy to take effect).
+const MPESA_ENV = Deno.env.get("MPESA_ENV") ?? "sandbox";
+const MPESA_BASE_URL =
+  MPESA_ENV === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
+const SHORTCODE = Deno.env.get("MPESA_SHORTCODE") ?? "174379";
+const PASSKEY =
+  Deno.env.get("MPESA_PASSKEY") ??
+  "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919";
+if (
+  MPESA_ENV === "production" &&
+  (!Deno.env.get("MPESA_SHORTCODE") || !Deno.env.get("MPESA_PASSKEY"))
+) {
+  throw new Error(
+    "MPESA_ENV=production but MPESA_SHORTCODE/MPESA_PASSKEY secrets are not set. Refusing to " +
+      "start rather than silently fall back to sandbox values in a production environment.",
+  );
+}
 
 // Shared secret appended to the callback URL so mpesa-callback can verify a request
 // actually originated from a payment WE initiated, instead of trusting any POST body
@@ -77,10 +98,10 @@ Deno.serve(async (req) => {
       (!needsReferenceId && !isWalletTopup && !bookingId) ||
       (needsReferenceId && !reference_id)
     ) {
-      return new Response(
-        JSON.stringify({ error: "Missing required payment details" }),
-        { status: 400, headers: cors() },
-      );
+      return new Response(JSON.stringify({ error: "Missing required payment details" }), {
+        status: 400,
+        headers: cors(),
+      });
     }
 
     let normalizedPhone = String(phone).replace(/\s+/g, "").replace(/^\+/, "");
@@ -148,7 +169,11 @@ Deno.serve(async (req) => {
 
     const authRes = await fetch(
       `${MPESA_BASE_URL}/oauth/v1/generate?grant_type=client_credentials`,
-      { headers: { Authorization: "Basic " + btoa(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`) } },
+      {
+        headers: {
+          Authorization: "Basic " + btoa(`${MPESA_CONSUMER_KEY}:${MPESA_CONSUMER_SECRET}`),
+        },
+      },
     );
     const authJson = await authRes.json();
     if (!authRes.ok || !authJson.access_token) {
@@ -159,7 +184,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[^0-9]/g, "")
+      .slice(0, 14);
     const password = btoa(`${SHORTCODE}${PASSKEY}${timestamp}`);
 
     const stkRes = await fetch(`${MPESA_BASE_URL}/mpesa/stkpush/v1/processrequest`, {
