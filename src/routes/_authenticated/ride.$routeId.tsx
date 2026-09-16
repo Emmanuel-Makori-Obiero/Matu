@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
 import { RouteMap, type MapStage, type MapVehicle } from "@/components/matu/RouteMap";
 import { LeaveNowBanner } from "@/components/matu/LeaveNowBanner";
+import { PooledPickupPanel } from "@/components/matu/PooledPickupPanel";
 import { useLiveTrafficEta } from "@/lib/traffic-eta";
 import { testSound, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 
@@ -81,6 +82,15 @@ function RouteDetail() {
     null,
   );
   const notifiedRef = useRef<Set<string>>(new Set());
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Needed to render PooledPickupPanel, which requires the passenger's id.
+  useEffect(() => {
+    (async () => {
+      const { data: u } = await supabase.auth.getUser();
+      setUserId(u.user?.id ?? null);
+    })();
+  }, []);
 
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
@@ -980,6 +990,14 @@ function RouteDetail() {
               </ul>
             )}
           </section>
+
+          {userId && dropoff && (
+            <PooledPickupPanel
+              routeId={routeId}
+              destinationStageId={dropoff}
+              passengerId={userId}
+            />
+          )}
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Stages ({stages.length})</h2>

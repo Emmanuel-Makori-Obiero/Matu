@@ -15,6 +15,7 @@ import {
 import { startNoisyAlert, stopNoisyAlert, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 import { TicketScanner } from "@/components/matu/TicketScanner";
 import { ParcelPanel } from "@/components/matu/ParcelPanel";
+import { DriverPoolPanel } from "@/components/matu/DriverPoolPanel";
 import { enqueueAction } from "@/lib/offline-cache";
 import { flushQueue, registerBackgroundSync } from "@/lib/offline-queue";
 
@@ -74,6 +75,7 @@ function DriverTrip() {
   const [routeId, setRouteId] = useState("");
   const [fare, setFare] = useState<string>("");
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
+  const [driverId, setDriverId] = useState<string | null>(null);
   const [stages, setStages] = useState<Stage[]>([]);
   const [bookings, setBookings] = useState<BookingWithProfile[]>([]);
   const [walkInLabel, setWalkInLabel] = useState("");
@@ -170,6 +172,7 @@ function DriverTrip() {
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
+      setDriverId(u.user.id);
       const [{ data: v }, { data: r }, { data: t }] = await Promise.all([
         supabase
           .from("vehicles")
@@ -1419,6 +1422,8 @@ function DriverTrip() {
           </section>
 
           <ParcelPanel tripId={trip.id} />
+
+          {driverId && <DriverPoolPanel driverId={driverId} tripId={trip.id} />}
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Alerts</h2>
