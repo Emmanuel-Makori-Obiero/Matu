@@ -1,3 +1,8 @@
+// Regenerated to include the pooled-pickup tables/functions
+// (pickup_pools, pickup_pool_members, pooled_pickup_config,
+// driver_pool_preferences, pickup_point_accessibility_flags) added in
+// supabase/migrations/20260916100000_pooled_pickup.sql and
+// supabase/migrations/20260916100100_pooled_pickup_driver_autoaccept.sql.
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
@@ -285,6 +290,30 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      driver_pool_preferences: {
+        Row: {
+          auto_accept_enabled: boolean;
+          driver_id: string;
+          max_auto_accept_detour_seconds: number | null;
+          max_auto_accept_members: number | null;
+          updated_at: string;
+        };
+        Insert: {
+          auto_accept_enabled?: boolean;
+          driver_id: string;
+          max_auto_accept_detour_seconds?: number | null;
+          max_auto_accept_members?: number | null;
+          updated_at?: string;
+        };
+        Update: {
+          auto_accept_enabled?: boolean;
+          driver_id?: string;
+          max_auto_accept_detour_seconds?: number | null;
+          max_auto_accept_members?: number | null;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       escrow_transactions: {
         Row: {
@@ -629,6 +658,259 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      pickup_point_accessibility_flags: {
+        Row: {
+          created_at: string;
+          flagged_by: string;
+          id: string;
+          lat: number;
+          lng: number;
+          pool_member_id: string | null;
+          reason: string | null;
+          trip_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          flagged_by: string;
+          id?: string;
+          lat: number;
+          lng: number;
+          pool_member_id?: string | null;
+          reason?: string | null;
+          trip_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          flagged_by?: string;
+          id?: string;
+          lat?: number;
+          lng?: number;
+          pool_member_id?: string | null;
+          reason?: string | null;
+          trip_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "pickup_point_accessibility_flags_pool_member_id_fkey";
+            columns: ["pool_member_id"];
+            isOneToOne: false;
+            referencedRelation: "pickup_pool_members";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "pickup_point_accessibility_flags_trip_id_fkey";
+            columns: ["trip_id"];
+            isOneToOne: false;
+            referencedRelation: "trips";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pickup_pool_members: {
+        Row: {
+          booking_id: string | null;
+          cancellation_reason: string | null;
+          cancelled_at: string | null;
+          detour_seconds_contribution: number | null;
+          fare_final: number | null;
+          fare_quote: number | null;
+          id: string;
+          joined_at: string;
+          passenger_id: string;
+          picked_up_at: string | null;
+          pin_lat: number;
+          pin_lng: number;
+          pool_id: string;
+          sequence_order: number | null;
+          snap_distance_meters: number | null;
+          snapped_lat: number | null;
+          snapped_lng: number | null;
+          status: Database["public"]["Enums"]["pool_member_status"];
+        };
+        Insert: {
+          booking_id?: string | null;
+          cancellation_reason?: string | null;
+          cancelled_at?: string | null;
+          detour_seconds_contribution?: number | null;
+          fare_final?: number | null;
+          fare_quote?: number | null;
+          id?: string;
+          joined_at?: string;
+          passenger_id: string;
+          picked_up_at?: string | null;
+          pin_lat: number;
+          pin_lng: number;
+          pool_id: string;
+          sequence_order?: number | null;
+          snap_distance_meters?: number | null;
+          snapped_lat?: number | null;
+          snapped_lng?: number | null;
+          status?: Database["public"]["Enums"]["pool_member_status"];
+        };
+        Update: {
+          booking_id?: string | null;
+          cancellation_reason?: string | null;
+          cancelled_at?: string | null;
+          detour_seconds_contribution?: number | null;
+          fare_final?: number | null;
+          fare_quote?: number | null;
+          id?: string;
+          joined_at?: string;
+          passenger_id?: string;
+          picked_up_at?: string | null;
+          pin_lat?: number;
+          pin_lng?: number;
+          pool_id?: string;
+          sequence_order?: number | null;
+          snap_distance_meters?: number | null;
+          snapped_lat?: number | null;
+          snapped_lng?: number | null;
+          status?: Database["public"]["Enums"]["pool_member_status"];
+        };
+        Relationships: [
+          {
+            foreignKeyName: "pickup_pool_members_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: false;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "pickup_pool_members_pool_id_fkey";
+            columns: ["pool_id"];
+            isOneToOne: false;
+            referencedRelation: "pickup_pools";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pickup_pools: {
+        Row: {
+          center_lat: number;
+          center_lng: number;
+          collapsed_reason: string | null;
+          completed_at: string | null;
+          created_at: string;
+          destination_stage_id: string;
+          dispatched_at: string | null;
+          efficiency_score: number | null;
+          formed_at: string | null;
+          id: string;
+          locked_at: string | null;
+          per_head_fee: number | null;
+          route_id: string;
+          status: Database["public"]["Enums"]["pool_status"];
+          total_detour_meters: number | null;
+          total_detour_seconds: number | null;
+          trip_id: string | null;
+        };
+        Insert: {
+          center_lat: number;
+          center_lng: number;
+          collapsed_reason?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          destination_stage_id: string;
+          dispatched_at?: string | null;
+          efficiency_score?: number | null;
+          formed_at?: string | null;
+          id?: string;
+          locked_at?: string | null;
+          per_head_fee?: number | null;
+          route_id: string;
+          status?: Database["public"]["Enums"]["pool_status"];
+          total_detour_meters?: number | null;
+          total_detour_seconds?: number | null;
+          trip_id?: string | null;
+        };
+        Update: {
+          center_lat?: number;
+          center_lng?: number;
+          collapsed_reason?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          destination_stage_id?: string;
+          dispatched_at?: string | null;
+          efficiency_score?: number | null;
+          formed_at?: string | null;
+          id?: string;
+          locked_at?: string | null;
+          per_head_fee?: number | null;
+          route_id?: string;
+          status?: Database["public"]["Enums"]["pool_status"];
+          total_detour_meters?: number | null;
+          total_detour_seconds?: number | null;
+          trip_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "pickup_pools_destination_stage_id_fkey";
+            columns: ["destination_stage_id"];
+            isOneToOne: false;
+            referencedRelation: "stages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "pickup_pools_route_id_fkey";
+            columns: ["route_id"];
+            isOneToOne: false;
+            referencedRelation: "routes";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "pickup_pools_trip_id_fkey";
+            columns: ["trip_id"];
+            isOneToOne: false;
+            referencedRelation: "trips";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pooled_pickup_config: {
+        Row: {
+          backfill_window_seconds: number;
+          base_pooling_surcharge: number;
+          cancellation_penalty_percent: number;
+          cluster_radius_meters: number;
+          id: boolean;
+          max_avg_detour_seconds_per_passenger: number;
+          max_pool_size: number;
+          max_total_detour_seconds: number;
+          min_pool_size: number;
+          pooling_fee_ceiling: number;
+          pooling_fee_floor: number;
+          updated_at: string;
+        };
+        Insert: {
+          backfill_window_seconds?: number;
+          base_pooling_surcharge?: number;
+          cancellation_penalty_percent?: number;
+          cluster_radius_meters?: number;
+          id?: boolean;
+          max_avg_detour_seconds_per_passenger?: number;
+          max_pool_size?: number;
+          max_total_detour_seconds?: number;
+          min_pool_size?: number;
+          pooling_fee_ceiling?: number;
+          pooling_fee_floor?: number;
+          updated_at?: string;
+        };
+        Update: {
+          backfill_window_seconds?: number;
+          base_pooling_surcharge?: number;
+          cancellation_penalty_percent?: number;
+          cluster_radius_meters?: number;
+          id?: boolean;
+          max_avg_detour_seconds_per_passenger?: number;
+          max_pool_size?: number;
+          max_total_detour_seconds?: number;
+          min_pool_size?: number;
+          pooling_fee_ceiling?: number;
+          pooling_fee_floor?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       profiles: {
         Row: {
@@ -1510,6 +1792,10 @@ export type Database = {
         Args: { _booking_id: string; _reason?: string };
         Returns: boolean;
       };
+      cancel_pool_membership: {
+        Args: { _member_id: string; _reason?: string };
+        Returns: undefined;
+      };
       cancel_trip: {
         Args: { _reason?: string; _trip_id: string };
         Returns: boolean;
@@ -1520,6 +1806,10 @@ export type Database = {
       };
       claim_role: {
         Args: { _role: Database["public"]["Enums"]["app_role"] };
+        Returns: undefined;
+      };
+      collapse_pool: {
+        Args: { _pool_id: string; _reason: string };
         Returns: undefined;
       };
       confirm_cash_payment: {
@@ -1571,6 +1861,10 @@ export type Database = {
       confirm_parcel_delivery: {
         Args: { _code: string; _parcel_id: string };
         Returns: boolean;
+      };
+      dispatch_pool: {
+        Args: { _pool_id: string; _trip_id: string };
+        Returns: undefined;
       };
       driver_rating_summary: {
         Args: { _driver_id: string };
@@ -1687,6 +1981,10 @@ export type Database = {
         };
         Returns: boolean;
       };
+      haversine_meters: {
+        Args: { _lat1: number; _lat2: number; _lng1: number; _lng2: number };
+        Returns: number;
+      };
       increment_wallet_balance: {
         Args: { _amount: number; _wallet_id: string };
         Returns: number;
@@ -1713,6 +2011,10 @@ export type Database = {
           status: string;
         }[];
       };
+      mark_pool_member_picked_up: {
+        Args: { _member_id: string };
+        Returns: undefined;
+      };
       owns_vehicle_sacco: { Args: { _vehicle_id: string }; Returns: boolean };
       pay_fare_from_wallet:
         | { Args: { _booking_id: string }; Returns: undefined }
@@ -1721,6 +2023,29 @@ export type Database = {
             Returns: undefined;
           };
       ping_stage: { Args: { _stage_id: string }; Returns: undefined };
+      recompute_pool_fare: { Args: { _pool_id: string }; Returns: number };
+      record_pool_route: {
+        Args: {
+          _pool_id: string;
+          _total_detour_meters: number;
+          _total_detour_seconds: number;
+        };
+        Returns: boolean;
+      };
+      reopen_pool_if_under_threshold: {
+        Args: { _pool_id: string };
+        Returns: undefined;
+      };
+      request_pooled_pickup: {
+        Args: {
+          _destination_stage_id: string;
+          _passenger_id: string;
+          _pin_lat: number;
+          _pin_lng: number;
+          _route_id: string;
+        };
+        Returns: string;
+      };
       resign_role: {
         Args: { _role: Database["public"]["Enums"]["app_role"] };
         Returns: undefined;
@@ -1733,6 +2058,7 @@ export type Database = {
         };
         Returns: undefined;
       };
+      sacco_audit_report: { Args: { _sacco_id: string }; Returns: Json };
       set_vehicle_suspension: {
         Args: { _reason?: string; _suspended: boolean; _vehicle_id: string };
         Returns: undefined;
@@ -1741,6 +2067,11 @@ export type Database = {
         Args: { _reason?: string; _status: string; _user_id: string };
         Returns: undefined;
       };
+      try_auto_dispatch_pool: {
+        Args: { _driver_id: string; _pool_id: string; _trip_id: string };
+        Returns: boolean;
+      };
+      try_lock_pool: { Args: { _pool_id: string }; Returns: boolean };
       update_trip_location: {
         Args: {
           _current_stage_id: string;
@@ -1767,6 +2098,13 @@ export type Database = {
       driver_type: "sacco_driver" | "independent";
       join_request_status: "pending" | "approved" | "rejected";
       payment_status: "pending" | "held" | "released" | "refunded" | "failed";
+      pool_member_status:
+        | "pending"
+        | "cancelled_free"
+        | "cancelled_penalized"
+        | "picked_up"
+        | "dropped_by_backfill_failure";
+      pool_status: "forming" | "locked" | "dispatched" | "completed" | "collapsed";
       subscription_status: "pending" | "active" | "past_due" | "failed";
       trip_status: "scheduled" | "boarding" | "in_transit" | "completed" | "cancelled";
       vehicle_type: "matatu_14" | "matatu_25" | "bus_33" | "bus_51";
@@ -1910,6 +2248,14 @@ export const Constants = {
       driver_type: ["sacco_driver", "independent"],
       join_request_status: ["pending", "approved", "rejected"],
       payment_status: ["pending", "held", "released", "refunded", "failed"],
+      pool_member_status: [
+        "pending",
+        "cancelled_free",
+        "cancelled_penalized",
+        "picked_up",
+        "dropped_by_backfill_failure",
+      ],
+      pool_status: ["forming", "locked", "dispatched", "completed", "collapsed"],
       subscription_status: ["pending", "active", "past_due", "failed"],
       trip_status: ["scheduled", "boarding", "in_transit", "completed", "cancelled"],
       vehicle_type: ["matatu_14", "matatu_25", "bus_33", "bus_51"],

@@ -15,7 +15,8 @@ import {
 import { startNoisyAlert, stopNoisyAlert, primeAudioOnFirstInteraction } from "@/lib/noisy-alert";
 import { TicketScanner } from "@/components/matu/TicketScanner";
 import { ParcelPanel } from "@/components/matu/ParcelPanel";
-import { DriverPoolPanel } from "@/components/matu/DriverPoolPanel";
+import { PooledPickupDriverCard } from "@/components/matu/PooledPickupDriverCard";
+import { getLockedPoolsForRoute, type PickupPool } from "@/lib/pooled-pickup";
 import { enqueueAction } from "@/lib/offline-cache";
 import { flushQueue, registerBackgroundSync } from "@/lib/offline-queue";
 
@@ -75,7 +76,7 @@ function DriverTrip() {
   const [routeId, setRouteId] = useState("");
   const [fare, setFare] = useState<string>("");
   const [trip, setTrip] = useState<ActiveTrip | null>(null);
-  const [driverId, setDriverId] = useState<string | null>(null);
+  const [lockedPools, setLockedPools] = useState<PickupPool[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
   const [bookings, setBookings] = useState<BookingWithProfile[]>([]);
   const [walkInLabel, setWalkInLabel] = useState("");
@@ -172,7 +173,6 @@ function DriverTrip() {
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
-      setDriverId(u.user.id);
       const [{ data: v }, { data: r }, { data: t }] = await Promise.all([
         supabase
           .from("vehicles")
@@ -582,6 +582,35 @@ function DriverTrip() {
     return () => {
       supabase.removeChannel(ch);
       clearInterval(iv);
+    };
+  }, [trip]);
+
+  // Pooled pickup: any pool that has locked in (hit min riders) on this trip's
+  // route gets offered here as an accept/decline card. See
+  // src/components/matu/PooledPickupDriverCard.tsx and
+  // src/lib/pooled-pickup.ts for the matching flow this feeds off of.
+  useEffect(() => {
+    if (!trip) return;
+    async function loadLockedPools() {
+      if (!trip) return;
+      setLockedPools(await getLockedPoolsForRoute(trip.route_id));
+    }
+    loadLockedPools();
+    const ch = supabase
+      .channel(`driver-pooled-pickups-${trip.route_id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "pickup_pools",
+          filter: `route_id=eq.${trip.route_id}`,
+        },
+        () => loadLockedPools(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
     };
   }, [trip]);
 
@@ -1269,6 +1298,15 @@ function DriverTrip() {
         </div>
 
         <div className="grid gap-4">
+          {lockedPools.map((pool) => (
+            <PooledPickupDriverCard
+              key={pool.id}
+              pool={pool}
+              tripId={trip.id}
+              onHandled={() => setLockedPools((prev) => prev.filter((p) => p.id !== pool.id))}
+            />
+          ))}
+
           <section className="rounded-2xl border border-border bg-surface p-5">
             <div className="flex items-center justify-between">
               <div>
@@ -1422,8 +1460,6 @@ function DriverTrip() {
           </section>
 
           <ParcelPanel tripId={trip.id} />
-
-          {driverId && <DriverPoolPanel driverId={driverId} tripId={trip.id} />}
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Alerts</h2>

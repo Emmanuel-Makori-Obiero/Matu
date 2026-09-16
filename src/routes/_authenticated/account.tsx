@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ROLE_HOME, type AppRole } from "@/lib/matu-auth";
 import { AppShell } from "@/components/matu/AppShell";
 import { ThemeToggle } from "@/components/matu/ThemeToggle";
+import { PooledPickupAutoAcceptSetting } from "@/components/matu/PooledPickupDriverCard";
 import {
   SOUND_PROFILES,
   getSelectedSoundId,
@@ -462,6 +463,8 @@ function AccountSettings() {
             </form>
           </section>
         )}
+
+        {heldDriverRole && <PooledPickupAutoAcceptSetting />}
 
         <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
           <h2 className="font-display text-lg font-semibold">Wallet</h2>

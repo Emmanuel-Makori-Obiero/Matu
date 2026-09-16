@@ -82,15 +82,6 @@ function RouteDetail() {
     null,
   );
   const notifiedRef = useRef<Set<string>>(new Set());
-  const [userId, setUserId] = useState<string | null>(null);
-
-  // Needed to render PooledPickupPanel, which requires the passenger's id.
-  useEffect(() => {
-    (async () => {
-      const { data: u } = await supabase.auth.getUser();
-      setUserId(u.user?.id ?? null);
-    })();
-  }, []);
 
   const [pickup, setPickup] = useState<string>("");
   const [dropoff, setDropoff] = useState<string>("");
@@ -991,11 +982,13 @@ function RouteDetail() {
             )}
           </section>
 
-          {userId && dropoff && (
+          {stages.length > 0 && (
             <PooledPickupPanel
               routeId={routeId}
-              destinationStageId={dropoff}
-              passengerId={userId}
+              destinationStageId={dropoff || stages[stages.length - 1].id}
+              destinationLabel={
+                stages.find((s) => s.id === dropoff)?.name ?? stages[stages.length - 1].name
+              }
             />
           )}
 
