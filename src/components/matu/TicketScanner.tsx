@@ -125,15 +125,16 @@ export function TicketScanner({ tripId, onBoarded }: { tripId: string; onBoarded
     });
   }
 
+  // Goes through board_passenger() rather than a plain bookings.update() — it marks the
+  // booking boarded AND, in the same statement, settles cash/manual-M-Pesa payment for it.
+  // A conductor scanning someone on IS the fare check in real life, so there's no separate
+  // "mark cash received"/"confirm payment" tap left for the driver to do afterwards.
   async function markBoarded(bookingId: string) {
     setMarking(true);
-    const { error } = await supabase
-      .from("bookings")
-      .update({ status: "boarded", boarded_at: new Date().toISOString() })
-      .eq("id", bookingId);
+    const { error } = await supabase.rpc("board_passenger", { _booking_id: bookingId });
     setMarking(false);
     if (error) return toast.error(error.message || "Could not update booking");
-    toast.success("Passenger marked as boarded");
+    toast.success("Passenger boarded");
     onBoarded();
     resumeScanning();
   }

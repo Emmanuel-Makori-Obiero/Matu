@@ -1,13 +1,11 @@
-// Regenerated to include the pooled-pickup tables/functions
-// (pickup_pools, pickup_pool_members, pooled_pickup_config,
-// driver_pool_preferences, pickup_point_accessibility_flags) added in
-// supabase/migrations/20260916100000_pooled_pickup.sql and
-// supabase/migrations/20260916100100_pooled_pickup_driver_autoaccept.sql.
+// Regenerated after supabase/migrations/20260917120000_ticket_payments_row_fix.sql,
+// 20260917130000_payments_method_wallet_only_ticket.sql, and
+// 20260917150000_auto_board_and_alight.sql — adds payments.method, board_passenger(),
+// confirm_manual_mpesa_payment(), haversine_km(), and the updated update_trip_location()
+// signature.
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5";
   };
@@ -620,6 +618,7 @@ export type Database = {
           created_at: string;
           failure_reason: string | null;
           id: string;
+          method: string;
           mpesa_checkout_request_id: string | null;
           mpesa_receipt: string | null;
           payer_id: string;
@@ -632,6 +631,7 @@ export type Database = {
           created_at?: string;
           failure_reason?: string | null;
           id?: string;
+          method?: string;
           mpesa_checkout_request_id?: string | null;
           mpesa_receipt?: string | null;
           payer_id: string;
@@ -644,6 +644,7 @@ export type Database = {
           created_at?: string;
           failure_reason?: string | null;
           id?: string;
+          method?: string;
           mpesa_checkout_request_id?: string | null;
           mpesa_receipt?: string | null;
           payer_id?: string;
@@ -1783,6 +1784,35 @@ export type Database = {
         Returns: undefined;
       };
       assert_not_suspended: { Args: { _user_id: string }; Returns: undefined };
+      board_passenger: {
+        Args: { _booking_id: string };
+        Returns: {
+          alighted_at: string | null;
+          boarded_at: string | null;
+          cancellation_reason: string | null;
+          cash_collected: boolean;
+          created_at: string;
+          dropoff_stage_id: string | null;
+          fare_paid: number | null;
+          id: string;
+          is_walk_in: boolean;
+          manual_payment_confirmed: boolean;
+          passenger_id: string | null;
+          payment_method: string;
+          pickup_stage_id: string | null;
+          seat_number: number | null;
+          status: Database["public"]["Enums"]["booking_status"];
+          trip_id: string;
+          updated_at: string;
+          walk_in_label: string | null;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "bookings";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       calculate_subscription_fee: {
         Args: { _vehicle_count: number };
         Returns: number;
@@ -1834,6 +1864,16 @@ export type Database = {
           updated_at: string;
           walk_in_label: string | null;
         };
+        SetofOptions: {
+          from: "*";
+          to: "bookings";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      confirm_manual_mpesa_payment: {
+        Args: { _booking_id: string };
+        Returns: undefined;
       };
       confirm_manual_payment: {
         Args: { p_booking_id: string };
@@ -1856,6 +1896,12 @@ export type Database = {
           trip_id: string;
           updated_at: string;
           walk_in_label: string | null;
+        };
+        SetofOptions: {
+          from: "*";
+          to: "bookings";
+          isOneToOne: true;
+          isSetofReturn: false;
         };
       };
       confirm_parcel_delivery: {
@@ -1981,6 +2027,10 @@ export type Database = {
         };
         Returns: boolean;
       };
+      haversine_km: {
+        Args: { _lat1: number; _lat2: number; _lng1: number; _lng2: number };
+        Returns: number;
+      };
       haversine_meters: {
         Args: { _lat1: number; _lat2: number; _lng1: number; _lng2: number };
         Returns: number;
@@ -2067,6 +2117,7 @@ export type Database = {
         Args: { _reason?: string; _status: string; _user_id: string };
         Returns: undefined;
       };
+      trigger_mpesa_reconcile: { Args: never; Returns: undefined };
       try_auto_dispatch_pool: {
         Args: { _driver_id: string; _pool_id: string; _trip_id: string };
         Returns: boolean;
@@ -2233,7 +2284,7 @@ export type CompositeTypes<
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    ? DefaultSchema["CompositeTypes"][CompositeTypeName]
     : never;
 
 export const Constants = {

@@ -645,109 +645,51 @@ function DriverTrip() {
     refreshBookings();
   }
 
-  // Cash bookings aren't run through M-Pesa, so there's nothing for the backend to
-  // confirm automatically — the conductor marks it collected themselves.
-  //
-  // This goes through the confirm_cash_payment RPC rather than a direct table
-  // update: the database verifies the caller is this trip's assigned driver
-  // before flipping cash_collected, and direct column writes are revoked at
-  // the DB level, so this is the only path that can succeed.
-  //
-  // Offline-safe: if there's no connection it's queued locally and replayed the
-  // moment the connection comes back — the driver's UI updates optimistically
-  // either way, but is rolled back if the RPC rejects it (e.g. stale queued
-  // action for a booking that's no longer this driver's).
-  async function markCashCollected(bookingId: string) {
+  // App passengers board via TicketScanner (QR scan → board_passenger RPC), which now
+  // settles cash/manual-M-Pesa payment in the same call, so there's no separate "mark cash
+  // received"/"confirm payment" tap left for them. Walk-ins have no app and no ticket to
+  // scan, so this is their equivalent one-tap board action — same board_passenger RPC,
+  // just triggered directly instead of via a QR read.
+  async function boardWalkIn(bookingId: string) {
     setBookings((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, cash_collected: true } : b)),
+      prev.map((b) => (b.id === bookingId ? { ...b, status: "boarded" as const } : b)),
     );
     if (!navigator.onLine) {
       await enqueueAction({
         id: crypto.randomUUID(),
-        type: "mark_cash_collected",
+        type: "board_passenger",
         bookingId,
         createdAt: Date.now(),
       });
       registerBackgroundSync();
-      toast.success("Marked as collected — will sync once you're back online");
+      toast.success("Boarded — will sync once you're back online");
       return;
     }
-    const { error } = await supabase.rpc("confirm_cash_payment", {
-      p_booking_id: bookingId,
-    });
+    const { error } = await supabase.rpc("board_passenger", { _booking_id: bookingId });
     if (error) {
-      // Distinguish "the DB rejected this" from "the network dropped mid-request".
-      // Only the latter should be silently queued for retry.
-      if (
-        error.message?.includes("assigned driver") ||
-        error.message?.includes("not a cash payment")
-      ) {
+      if (error.message?.includes("assigned driver")) {
         setBookings((prev) =>
-          prev.map((b) => (b.id === bookingId ? { ...b, cash_collected: false } : b)),
+          prev.map((b) => (b.id === bookingId ? { ...b, status: "confirmed" as const } : b)),
         );
         return toast.error(error.message);
       }
       await enqueueAction({
         id: crypto.randomUUID(),
-        type: "mark_cash_collected",
+        type: "board_passenger",
         bookingId,
         createdAt: Date.now(),
       });
       registerBackgroundSync();
       return toast.info("No connection right now — queued, will sync automatically");
     }
-    toast.success("Marked as collected");
-  }
-
-  // Passenger self-declared "I've sent the payment" for a direct M-Pesa method
-  // (pochi/send_money/buy_goods) — this is the driver's own explicit check that
-  // the money actually landed (e.g. their M-Pesa SMS), same trust boundary as
-  // cash but recorded server-side instead of being a silent visual-only check.
-  async function confirmManualPayment(bookingId: string) {
-    setBookings((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, manual_payment_confirmed: true } : b)),
-    );
-    if (!navigator.onLine) {
-      await enqueueAction({
-        id: crypto.randomUUID(),
-        type: "confirm_manual_payment",
-        bookingId,
-        createdAt: Date.now(),
-      });
-      registerBackgroundSync();
-      toast.success("Marked as confirmed — will sync once you're back online");
-      return;
-    }
-    const { error } = await supabase.rpc("confirm_manual_payment", {
-      p_booking_id: bookingId,
-    });
-    if (error) {
-      if (
-        error.message?.includes("assigned driver") ||
-        error.message?.includes("not a manual M-Pesa payment")
-      ) {
-        setBookings((prev) =>
-          prev.map((b) => (b.id === bookingId ? { ...b, manual_payment_confirmed: false } : b)),
-        );
-        return toast.error(error.message);
-      }
-      await enqueueAction({
-        id: crypto.randomUUID(),
-        type: "confirm_manual_payment",
-        bookingId,
-        createdAt: Date.now(),
-      });
-      registerBackgroundSync();
-      return toast.info("No connection right now — queued, will sync automatically");
-    }
-    toast.success("Payment confirmed");
+    toast.success("Boarded");
   }
 
   // Driver confirms a passenger has physically left the vehicle. This is what
   // actually frees up the seat — the passenger's own "Alight next stage" tap only
   // sends the driver a heads-up alert, it never changes booking status on its own.
   //
-  // Same offline-queue treatment as markCashCollected above.
+  // Same offline-queue treatment as boardWalkIn above.
   async function markAlighted(bookingId: string) {
     setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, status: "alighted" } : b)));
     if (!navigator.onLine) {
@@ -1413,44 +1355,46 @@ function DriverTrip() {
                         )}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        {b.payment_method === "cash" &&
-                          (b.cash_collected ? (
-                            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                              Cash collected
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => markCashCollected(b.id)}
-                              className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
-                            >
-                              Mark cash received
-                            </button>
-                          ))}
-                        {b.payment_method &&
-                          b.payment_method !== "cash" &&
-                          (b.manual_payment_confirmed ? (
-                            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                              Payment confirmed
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => confirmManualPayment(b.id)}
-                              className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
-                            >
-                              Confirm payment received
-                            </button>
-                          ))}
+                        {/* Cash/manual-M-Pesa is settled automatically the moment the
+                            passenger boards (via board_passenger) — nothing to confirm
+                            here separately, just show it once it's true. Wallet payments
+                            are already settled before the booking is even confirmed. */}
+                        {(b.cash_collected || b.manual_payment_confirmed) && (
+                          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                            Paid
+                          </span>
+                        )}
+                        {b.is_walk_in && (b.status === "reserved" || b.status === "confirmed") && (
+                          <button
+                            onClick={() => boardWalkIn(b.id)}
+                            className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
+                          >
+                            Board
+                          </button>
+                        )}
+                        {b.status === "boarded" && (
+                          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                            Boarded
+                          </span>
+                        )}
                         {b.status === "alighted" ? (
                           <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                             Alighted
                           </span>
                         ) : (
-                          <button
-                            onClick={() => markAlighted(b.id)}
-                            className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
-                          >
-                            Mark alighted
-                          </button>
+                          b.status === "boarded" && (
+                            // Fallback only — alighting now happens automatically once the
+                            // vehicle's GPS reaches the passenger's drop-off stage (see
+                            // update_trip_location). Kept for edge cases: a passenger
+                            // getting off somewhere that isn't a mapped stage, GPS drift,
+                            // or the driver's connection dropping near the stop.
+                            <button
+                              onClick={() => markAlighted(b.id)}
+                              className="rounded-md border border-border px-2 py-0.5 text-xs font-medium hover:bg-secondary"
+                            >
+                              Mark alighted
+                            </button>
+                          )
                         )}
                       </div>
                     </li>

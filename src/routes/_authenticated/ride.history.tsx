@@ -47,7 +47,7 @@ type PaymentRow = {
   id: string;
   booking_id: string | null;
   status: "pending" | "held" | "released" | "refunded" | "failed";
-  method: "wallet" | "mpesa";
+  method: string;
 };
 
 export const Route = createFileRoute("/_authenticated/ride/history")({
@@ -221,7 +221,7 @@ function BookingHistory() {
     // live DB's write lockdown tightens.
     const { data: ok, error } = await supabase.rpc("cancel_booking", {
       _booking_id: bookingId,
-      _reason: reason,
+      _reason: reason ?? undefined,
     });
     setCancelling(null);
     setConfirmingCancel(null);

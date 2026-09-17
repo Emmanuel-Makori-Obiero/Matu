@@ -64,15 +64,15 @@ describe("flushQueue", () => {
     expect(removeQueuedActionMock.mock.calls[1][0]).toBe("newer");
   });
 
-  it("routes mark_cash_collected through the confirm_cash_payment RPC, not a direct column write", async () => {
+  it("routes board_passenger through the board_passenger RPC, not a direct column write", async () => {
     getQueuedActionsMock.mockResolvedValue([
-      { id: "1", type: "mark_cash_collected", bookingId: "b1", createdAt: 1 },
+      { id: "1", type: "board_passenger", bookingId: "b1", createdAt: 1 },
     ]);
     rpcMock.mockResolvedValue({ error: null });
 
     await flushQueue();
 
-    expect(rpcMock).toHaveBeenCalledWith("confirm_cash_payment", { p_booking_id: "b1" });
+    expect(rpcMock).toHaveBeenCalledWith("board_passenger", { _booking_id: "b1" });
     expect(updateMock).not.toHaveBeenCalled();
   });
 

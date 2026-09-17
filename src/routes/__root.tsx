@@ -21,6 +21,7 @@ import appCss from "../styles.css?url";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
 import { OfflineBanner } from "@/components/matu/OfflineBanner";
+import { WarningBanner } from "@/components/matu/WarningBanner";
 import { CookieConsentBanner } from "@/components/matu/CookieConsentBanner";
 import { initQueueSync } from "@/lib/offline-queue";
 import { cacheSupabaseConfig } from "@/lib/offline-cache";
@@ -245,6 +246,7 @@ function RootComponent() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <OfflineBanner />
+        <WarningBanner />
         <Outlet />
         <CookieConsentBanner />
         <Toaster richColors position="top-center" />

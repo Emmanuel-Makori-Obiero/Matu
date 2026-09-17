@@ -425,8 +425,9 @@ function RouteDetail() {
   }, [tripParam, trips]);
 
   // Watches the passenger's own booking row for manual_payment_confirmed
-  // flipping true (set only by the driver's confirm_manual_payment RPC), so
-  // "waiting for conductor" updates to "confirmed" live without a refresh.
+  // flipping true (now set automatically by board_passenger() the moment the
+  // driver scans/boards them), so "waiting for conductor" updates to
+  // "confirmed" live without a refresh.
   useEffect(() => {
     if (!bookedBookingId) return;
     const ch = supabase

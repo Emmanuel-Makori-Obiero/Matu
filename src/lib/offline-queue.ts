@@ -6,17 +6,12 @@ import { getQueuedActions, removeQueuedAction, type QueuedAction } from "@/lib/o
 // the driver got signal back mid-tap and it actually went through) is
 // harmless, it just re-sets the same value.
 async function replay(action: QueuedAction): Promise<boolean> {
-  if (action.type === "mark_cash_collected") {
-    // Direct column writes to cash_collected are revoked at the DB level —
-    // this must go through the driver-verified RPC, same as the online path.
-    const { error } = await supabase.rpc("confirm_cash_payment", {
-      p_booking_id: action.bookingId,
-    });
-    return !error;
-  }
-  if (action.type === "confirm_manual_payment") {
-    const { error } = await supabase.rpc("confirm_manual_payment", {
-      p_booking_id: action.bookingId,
+  if (action.type === "board_passenger") {
+    // Direct column writes to status/cash_collected are revoked at the DB level —
+    // this must go through the driver-verified RPC, same as the online path. Boards
+    // the passenger and settles cash/manual-M-Pesa payment in the same call.
+    const { error } = await supabase.rpc("board_passenger", {
+      _booking_id: action.bookingId,
     });
     return !error;
   }
