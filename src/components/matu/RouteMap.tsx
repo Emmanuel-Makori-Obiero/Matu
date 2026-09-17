@@ -44,6 +44,37 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 // every tick, so once redrawn it always starts from the vehicle's latest spot.
 const LIVE_ROUTE_REFRESH_MS = 10_000;
 
+// Uber/Bolt-style route rendering: every drawn route line is actually a pair
+// of Leaflet polylines sharing the same coordinates — a wide, dark,
+// semi-transparent "shadow" underneath and a slightly thinner, bright line on
+// top. That pairing (plus round caps/joins on both) is most of what makes a
+// route line read as "polished" instead of "a raw polyline of GPS points".
+function drawRoutePair(
+  map: L.Map,
+  coords: [number, number][],
+  color: string,
+  opts?: { shadowWeight?: number; lineWeight?: number; opacity?: number },
+): { shadow: L.Polyline; line: L.Polyline } {
+  const shadowWeight = opts?.shadowWeight ?? 9;
+  const lineWeight = opts?.lineWeight ?? 5;
+  const opacity = opts?.opacity ?? 0.9;
+  const shadow = L.polyline(coords, {
+    color: "#0f172a",
+    weight: shadowWeight,
+    opacity: 0.22,
+    lineCap: "round",
+    lineJoin: "round",
+  }).addTo(map);
+  const line = L.polyline(coords, {
+    color,
+    weight: lineWeight,
+    opacity,
+    lineCap: "round",
+    lineJoin: "round",
+  }).addTo(map);
+  return { shadow, line };
+}
+
 // Fetches the actual road path (not a straight line) between two points, the
 // same way Google Directions / Uber draw the "remaining route" line that
 // shrinks and reshapes as the vehicle drives. Returns Leaflet-ordered
@@ -52,14 +83,25 @@ async function fetchRoadRoute(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number },
 ): Promise<[number, number][] | null> {
+  return fetchRoadRouteWaypoints([origin, destination]);
+}
+
+// Same as fetchRoadRoute but for any number of ordered waypoints — used to
+// draw one continuous road-snapped route through all of a trip's stages,
+// instead of straight "as the crow flies" segments between stage pins.
+async function fetchRoadRouteWaypoints(
+  waypoints: { lat: number; lng: number }[],
+): Promise<[number, number][] | null> {
   if (!MAPBOX_TOKEN) {
     console.error(
       "[RouteMap] VITE_MAPBOX_TOKEN is missing. Set it in your environment/Vercel project settings.",
     );
     return null;
   }
+  if (waypoints.length < 2) return null;
   try {
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+    const coordsParam = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coordsParam}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
     const res = await fetch(url);
     if (!res.ok) {
       console.error(`[RouteMap] Mapbox request failed: ${res.status} ${res.statusText}`);
@@ -123,6 +165,7 @@ function vehicleDivIcon(
       transform:rotate(${rotation}deg);
       transform-origin:center;
       filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+      transition:transform 0.4s linear;
     ">
       <svg width="${size}" height="${size}" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg">
         ${bodySvg}
@@ -234,12 +277,11 @@ export function RouteMap({
   // since it's an extra tile layer/network cost — opt in per screen (e.g. the
   // driver's trip map) rather than loading it everywhere.
   showTraffic?: boolean;
-  // When true, the main stages-to-stages polyline is drawn red instead of
-  // green — the simple, whole-leg version of the jam signal. If
-  // congestionRoute is also provided, that one is drawn on top and is the
-  // more accurate signal (red only on the actually-jammed stretch); this flag
-  // is kept as the fallback for screens/renders that don't have a live
-  // congestion fetch yet.
+  // When true, the main stages route is drawn red instead of green — the
+  // simple, whole-leg version of the jam signal. If congestionRoute is also
+  // provided, that one is drawn on top and is the more accurate signal (red
+  // only on the actually-jammed stretch); this flag is kept as the fallback
+  // for screens/renders that don't have a live congestion fetch yet.
   jammed?: boolean;
   // The actual road-snapped path from the driver's current position to their
   // chosen destination, colored per-segment by real-time congestion (see
@@ -251,10 +293,9 @@ export function RouteMap({
   // The driver's own recorded GPS trail — either being drawn live as they
   // drive ("Draw route" mode, growing point-by-point on every GPS tick) or
   // the last trail previously saved for this route. Drawn as a dashed blue
-  // line so it's visually distinct from the plain stage-to-stage line and
-  // the Mapbox-derived congestion line, since this one is "ground truth"
-  // traced by an actual vehicle rather than fetched from a map that may be
-  // outdated for this area.
+  // line so it's visually distinct from the road-snapped stages/live route,
+  // since this one is "ground truth" traced by an actual vehicle rather than
+  // fetched from a map that may be outdated for this area.
   tracePath?: [number, number][] | null;
   // The viewer's own live GPS position — used on the passenger tracking
   // screen so a passenger can see themselves (red dot) alongside the
@@ -272,13 +313,18 @@ export function RouteMap({
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const stageMarkers = useRef<L.Marker[]>([]);
-  const polylineRef = useRef<L.Polyline | null>(null);
+  // The road-snapped stage-to-stage route, rendered as a shadow+line pair
+  // (see drawRoutePair) instead of a single flat polyline connecting the
+  // raw stage coordinates in a straight line.
+  const stagesShadowRef = useRef<L.Polyline | null>(null);
+  const stagesLineRef = useRef<L.Polyline | null>(null);
   const congestionLayerRef = useRef<L.LayerGroup | null>(null);
   const tracePolylineRef = useRef<L.Polyline | null>(null);
   const vehicleMarkers = useRef<Record<string, L.Marker>>({});
   const passengerMarkers = useRef<Record<string, L.Marker>>({});
   const pinMarker = useRef<L.Marker | null>(null);
   const selfMarker = useRef<L.Marker | null>(null);
+  const liveRouteShadowRef = useRef<L.Polyline | null>(null);
   const liveRoutePolylineRef = useRef<L.Polyline | null>(null);
   const trafficLayerRef = useRef<L.TileLayer | null>(null);
   const liveRouteOriginRef = useRef(liveRoute?.origin);
@@ -333,10 +379,18 @@ export function RouteMap({
     };
   }, [showTraffic, ready]);
 
-  // Draw stages + polyline
+  // Draw stage markers + the road-snapped route through them. This used to
+  // draw a single L.polyline straight through the raw stage lat/lngs (a
+  // literal "as the crow flies" line that ignores roads entirely) — now it
+  // fetches the actual driving route through all stages, once, and renders
+  // it as an Uber/Bolt-style shadow+line pair. Falls back to the old
+  // straight-line behavior only if the Mapbox request fails, so the map
+  // never ends up with nothing drawn.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
+    let cancelled = false;
+
     stageMarkers.current.forEach((m) => m.remove());
     stageMarkers.current = stages.map((s) =>
       L.marker([s.lat, s.lng], {
@@ -344,29 +398,52 @@ export function RouteMap({
         title: s.passengerCount ? `${s.name} — ${s.passengerCount} waiting` : s.name,
       }).addTo(map),
     );
-    polylineRef.current?.remove();
-    polylineRef.current = null;
+
+    stagesShadowRef.current?.remove();
+    stagesShadowRef.current = null;
+    stagesLineRef.current?.remove();
+    stagesLineRef.current = null;
+
     if (stages.length > 1) {
-      const path = stages.map((s) => [s.lat, s.lng] as [number, number]);
-      polylineRef.current = L.polyline(path, {
-        color: jammed ? "#dc2626" : "#0a5f3d",
-        opacity: 0.9,
-        weight: jammed ? 5 : 3,
-      }).addTo(map);
-      map.fitBounds(L.latLngBounds(path), { padding: [40, 40] });
+      const straightPath = stages.map((s) => [s.lat, s.lng] as [number, number]);
+      // Fit bounds immediately off the raw stage points so the map doesn't
+      // sit at the wrong zoom while the road route is still loading.
+      map.fitBounds(L.latLngBounds(straightPath), { padding: [40, 40] });
+
+      const color = jammed ? "#dc2626" : "#0a5f3d";
+      const weight = jammed ? 6 : 5;
+
+      (async () => {
+        const roadPath = await fetchRoadRouteWaypoints(
+          stages.map((s) => ({ lat: s.lat, lng: s.lng })),
+        );
+        if (cancelled || !mapRef.current) return;
+        const path = roadPath ?? straightPath; // straight-line fallback if Mapbox fails
+        const { shadow, line } = drawRoutePair(mapRef.current, path, color, {
+          shadowWeight: weight + 4,
+          lineWeight: weight,
+        });
+        stagesShadowRef.current = shadow;
+        stagesLineRef.current = line;
+      })();
     }
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stages, ready]);
 
-  // Re-colors the existing polyline in place when the jam state flips, instead
-  // of rebuilding it via the effect above — that one also re-fits map bounds,
-  // which would yank the driver's view/zoom every time traffic clears or
-  // returns, purely as a side effect of a color change.
+  // Re-colors the existing route pair in place when the jam state flips,
+  // instead of rebuilding it via the effect above — that one also re-fits
+  // map bounds and re-fetches the road route, which would yank the driver's
+  // view/zoom every time traffic clears or returns, purely as a side effect
+  // of a color change.
   useEffect(() => {
-    polylineRef.current?.setStyle({
-      color: jammed ? "#dc2626" : "#0a5f3d",
-      weight: jammed ? 5 : 3,
-    });
+    const color = jammed ? "#dc2626" : "#0a5f3d";
+    const weight = jammed ? 6 : 5;
+    stagesLineRef.current?.setStyle({ color, weight });
+    stagesShadowRef.current?.setStyle({ weight: weight + 4 });
   }, [jammed]);
 
   // Live vehicles
@@ -466,11 +543,17 @@ export function RouteMap({
   }, [selfPosition, ready]);
 
   // The road-snapped, per-segment jam-colored route — drawn as its own layer
-  // group so it can sit on top of the plain green/red stages polyline without
-  // fighting it for the same L.Polyline instance. Rebuilt whenever the
-  // segments change (i.e. on each periodic congestion refetch), not diffed
-  // segment-by-segment — a full route redraw every ~15s is cheap compared to
-  // the network fetch that produced it.
+  // group so it can sit on top of the stages route without fighting it for
+  // the same L.Polyline instance. Rebuilt whenever the segments change (i.e.
+  // on each periodic congestion refetch), not diffed segment-by-segment — a
+  // full route redraw every ~15s is cheap compared to the network fetch that
+  // produced it.
+  //
+  // Each segment gets its own dark "shadow" line underneath it (drawn first,
+  // so it sits below every colored segment) plus round caps/joins on the
+  // colored segments themselves — consecutive segments share an exact
+  // endpoint (see fetchCongestionRoute), so rounding the caps turns the old
+  // hard-edged seams at every color change into a smooth, continuous line.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -478,13 +561,33 @@ export function RouteMap({
     congestionLayerRef.current = null;
     if (congestionRoute && congestionRoute.length > 0) {
       const group = L.layerGroup();
+      const fullPath = [
+        [congestionRoute[0].coords[0].lat, congestionRoute[0].coords[0].lng] as [number, number],
+        ...congestionRoute.map((seg) => [seg.coords[1].lat, seg.coords[1].lng] as [number, number]),
+      ];
+      // One continuous dark shadow under the whole route first.
+      L.polyline(fullPath, {
+        color: "#0f172a",
+        weight: 9,
+        opacity: 0.22,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(group);
+      // Then each congestion-colored segment on top, rounded so the joints
+      // between colors blend instead of showing a hard seam.
       for (const seg of congestionRoute) {
         L.polyline(
           [
             [seg.coords[0].lat, seg.coords[0].lng],
             [seg.coords[1].lat, seg.coords[1].lng],
           ],
-          { color: congestionColor(seg.level), weight: 5, opacity: 0.95 },
+          {
+            color: congestionColor(seg.level),
+            weight: 5,
+            opacity: 0.95,
+            lineCap: "round",
+            lineJoin: "round",
+          },
         ).addTo(group);
       }
       group.addTo(map);
@@ -496,9 +599,9 @@ export function RouteMap({
   // every accepted GPS tick while recording) or when a previously-saved trail
   // is passed in for display. A full-line redraw per tick is cheap (it's just
   // a polyline of a few hundred points at most) and keeps this in its own
-  // layer so it never fights the stages polyline or congestion overlay for
-  // the same instance. Deliberately does NOT call fitBounds — recording can
-  // run for a long trip and shouldn't keep yanking the driver's zoom/pan.
+  // layer so it never fights the stages route or congestion overlay for the
+  // same instance. Deliberately does NOT call fitBounds — recording can run
+  // for a long trip and shouldn't keep yanking the driver's zoom/pan.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -542,12 +645,15 @@ export function RouteMap({
   // position to the passenger's stage, redrawn periodically so it visually
   // shortens/reshapes as the vehicle drives — same idea as Google Directions or
   // Uber's live trip map, minus per-second updates (we don't need that granularity
-  // and it would burn through the Mapbox free tier fast).
+  // and it would burn through the Mapbox free tier fast). Rendered as the same
+  // shadow+line pair as the stages route for visual consistency.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
 
     if (!liveRoute) {
+      liveRouteShadowRef.current?.remove();
+      liveRouteShadowRef.current = null;
       liveRoutePolylineRef.current?.remove();
       liveRoutePolylineRef.current = null;
       return;
@@ -574,14 +680,15 @@ export function RouteMap({
       }
       if (consecutiveFailures >= 2) onLiveRouteStaleChange?.(false);
       consecutiveFailures = 0;
+      liveRouteShadowRef.current?.remove();
       liveRoutePolylineRef.current?.remove();
-      liveRoutePolylineRef.current = L.polyline(coords, {
-        color: "#1a73e8",
-        weight: 5,
-        opacity: 0.85,
-        lineCap: "round",
-        lineJoin: "round",
-      }).addTo(mapInstance);
+      const { shadow, line } = drawRoutePair(mapInstance, coords, "#1a73e8", {
+        shadowWeight: 9,
+        lineWeight: 5,
+        opacity: 0.9,
+      });
+      liveRouteShadowRef.current = shadow;
+      liveRoutePolylineRef.current = line;
     }
 
     draw();
@@ -589,6 +696,8 @@ export function RouteMap({
     return () => {
       cancelled = true;
       clearInterval(iv);
+      liveRouteShadowRef.current?.remove();
+      liveRouteShadowRef.current = null;
       liveRoutePolylineRef.current?.remove();
       liveRoutePolylineRef.current = null;
     };
