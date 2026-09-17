@@ -120,13 +120,13 @@ export function TripSummary({
   const dropoff = stages.find((s) => s.id === booking.dropoff_stage_id) ?? null;
 
   const mapStages: MapStage[] = [pickup, dropoff].filter((s): s is TripSummaryStage => !!s);
-  const staticRoute =
-    pickup && dropoff
-      ? {
-          origin: { lat: pickup.lat, lng: pickup.lng },
-          destination: { lat: dropoff.lat, lng: dropoff.lng },
-        }
-      : null;
+  // Deliberately NOT also passing `liveRoute` here. `stages` already draws
+  // the pickup→dropoff road-snapped route on its own — passing the same two
+  // points as `liveRoute` too used to fetch and render a second, independent
+  // route line (and poll Mapbox for it every 10s forever) directly on top of
+  // the first, which is what made this card's map look overlapping/cluttered
+  // and distracted from the star-rating UI below it. `liveRoute` is for a
+  // vehicle that's still actually moving; a completed/cancelled trip has none.
 
   // Prefer this passenger's own boarded→alighted window (their actual time
   // on the vehicle); fall back to the whole trip's started→ended if their
@@ -179,11 +179,7 @@ export function TripSummary({
       )}
 
       {mapStages.length === 2 && (
-        <RouteMap
-          stages={mapStages}
-          liveRoute={staticRoute}
-          className="h-48 w-full rounded-xl border border-border"
-        />
+        <RouteMap stages={mapStages} className="h-48 w-full rounded-xl border border-border" />
       )}
 
       <div className="grid gap-2 text-sm">
