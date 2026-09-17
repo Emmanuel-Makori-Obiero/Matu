@@ -679,6 +679,16 @@ function RouteDetail() {
         />
 
         <div className="grid gap-4">
+          {stages.length > 0 && (
+            <PooledPickupPanel
+              routeId={routeId}
+              destinationStageId={dropoff || stages[stages.length - 1].id}
+              destinationLabel={
+                stages.find((s) => s.id === dropoff)?.name ?? stages[stages.length - 1].name
+              }
+            />
+          )}
+
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Live matatus ({trips.length})</h2>
             {blockingBooking && blockingBooking.id !== bookedBookingId && (
@@ -981,16 +991,6 @@ function RouteDetail() {
               </ul>
             )}
           </section>
-
-          {stages.length > 0 && (
-            <PooledPickupPanel
-              routeId={routeId}
-              destinationStageId={dropoff || stages[stages.length - 1].id}
-              destinationLabel={
-                stages.find((s) => s.id === dropoff)?.name ?? stages[stages.length - 1].name
-              }
-            />
-          )}
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-display text-lg font-semibold">Stages ({stages.length})</h2>

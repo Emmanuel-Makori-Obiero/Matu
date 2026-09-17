@@ -137,14 +137,20 @@ export function PooledPickupPanel({
   // ============== NOT YET IN A POOL: pin-drop screen ==============
   if (!membership) {
     return (
-      <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <Users className="size-4 text-primary" />
-          Pooled Pickup to {destinationLabel}
+      <div className="space-y-3 rounded-xl border-2 border-primary/30 bg-primary/5 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <Users className="size-4 text-primary" />
+            Skip the walk — get picked up at your gate
+          </div>
+          <span className="whitespace-nowrap rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+            New
+          </span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Skip the walk to the stage. Drop a pin at your gate — if enough neighbors headed the same
-          way join in, a matatu comes to collect everyone directly.
+          Going to <span className="font-medium text-foreground">{destinationLabel}</span>? Drop a
+          pin at your gate instead of walking to the stage. Once enough neighbors headed the same
+          way join in, a matatu detours to collect everyone directly.
           {config && (
             <>
               {" "}

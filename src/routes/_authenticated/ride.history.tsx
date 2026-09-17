@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { QRCodeSVG } from "qrcode.react";
 import { Ban, CheckCircle2, Clock, MapPin, Navigation2, QrCode, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/matu/AppShell";
@@ -246,13 +247,10 @@ function BookingHistory() {
     ? stages[ticketBooking.dropoff_stage_id]
     : undefined;
   // The QR payload is just the booking id — a conductor/driver scanning it can look the
-  // booking up directly. No external QR library needed: this free image API renders a PNG
-  // from the encoded text.
-  const qrUrl = ticketBooking
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
-        `MATU-TICKET:${ticketBooking.id}`,
-      )}`
-    : "";
+  // booking up directly. Generated locally (qrcode.react) rather than fetched from a
+  // third-party image API, so it renders even offline or on a flaky connection — the
+  // exact moment a passenger needs to show it to a conductor.
+  const ticketQrValue = ticketBooking ? `MATU-TICKET:${ticketBooking.id}` : "";
 
   return (
     <AppShell
@@ -501,13 +499,9 @@ function BookingHistory() {
           </DialogHeader>
           {ticketBooking && (
             <div className="flex flex-col items-center gap-4 py-2">
-              <img
-                src={qrUrl}
-                alt="Boarding QR ticket"
-                width={200}
-                height={200}
-                className="rounded-lg border border-border"
-              />
+              <div className="rounded-lg border border-border bg-white p-3">
+                <QRCodeSVG value={ticketQrValue} size={200} level="M" />
+              </div>
               <div className="w-full rounded-xl border border-border bg-surface p-3 text-center">
                 <div className="font-display text-sm font-semibold">
                   {ticketRoute?.name ?? "Route"}
