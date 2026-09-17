@@ -11,6 +11,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { AIAssistant, type AssistantContext } from "@/components/matu/AIAssistant";
 import { ThemeToggleCompact } from "@/components/matu/ThemeToggle";
 
+// Fixed Matu brand mark — same green/gold badge used on the public landing page
+// (routes/index.tsx). Deliberately NOT theme-derived (bg-primary/bg-accent etc.):
+// the logo should read as "Matu" at a glance no matter which theme (light/dark/
+// pink) is active, rather than recoloring into whatever accent the theme picks.
+const LOGO_GREEN = "#0f5132";
+const LOGO_GOLD = "#f4d03f";
+
+function BrandMark() {
+  return (
+    <span
+      className="inline-flex size-8 shrink-0 items-center justify-center rounded-full"
+      style={{ backgroundColor: LOGO_GREEN }}
+    >
+      <Bus size={18} color={LOGO_GOLD} strokeWidth={2.2} />
+    </span>
+  );
+}
+
 // Every authenticated page renders through AppShell, so mounting the assistant here once
 // means it's on every page automatically — no per-page wiring needed. The context is
 // auto-detected from the URL so the assistant knows whether it's talking to a passenger,
@@ -82,10 +100,7 @@ export function AppShell({
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
           <Link to="/" className="flex items-center gap-2">
-            <span className="relative grid size-8 place-items-center overflow-hidden rounded-lg bg-surface/15">
-              <span className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 bg-accent" />
-              <Bus className="relative z-10 size-4" />
-            </span>
+            <BrandMark />
             <span className="font-display text-xl font-bold">Matu</span>
           </Link>
           <div className="flex items-center gap-1">
