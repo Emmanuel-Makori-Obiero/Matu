@@ -572,12 +572,17 @@ function RouteDetail() {
     // bookings_payment_method_check and silently fails the whole confirmation.
     void method;
     const ids = [bookingId, ...siblingBookingIds];
-    const { error } = await supabase
-      .from("bookings")
-      .update({ status: "confirmed", payment_method: "mpesa" })
-      .in("id", ids);
+    // Goes through a SECURITY DEFINER RPC (like pay_fare_from_wallet) rather than a
+    // plain bookings.update() — it also records a public.payments row, which
+    // ride.history.tsx requires (isPaid) before it will show the ticket/QR code.
+    // payments has no INSERT policy for authenticated users, so a client-side insert
+    // here would be rejected by RLS even if we added one.
+    const results = await Promise.all(
+      ids.map((id) => supabase.rpc("confirm_manual_mpesa_payment", { _booking_id: id })),
+    );
     setPayingBookingId(null);
-    if (error) return toast.error(error.message);
+    const failed = results.find((r) => r.error);
+    if (failed?.error) return toast.error(failed.error.message);
     setPaymentStatus((prev) => ({ ...prev, [bookingId]: "manual" }));
     toast.success(
       ids.length > 1

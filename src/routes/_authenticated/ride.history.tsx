@@ -47,6 +47,7 @@ type PaymentRow = {
   id: string;
   booking_id: string | null;
   status: "pending" | "held" | "released" | "refunded" | "failed";
+  method: "wallet" | "mpesa";
 };
 
 export const Route = createFileRoute("/_authenticated/ride/history")({
@@ -64,6 +65,9 @@ const STATUS_LABEL: Record<BookingRow["status"], string> = {
 const UPCOMING_STATUSES = new Set(["reserved", "confirmed", "boarded"]);
 // A booking is considered paid once its payment has been captured into escrow or released.
 const PAID_PAYMENT_STATUSES = new Set(["held", "released"]);
+// The ticket/QR is intentionally shown only for wallet payments (see canShowTicket below),
+// not M-Pesa — cash and manual M-Pesa are only self-declared/verified in person by the
+// conductor, so they don't get an app-issued ticket.
 
 function BookingHistory() {
   const navigate = useNavigate();
@@ -102,7 +106,7 @@ function BookingHistory() {
     if (bookingIds.length) {
       const { data: p } = await supabase
         .from("payments")
-        .select("id,booking_id,status")
+        .select("id,booking_id,status,method")
         .in("booking_id", bookingIds)
         .eq("payer_id", u.user.id);
       const paymentMap: Record<string, PaymentRow> = {};
@@ -291,8 +295,9 @@ function BookingHistory() {
                   const canCancel = b.status === "reserved" || b.status === "confirmed";
                   const payment = paymentByBooking[b.id];
                   const isPaid = !!payment && PAID_PAYMENT_STATUSES.has(payment.status);
+                  const paidByWallet = isPaid && payment?.method === "wallet";
                   const canShowTicket =
-                    isPaid && (b.status === "confirmed" || b.status === "boarded");
+                    paidByWallet && (b.status === "confirmed" || b.status === "boarded");
                   return (
                     <li key={b.id} className="rounded-2xl border border-border bg-surface p-4">
                       <div className="flex items-start justify-between gap-3">
